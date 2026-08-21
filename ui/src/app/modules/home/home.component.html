@@ -1,0 +1,26 @@
+<div class="home-header">
+  <h1 class="page-title">Instances</h1>
+  <button mat-raised-button color="primary" [disabled]="reconciling()" (click)="reconcileNow()">
+    <mat-icon fontSet="material-symbols-outlined">sync</mat-icon>
+    {{ reconciling() ? 'Reconciling…' : 'Reconcile now' }}
+  </button>
+</div>
+
+@if (loading()) {
+  <p>Loading…</p>
+} @else if (rows().length === 0) {
+  <p>
+    No instances yet — add one under <code>inventory/&lt;kind&gt;/instances/</code> and reconcile.
+  </p>
+} @else {
+  <section class="instances-container" aria-label="Instances">
+    @for (row of rows(); track row.instance.id) {
+      <m3-card
+        [title]="row.instance.display_name"
+        [subTitle]="row.kind.name + ' · ' + row.instance.region"
+        titleIcon="dns"
+        [link]="'/instances/' + row.kind.code + '/' + row.instance.instance_code"
+      ></m3-card>
+    }
+  </section>
+}

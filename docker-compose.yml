@@ -1,0 +1,39 @@
+# Production-shaped local test: one Lodge container (API + SPA + self-migration) plus
+# Postgres. Dev doesn't use this — see ./scripts/run.sh, which runs the server natively
+# and only containerizes Postgres.
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file: .env
+    volumes:
+      - lodge-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    build:
+      context: .
+      dockerfile: server/src/Lodge.Server/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # The one thing that has to differ from .env's own default: inside the compose
+      # network Postgres is reachable by service name, not localhost.
+      POSTGRES_HOST: postgres
+    volumes:
+      # Bind-mount the SSOT read-only so it stays external to the image.
+      - ./inventory:/repo/inventory:ro
+      - ./schemas:/repo/schemas:ro
+      - ./runbooks:/repo/runbooks:ro
+      - lodge-runbook-data:/repo/data
+    ports:
+      - "${SERVER_PORT}:8080"
+
+volumes:
+  lodge-postgres-data:
+  lodge-runbook-data:

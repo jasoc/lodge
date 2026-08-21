@@ -1,0 +1,201 @@
+@use 'sass:map';
+@use '@angular/material' as mat;
+@use 'theme' as theme;
+@use 'animations';
+@use 'gridstack/dist/src/gridstack.scss';
+@use 'gridstack/dist/src/gridstack-extra.scss';
+@use 'material-symbols';
+
+@import '@fontsource/roboto/index.css';
+@import '@fontsource-variable/roboto-flex/full.css';
+
+$material-symbols-font-path: 'material-symbols/';
+
+@include mat.elevation-classes();
+@include mat.app-background();
+
+// Custom Styles
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font-family: 'Roboto Flex Variable';
+  background-color: var(--lodge-background-color);
+
+  // Applying Material Themes
+  @include mat.elevation-classes();
+  @include mat.app-background();
+  @include mat.all-component-themes(theme.$dark-theme);
+  @include mat.all-component-densities(theme.$dark-theme);
+  @include mat.color-variants-backwards-compatibility(theme.$dark-theme);
+  @include mat.typography-hierarchy(theme.$dark-theme);
+
+  // Light Theme
+  [data-theme='lodge-light'] {
+    @include mat.all-component-colors(theme.$light-theme);
+  }
+}
+
+// Material Card Title Adjustment
+// ISSUE: mat-card-title is always black???
+.mat-mdc-card-title {
+  color: var(--lodge-main-ui-text-color);
+}
+
+.branded-font {
+  font-variation-settings: (
+    'wdth' 100,
+    'opsz' 50,
+    'GRAD' 0,
+    'slnt' 0,
+    'XTRA' 500,
+    'YTLC' 500,
+    'YOPQ' 80,
+    'YTAS' 750,
+    'YTDE' -230,
+    'YTLC' 500,
+    'XOPQ' 92
+  ) !important;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  color: var(--lodge-main-ui-text-color);
+}
+
+h1 {
+  font-weight: 600 !important;
+}
+
+h2,
+h3 {
+  font-weight: 500 !important;
+}
+
+button,
+input {
+  font-family: inherit !important;
+  font-variation-settings: inherit !important;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+ul,
+ol {
+  margin: 0 0 1rem 1.5rem;
+  padding: 0;
+}
+
+code {
+  font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
+}
+
+.density-minus-1 {
+  @include mat.button-density(-1);
+}
+
+.density-minus-2 {
+  @include mat.button-density(-2);
+}
+
+.density-minus-3 {
+  @include mat.button-density(-3);
+}
+
+table {
+  th,
+  td {
+    border-bottom-color: var(--lodge-background-shader) !important;
+  }
+}
+
+.grid-stack-edit-mode {
+  .grid-stack-item.grid-stack-sub-grid {
+    .grid-stack-item-content {
+      background: var(--lodge-background-shader);
+    }
+  }
+}
+
+.grid-stack {
+  .grid-stack-nested {
+    background: none;
+    position: absolute;
+    inset: 0;
+  }
+}
+
+.highlighted {
+  &::after {
+    background: #ececec;
+    border-radius: 100px;
+    height: 20px;
+    width: 20px;
+    content: '';
+    position: absolute;
+    bottom: 50%;
+    left: 50%;
+    transform: translate(-50%, 50%);
+    $box-shadow:
+      0px 1px 1px 0px rgba(0, 0, 0, 0.726),
+      1px 1px 4px 0px rgba(0, 0, 0, 0.15);
+  }
+}
+
+// Material-style slide to right view transition
+@keyframes m3-slide-in-right {
+  from {
+    transform: translateX(24px);
+    opacity: 0.001; // avoid flash during transition
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes m3-slide-out-right {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(24px);
+    opacity: 0.001;
+  }
+}
+
+::view-transition-new(router_inner_scrollable) {
+  animation-duration: 75ms;
+  animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  animation-name: m3-slide-in-right;
+  animation-fill-mode: both;
+}
+
+::view-transition-old(router_inner_scrollable) {
+  animation-duration: 75ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+  animation-name: m3-slide-out-right;
+  animation-fill-mode: both;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(router_inner_scrollable),
+  ::view-transition-new(router_inner_scrollable) {
+    animation: none !important;
+  }
+}

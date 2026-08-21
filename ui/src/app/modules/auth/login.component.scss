@@ -1,0 +1,18 @@
+.login-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background-color: var(--lodge-background-color);
+}
+
+.login-card {
+  min-width: 320px;
+  text-align: center;
+  padding: 8px;
+
+  button {
+    margin-top: 16px;
+    width: 100%;
+  }
+}

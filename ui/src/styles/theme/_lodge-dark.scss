@@ -1,0 +1,12 @@
+@use '../tokens' as *;
+
+[data-theme='lodge-dark'] {
+  --lodge-background-color: #120e0a;
+
+  --lodge-main-ui-text-color: #{$lodge-light-primary-text};
+  --lodge-main-ui-text-color-light: #a5a4a4;
+
+  --lodge-background-shader: #ffffff1f;
+  --lodge-background-shader-lighter: #ffffff0a;
+  --lodge-background-shader-stronger: #ffffff4d;
+}

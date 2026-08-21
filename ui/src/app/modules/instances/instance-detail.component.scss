@@ -1,0 +1,63 @@
+:host {
+  display: block;
+  padding: 0 2rem;
+
+  .instance-header {
+    h1 {
+      margin: 1rem 0 0;
+    }
+    .instance-subtitle {
+      color: var(--lodge-main-ui-text-color-light);
+      margin: 0 0 1.5rem;
+    }
+  }
+
+  .action-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--lodge-background-shader);
+
+    &-main {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    &-buttons {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .action-label {
+      font-weight: 500;
+    }
+  }
+
+  .yaml-view {
+    background: var(--lodge-background-shader-lighter);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
+  }
+
+  .event-row {
+    display: flex;
+    gap: 1rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--lodge-background-shader);
+
+    .event-type {
+      font-weight: 500;
+      flex: 1;
+    }
+    .event-actor {
+      color: var(--lodge-main-ui-text-color-light);
+    }
+    .event-time {
+      color: var(--lodge-main-ui-text-color-light);
+    }
+  }
+}

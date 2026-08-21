@@ -1,0 +1,38 @@
+// Generated from 'ng generate @angular/material:theme-color --primary-color="#8B5E34"',
+// then assembled into light/dark themes the same way clip's did. Proceed with caution.
+@use 'sass:map';
+@use '@angular/material' as mat;
+@use './palette' as p;
+
+$light-theme: mat.define-theme(
+  (
+    color: (
+      theme-type: light,
+      primary: p.$primary-palette,
+      tertiary: p.$tertiary-palette,
+    ),
+    typography: (
+      brand-family: 'Roboto Flex Variable',
+      plain-family: 'Roboto Flex Variable',
+    ),
+    density: (
+      scale: -1,
+    ),
+  )
+);
+$dark-theme: mat.define-theme(
+  (
+    color: (
+      theme-type: dark,
+      primary: p.$primary-palette,
+      tertiary: p.$tertiary-palette,
+    ),
+    typography: (
+      brand-family: 'Roboto Flex Variable',
+      plain-family: 'Roboto Flex Variable',
+    ),
+    density: (
+      scale: -1,
+    ),
+  )
+);

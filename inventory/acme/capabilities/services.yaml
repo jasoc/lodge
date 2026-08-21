@@ -1,0 +1,29 @@
+# Example capability shipped with Lodge: toggling a service's `enabled` flag governs a
+# provision/decommission runbook pair. Copy this file as the template for a real
+# capability — one scalar signal per switch, AUTO to provision, MANUAL_REQUIRED to tear
+# down (never auto-decommission something without a human looking first).
+capability: services
+title: "Provisioned Services"
+description: "Services provisioned for the instance."
+
+signals:
+  - path: services.web.enabled
+    rules:
+      - when: true
+        actions:
+          - key: "provision_service"
+            runbook: acme-ops/provision-service
+            label: "Provision web service"
+            policy: AUTO
+            inputs:
+              instance: { from: instance }
+              service_key: { const: "web" }
+      - when: false
+        actions:
+          - key: "decommission_service"
+            runbook: acme-ops/decommission-service
+            label: "Decommission web service"
+            policy: MANUAL_REQUIRED
+            inputs:
+              instance: { from: instance }
+              service_key: { const: "web" }

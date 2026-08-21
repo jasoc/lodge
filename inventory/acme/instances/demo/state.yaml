@@ -1,0 +1,5 @@
+features: {}
+desired_state: {}
+services:
+  web:
+    enabled: true

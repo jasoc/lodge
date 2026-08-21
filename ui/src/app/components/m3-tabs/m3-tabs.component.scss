@@ -1,0 +1,88 @@
+@use 'theme' as theme;
+
+:host {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.m3-tabs {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+
+  .tabs-header {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--lodge-background-shader-lighter);
+
+    .tab-selector {
+      cursor: pointer;
+      user-select: none;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--lodge-main-ui-text-color);
+
+      .icon {
+        height: 30px;
+        width: 70%;
+        display: flex;
+        transition: cubic-bezier(0.2, 0, 0, 1) 150ms;
+        justify-content: center;
+        align-items: center;
+        border-radius: 100px;
+        margin-bottom: 8px;
+      }
+
+      .iconHighlighted {
+        background: var(--lodge-background-shader-lighter);
+      }
+
+      .moving-selector {
+        margin-top: 8px;
+        height: 4px;
+        width: 30%;
+        border-top-right-radius: 100px;
+        border-top-left-radius: 100px;
+        // background: map.get($lodge-accent-palette, 400);
+        @include theme.background-themed(50);
+        // background: var(--lodge-accent-color-400);
+        bottom: 0;
+      }
+    }
+
+    .showed {
+      // background: map.get($lodge-accent-palette, 400);
+      @include theme.color-themed(50);
+      // color: var(--lodge-accent-color-400);
+    }
+  }
+
+  .opened-tab {
+    overflow: auto;
+    $MARGIN: 16px;
+    padding: 16px;
+    height: calc(100% - $MARGIN * 2);
+    width: calc(100% - $MARGIN * 2);
+
+    &::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background-color: var(--lodge-background-shader);
+      border-radius: 20px;
+    }
+  }
+}

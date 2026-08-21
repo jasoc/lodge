@@ -1,0 +1,292 @@
+using System.Text.Json;
+using Lodge.Core.Abstractions;
+using Lodge.Core.Domain.Enums;
+using Lodge.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using ActionEntity = Lodge.Core.Domain.Entities.Action;
+
+namespace Lodge.Infrastructure.Execution;
+
+/// <summary>Outcome of a confirm/status operation on an action.</summary>
+public sealed record ActionExecutionResult(
+    Guid ActionId,
+    string Status,
+    string? ExecutionRef,
+    string? Message,
+    bool Denied = false);
+
+/// <summary>
+/// Governs execution of actions (runbook invocations). Used by two callers: the
+/// reconciliation loop starts AUTO drift immediately (<see cref="StartAutoAsync"/>);
+/// the confirm endpoint starts QUEUED (or re-runs FAILED) actions after an RBAC check
+/// and merging any human-supplied prompt values (<see cref="ConfirmAsync"/>). Lodge
+/// supervises; the executor runs the runbook. Every transition is audited.
+/// </summary>
+public sealed class ActionExecutionService
+{
+    private readonly LodgeDbContext _db;
+    private readonly IRunbookExecutor _executor;
+    private readonly IPermissionResolver _permissions;
+    private readonly ICurrentUserAccessor _currentUser;
+
+    public ActionExecutionService(
+        LodgeDbContext db,
+        IRunbookExecutor executor,
+        IPermissionResolver permissions,
+        ICurrentUserAccessor currentUser)
+    {
+        _db = db;
+        _executor = executor;
+        _permissions = permissions;
+        _currentUser = currentUser;
+    }
+
+    /// <summary>
+    /// Start an AUTO action the reconciler queued this cycle. Assumes no pending prompts
+    /// (the reconciler guarantees it) and runs on behalf of the system, so no RBAC gate
+    /// applies. Does not persist; the caller's unit of work saves.
+    /// </summary>
+    public async Task StartAutoAsync(
+        ActionEntity action, string kindCode, string instanceCode, CancellationToken cancellationToken = default)
+    {
+        var parameters = BuildParameters(action, promptValues: null, kindCode, instanceCode);
+        var handle = await _executor.StartAsync(new RunbookExecutionRequest(
+            kindCode, instanceCode, action.RunbookRef, action.Id, parameters), cancellationToken);
+
+        action.Status = ActionStatus.RUNNING;
+        action.ExecutionRef = handle.RunId;
+        action.UpdatedAt = DateTimeOffset.UtcNow;
+
+        AddAudit(action.InstanceId, kindCode, "action.confirmed", "system", new
+        {
+            action.Id,
+            action.RunbookRef,
+            runId = handle.RunId,
+            auto = true
+        });
+    }
+
+    /// <summary>
+    /// Human confirmation of a MANUAL_REQUIRED action: RBAC-check the current user against
+    /// the runbook, merge supplied prompt values, then start the runbook.
+    /// </summary>
+    public async Task<ActionExecutionResult?> ConfirmAsync(
+        string kindCode, string instanceCode, Guid actionId, string actor,
+        IReadOnlyDictionary<string, string?>? promptValues,
+        CancellationToken cancellationToken = default)
+    {
+        var action = await LoadAsync(kindCode, instanceCode, actionId, cancellationToken);
+        if (action is null)
+        {
+            return null;
+        }
+
+        // QUEUED rows await their first run; FAILED rows are parked drift a human may
+        // re-run. Everything else (RUNNING/terminal) is not confirmable — OPTIONAL
+        // re-invocability comes from the reconciler queueing a fresh row after each
+        // success, one row per execution.
+        var awaitingConfirmation = action.Status is ActionStatus.QUEUED or ActionStatus.FAILED;
+
+        if (!awaitingConfirmation)
+        {
+            return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
+                "Action is not awaiting confirmation.");
+        }
+
+        var user = _currentUser.GetCurrentUser();
+        if (!_permissions.CanRun(user, action.RunbookRef))
+        {
+            AddAudit(action.InstanceId, kindCode, "action.denied", actor, new
+            {
+                action.Id,
+                action.RunbookRef,
+                user = user.Id
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+            return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
+                $"User '{user.DisplayName}' is not permitted to run '{action.RunbookRef}'.", Denied: true);
+        }
+
+        var parameters = BuildParameters(action, promptValues, kindCode, instanceCode);
+        var handle = await _executor.StartAsync(new RunbookExecutionRequest(
+            kindCode, instanceCode, action.RunbookRef, action.Id, parameters), cancellationToken);
+
+        action.Status = ActionStatus.RUNNING;
+        action.ExecutionRef = handle.RunId;
+        action.UpdatedAt = DateTimeOffset.UtcNow;
+        action.CompletedAt = null;
+
+        AddAudit(action.InstanceId, kindCode, "action.confirmed", actor, new
+        {
+            action.Id,
+            action.RunbookRef,
+            runId = handle.RunId
+        });
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
+            $"Runbook '{action.RunbookRef}' started.");
+    }
+
+    /// <summary>
+    /// UI-only invalidation of a SUCCEEDED action (real or synthetic): marks it no longer
+    /// valid from now, so the identity reverts to "never succeeded" on the next
+    /// reconciliation cycle and real drift (or a fresh past_history adoption) resumes.
+    /// There is no YAML path to this — it is a permission-gated operator action, RBAC
+    /// checked the same way as <see cref="ConfirmAsync"/>.
+    /// </summary>
+    public async Task<ActionExecutionResult?> InvalidateAsync(
+        string kindCode, string instanceCode, Guid actionId, string actor, CancellationToken cancellationToken = default)
+    {
+        var action = await LoadAsync(kindCode, instanceCode, actionId, cancellationToken);
+        if (action is null)
+        {
+            return null;
+        }
+
+        if (action.Status != ActionStatus.SUCCEEDED || action.InvalidatedAt is not null)
+        {
+            return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
+                "Only a currently-valid SUCCEEDED action can be invalidated.");
+        }
+
+        var user = _currentUser.GetCurrentUser();
+        if (!_permissions.CanRun(user, action.RunbookRef))
+        {
+            AddAudit(action.InstanceId, kindCode, "action.denied", actor, new
+            {
+                action.Id,
+                action.RunbookRef,
+                user = user.Id,
+                operation = "invalidate"
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+            return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
+                $"User '{user.DisplayName}' is not permitted to invalidate '{action.RunbookRef}'.", Denied: true);
+        }
+
+        action.InvalidatedAt = DateTimeOffset.UtcNow;
+        action.InvalidatedBy = actor;
+        action.UpdatedAt = DateTimeOffset.UtcNow;
+
+        AddAudit(action.InstanceId, kindCode, "action.invalidated", actor, new
+        {
+            action.Id,
+            action.ActionKey,
+            action.RunbookRef,
+            action.SignalPath,
+            action.ItemKey
+        });
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
+            "Action invalidated; it will be treated as never having succeeded on the next cycle.");
+    }
+
+    public async Task<ActionExecutionResult?> RefreshStatusAsync(
+        string kindCode, string instanceCode, Guid actionId, CancellationToken cancellationToken = default)
+    {
+        var action = await LoadAsync(kindCode, instanceCode, actionId, cancellationToken);
+        if (action is null)
+        {
+            return null;
+        }
+
+        if (action.Status != ActionStatus.RUNNING || string.IsNullOrWhiteSpace(action.ExecutionRef))
+        {
+            return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef, null);
+        }
+
+        var status = await _executor.GetStatusAsync(action.ExecutionRef, cancellationToken);
+        var mapped = status.State switch
+        {
+            RunbookRunState.Succeeded => ActionStatus.SUCCEEDED,
+            RunbookRunState.Failed => ActionStatus.FAILED,
+            _ => ActionStatus.RUNNING
+        };
+
+        if (mapped != action.Status)
+        {
+            action.Status = mapped;
+            action.UpdatedAt = DateTimeOffset.UtcNow;
+            action.CompletedAt = DateTimeOffset.UtcNow;
+            AddAudit(action.InstanceId, kindCode, "action.execution.completed", "system", new
+            {
+                action.Id,
+                runId = action.ExecutionRef,
+                state = status.State.ToString(),
+                status.Message
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef, status.Message);
+    }
+
+    /// <summary>
+    /// Merge resolved inputs (from/const), the instance/kind context, and any supplied
+    /// prompt values into the flat parameter map handed to the executor.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string?> BuildParameters(
+        ActionEntity action, IReadOnlyDictionary<string, string?>? promptValues,
+        string kindCode, string instanceCode)
+    {
+        var parameters = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["instance"] = instanceCode,
+            ["kind"] = kindCode
+        };
+
+        if (!string.IsNullOrWhiteSpace(action.ResolvedInputsJson))
+        {
+            var resolved = JsonSerializer.Deserialize<Dictionary<string, string?>>(action.ResolvedInputsJson);
+            if (resolved is not null)
+            {
+                foreach (var (key, value) in resolved)
+                {
+                    parameters[key] = value;
+                }
+            }
+        }
+
+        if (promptValues is not null)
+        {
+            foreach (var (key, value) in promptValues)
+            {
+                parameters[key] = value;
+            }
+        }
+
+        return parameters;
+    }
+
+    private async Task<ActionEntity?> LoadAsync(
+        string kindCode, string instanceCode, Guid actionId, CancellationToken cancellationToken)
+    {
+        var instance = await _db.Instances.FirstOrDefaultAsync(
+            t => t.KindCode == kindCode && t.InstanceCode == instanceCode, cancellationToken);
+        if (instance is null)
+        {
+            return null;
+        }
+
+        return await _db.Actions
+            .FirstOrDefaultAsync(a => a.Id == actionId && a.InstanceId == instance.Id, cancellationToken);
+    }
+
+    private void AddAudit(Guid? instanceId, string kindCode, string eventType, string actor, object payload)
+    {
+        _db.AuditEvents.Add(new Core.Domain.Entities.AuditEvent
+        {
+            Id = Guid.NewGuid(),
+            InstanceId = instanceId,
+            KindCode = kindCode,
+            EventType = eventType,
+            Actor = actor,
+            PayloadJson = JsonSerializer.Serialize(payload),
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+    }
+}

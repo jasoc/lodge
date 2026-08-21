@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Lodge.Core/Lodge.Core.csproj" />
+    <Project Path="src/Lodge.Infrastructure/Lodge.Infrastructure.csproj" />
+    <Project Path="src/Lodge.Server/Lodge.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Lodge.Tests/Lodge.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/" />
+  <Folder Name="/tools/validate-schema/">
+    <Project Path="tools/validate-schema/Lodge.Tools.ValidateSchema.csproj" />
+  </Folder>
+</Solution>

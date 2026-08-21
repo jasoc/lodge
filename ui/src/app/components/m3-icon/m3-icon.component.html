@@ -1,0 +1,9 @@
+<mat-icon
+  [class.material-symbols-sharp]="style() === 'sharp'"
+  [class.material-symbols-rounded]="style() === 'rounded'"
+  [class.material-symbols-outlined]="style() === 'outlined'"
+  [style.--filled]="filled() ? 1 : 0"
+  [style.--weight]="weight()"
+>
+  <ng-content></ng-content>
+</mat-icon>

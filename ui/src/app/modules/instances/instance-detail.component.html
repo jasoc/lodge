@@ -1,0 +1,80 @@
+@if (loading()) {
+  <p>Loading…</p>
+} @else if (instance(); as t) {
+  <div class="instance-header">
+    <h1 class="page-title">{{ t.instance.display_name }}</h1>
+    <p class="instance-subtitle">{{ kindCode }} / {{ instanceCode }} · {{ t.instance.region }}</p>
+  </div>
+
+  <m3-tabs>
+    <m3-tab icon="bolt" label="Actions">
+      @if (actions().length === 0) {
+        <p>No actions yet.</p>
+      }
+      @for (action of actions(); track action.id) {
+        <div class="action-row">
+          <div class="action-row-main">
+            <mat-chip [color]="statusColor(action.status)" highlighted>{{
+              action.status
+            }}</mat-chip>
+            <mat-chip>{{ action.policy }}</mat-chip>
+            <span class="action-label">{{ action.label }}</span>
+          </div>
+          <div class="action-row-buttons">
+            @if (canConfirm(action)) {
+              <button
+                mat-flat-button
+                color="primary"
+                [disabled]="busyActionId() === action.id"
+                (click)="startConfirm(action)"
+              >
+                <mat-icon fontSet="material-symbols-outlined">check</mat-icon>
+                Confirm
+              </button>
+            }
+            @if (canInvalidate(action)) {
+              <button
+                mat-stroked-button
+                color="warn"
+                [disabled]="busyActionId() === action.id"
+                (click)="invalidate(action)"
+              >
+                <mat-icon fontSet="material-symbols-outlined">undo</mat-icon>
+                Invalidate
+              </button>
+            }
+          </div>
+          @if (promptingActionId() === action.id) {
+            <div class="prompt-form">
+              <app-dynamic-form
+                [questions]="promptForm(action)"
+                (valuesChange)="promptValues.set($event)"
+              >
+              </app-dynamic-form>
+              <button mat-flat-button color="primary" (click)="confirm(action, promptValues())">
+                Submit and run
+              </button>
+            </div>
+          }
+        </div>
+      }
+    </m3-tab>
+
+    <m3-tab icon="description" label="Inventory">
+      <pre class="yaml-view">{{ t.latest_yaml ?? '(no inventory revision yet)' }}</pre>
+    </m3-tab>
+
+    <m3-tab icon="history" label="Audit log">
+      @if (events().length === 0) {
+        <p>No audit events yet.</p>
+      }
+      @for (event of events(); track event.id) {
+        <div class="event-row">
+          <span class="event-type">{{ event.event_type }}</span>
+          <span class="event-actor">{{ event.actor }}</span>
+          <span class="event-time">{{ event.created_at }}</span>
+        </div>
+      }
+    </m3-tab>
+  </m3-tabs>
+}

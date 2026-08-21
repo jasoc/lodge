@@ -1,0 +1,239 @@
+@use 'tokens' as tokens;
+@use '@angular/material' as mat;
+
+#navigation-drawer {
+  height: 100vh;
+  width: 100px;
+  display: flex;
+  flex-direction: column;
+
+  p {
+    transition: cubic-bezier(0.2, 0, 0, 1) 300ms;
+  }
+
+  .navigation-drawer__top {
+    display: flex;
+    align-items: center;
+    flex-direction: row;
+    justify-content: flex-start;
+    height: 8vh;
+    padding: 0 tokens.$lodge-shell-margin;
+    cursor: pointer;
+
+    p {
+      margin: 0 0 0 16px;
+      font-weight: 500;
+      font-size: 18px;
+      color: var(--lodge-main-ui-text-color);
+      user-select: none;
+    }
+  }
+
+  .user-widget-collapsed {
+    margin: tokens.$lodge-shell-margin;
+    p,
+    .user-widget-expand {
+      display: none;
+    }
+
+    &:hover {
+      img {
+        box-shadow: 0px 0px 0px 2px var(--lodge-background-shader-stronger);
+      }
+      cursor: pointer;
+    }
+  }
+
+  .user-widget {
+    background: linear-gradient(
+      128deg,
+      var(--lodge-background-shader) 0%,
+      var(--lodge-background-shader) 100%
+    );
+    border-radius: 20px;
+    margin: tokens.$lodge-shell-margin;
+    padding: tokens.$lodge-shell-margin;
+    display: flex;
+    justify-content: flex-start;
+    flex-direction: column;
+    align-items: flex-start;
+    transition: cubic-bezier(0.2, 0, 0, 1) 300ms;
+    user-select: none;
+
+    &:hover {
+      box-shadow: 0px 0px 0px 2px var(--lodge-background-shader) inset;
+      background: linear-gradient(
+        128deg,
+        var(--lodge-background-shader) 0%,
+        var(--lodge-background-shader-lighter) 100%
+      );
+      // background: var(--lodge-background-shader);
+
+      img {
+        box-shadow: 0px 0px 0px 2px var(--lodge-background-shader-stronger);
+      }
+
+      .user-widget-expand {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    img {
+      display: block;
+      border-radius: 50%;
+      transition: cubic-bezier(0.2, 0, 0, 1) 300ms;
+    }
+
+    p {
+      font-weight: 500;
+      font-size: 16px;
+      text-wrap: nowrap;
+      color: var(--lodge-main-ui-text-color);
+      margin: auto auto auto tokens.$lodge-shell-margin;
+    }
+
+    .user-widget-expand {
+      color: var(--lodge-background-shader-stronger);
+      opacity: 0;
+      transform: translateX(10px) rotate(135deg);
+      transition: cubic-bezier(0.2, 0, 0, 1) 300ms;
+    }
+
+    .user-widget-content {
+      width: 100%;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .user-widget-actions {
+      width: 100%;
+      margin-top: tokens.$lodge-shell-margin;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+
+      @include mat.select-density(-3);
+
+      p {
+        font-size: 12px;
+        color: var(--lodge-main-ui-text-color-light);
+        margin: 0 0 tokens.$lodge-shell-margin tokens.$lodge-shell-margin;
+      }
+
+      .user-widget-actions-row {
+        width: 100%;
+        display: flex;
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+      }
+    }
+
+    .marginated {
+      margin-bottom: calc(tokens.$lodge-shell-margin / 2);
+    }
+  }
+
+  .entries {
+    height: 92vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-y: auto;
+
+    &::-webkit-scrollbar {
+      width: 15px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background-color: var(--lodge-background-shader);
+      border-radius: 20px;
+      box-shadow: inset 0px 0px 0px 5px var(--lodge-background-color);
+    }
+
+    .navigation-entry {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      transition: cubic-bezier(0.2, 0, 0, 1) 150ms;
+
+      @include mat.chips-density(-5);
+      mat-chip {
+        margin: 0 auto 0 16px;
+      }
+
+      .navigation-separator {
+        width: 85%;
+        height: 2px;
+        background-color: var(--lodge-background-shader-lighter);
+      }
+
+      .navigation-entry-subelements {
+        display: flex;
+        flex-direction: row;
+        justify-content: space-between;
+        width: 100%;
+        margin: 0px 8px 8px auto;
+
+        .navigation-entry-subelements-left {
+          width: 10%;
+          margin-left: auto;
+          margin-right: 4px;
+          display: flex;
+          justify-content: flex-end;
+          align-items: center;
+
+          .navigation-entry-subelements-left-spacer {
+            height: calc(100% - 20px);
+            width: 2px;
+            background-color: var(--lodge-background-shader);
+          }
+        }
+        .navigation-entry-subelements-right {
+          display: flex;
+          width: 90%;
+          flex-direction: column;
+          m3-button {
+            margin: 0 8px 0 auto;
+          }
+        }
+      }
+    }
+
+    .navigation-entry-expanded {
+      background: linear-gradient(
+        128deg,
+        var(--lodge-background-shader) 0%,
+        var(--lodge-background-shader) 100%
+      );
+      border-radius: 21px;
+      width: 95%;
+      margin-top: 4px;
+      margin-bottom: 4px;
+      transition: cubic-bezier(0.2, 0, 0, 1) 300ms;
+
+      m3-button {
+        margin: 8px;
+      }
+
+      &:hover {
+        background: linear-gradient(
+          128deg,
+          var(--lodge-background-shader) 0%,
+          var(--lodge-background-shader-lighter) 100%
+        );
+      }
+    }
+
+    m3-button {
+      margin: 4px;
+      width: calc(100% - 16px);
+    }
+  }
+}

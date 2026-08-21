@@ -1,0 +1,91 @@
+@use 'tokens' as tokens;
+@use '@angular/material' as mat;
+
+#dashboards-composer {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  width: 100%;
+
+  #dashboards-composer-canvas {
+    overflow: auto;
+    width: 100%;
+    gridstack {
+      width: 100%;
+    }
+    &::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background-color: var(--lodge-background-shader);
+      border-radius: 20px;
+    }
+  }
+
+  #dashboards-composer-sider {
+    display: block;
+    background: var(--lodge-background-color);
+    border-radius: 8px;
+    margin-left: tokens.$lodge-shell-margin;
+    position: relative;
+
+    m3-tab {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+
+      .widget-preview-title {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        margin-bottom: 16px;
+
+        p {
+          margin-left: 8px;
+          margin-right: auto;
+          margin-top: 0;
+          margin-bottom: 0;
+        }
+
+        m3-icon {
+          color: var(--lodge-main-ui-text-color);
+        }
+
+        button {
+          @include mat.button-density(-5);
+        }
+      }
+
+      .separator {
+        background: var(--lodge-background-shader);
+        height: 1px;
+        width: 100%;
+        border-radius: 10px;
+        margin: 32px 0;
+      }
+    }
+
+    #dashboards-composer-sider-handle {
+      position: absolute;
+      top: 50%;
+      transform: translate(0, -50%);
+      left: 6px;
+      height: 200px;
+      border-radius: 20px;
+      width: 8px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: cubic-bezier(0.2, 0, 0, 1) 200ms;
+      cursor: pointer;
+      &:hover {
+        background: var(--lodge-background-shader-lighter);
+      }
+
+      m3-icon {
+        color: var(--lodge-main-ui-text-color);
+      }
+    }
+  }
+}

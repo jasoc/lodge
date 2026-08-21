@@ -1,0 +1,131 @@
+<div
+  id="navigation-drawer"
+  class="navigation-drawer-animated"
+  [style.width]="collapsed() ? '70px' : '275px'"
+>
+  <div class="navigation-drawer__top">
+    <button mat-icon-button matTooltip="Basic" (click)="ToggleCollapse()">
+      <mat-icon fontSet="material-symbols-outlined">{{
+        collapsed() ? 'menu' : 'chevron_left'
+      }}</mat-icon>
+    </button>
+    @if (!collapsed()) {
+      <p class="lodge-fade-enter">Lodge</p>
+    }
+  </div>
+
+  <div class="entries">
+    <!-- 1st level -->
+    @for (element of navigationElementsTree(); track element.name) {
+      <div
+        class="navigation-entry"
+        [class.navigation-entry-wide]="collapsed()"
+        [class.navigation-entry-expanded]="element.isExpanded"
+      >
+        @if (element.type === 'button') {
+          <m3-button
+            [icon-filled]="element.rippled"
+            [Icon]="element.icon"
+            [Rippled]="element.rippled"
+            Type="sidenav-left"
+            [Text]="collapsed() ? '' : element.name"
+            (click)="navigate(element)"
+          >
+          </m3-button>
+        }
+
+        @if (element.type === 'tag') {
+          <div
+            class="navigation-separator separator-animated"
+            [class.separator-hidden]="collapsed()"
+          ></div>
+        }
+
+        @if (!collapsed() && element.type === 'tag') {
+          <mat-chip color="primary">
+            {{ element.name }}
+          </mat-chip>
+        }
+
+        <!-- 2nd level -->
+        @if (element.isExpanded) {
+          <div class="subgroup-animated">
+            <div class="navigation-entry-subelements">
+              <div class="navigation-entry-subelements-left">
+                <div class="navigation-entry-subelements-left-spacer"></div>
+              </div>
+              <div class="navigation-entry-subelements-right">
+                @for (element_1 of element.subElements; track element_1.name) {
+                  @if (element_1.type === 'tag') {
+                    <mat-chip color="primary">
+                      {{ element_1.name }}
+                    </mat-chip>
+                  }
+                  @if (element_1.type === 'button') {
+                    <m3-button
+                      Type="thin"
+                      [Icon]="element_1.icon"
+                      [icon-filled]="element_1.rippled"
+                      [Text]="collapsed() ? '' : element_1.name"
+                      [Rippled]="element_1.rippled"
+                      (click)="navigate(element_1, element)"
+                    >
+                    </m3-button>
+                  }
+                }
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  </div>
+
+  <div style="margin: auto 0px"></div>
+
+  <div [class]="collapsed() ? 'user-widget-collapsed' : 'user-widget'">
+    <div class="user-widget-content">
+      <button mat-icon-button (click)="forceUserWidgetExpand()">
+        <mat-icon fontSet="material-symbols-outlined">account_circle</mat-icon>
+      </button>
+      <p>{{ authService.subjectId() }}</p>
+      <button
+        mat-icon-button
+        color="primary"
+        class="user-widget-expand"
+        (click)="userWidgetCollapsed.set(!userWidgetCollapsed())"
+      >
+        <mat-icon fontSet="material-symbols-outlined">{{
+          userWidgetCollapsed() ? 'collapse_all' : 'expand_all'
+        }}</mat-icon>
+      </button>
+    </div>
+    @if (!userWidgetCollapsed()) {
+      <div class="user-widget-actions lodge-fade-enter-y">
+        <div [formGroup]="themeForm">
+          <mat-form-field
+            (cdkObserveContent)="themeService.setThemeByString(themeForm.value.theme!)"
+            class="marginated"
+          >
+            <mat-label>Theme</mat-label>
+            <mat-select [formControlName]="'theme'">
+              <mat-option [value]="'lodge-light'">White theme</mat-option>
+              <mat-option [value]="'lodge-dark'">Black theme</mat-option>
+              <mat-option [value]="'lodge-grey'">Grey theme</mat-option>
+            </mat-select>
+          </mat-form-field>
+        </div>
+        <p>Lodge server version 0.1.0</p>
+        <div class="user-widget-actions-row">
+          <button mat-button color="accent" (click)="router.navigateByUrl('/settings')">
+            Settings
+            <mat-icon fontSet="material-symbols-outlined">settings</mat-icon>
+          </button>
+          <button mat-icon-button color="warn" (click)="logout()">
+            <mat-icon fontSet="material-symbols-outlined">logout</mat-icon>
+          </button>
+        </div>
+      </div>
+    }
+  </div>
+</div>

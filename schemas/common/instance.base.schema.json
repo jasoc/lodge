@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lodge.dev/schemas/common/instance.base.schema.json",
+  "title": "Lodge Instance Base",
+  "description": "Fields every kind instance file must provide.",
+  "type": "object",
+  "required": [
+    "kind_code",
+    "instance",
+    "display_name",
+    "generation",
+    "region",
+    "features",
+    "desired_state",
+    "services"
+  ],
+  "properties": {
+    "kind_code": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "instance": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "region": {
+      "type": "string",
+      "minLength": 1
+    },
+    "features": {
+      "type": "object"
+    },
+    "desired_state": {
+      "type": "object"
+    },
+    "services": {
+      "type": "object"
+    },
+    "quirks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

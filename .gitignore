@@ -1,0 +1,29 @@
+# .NET
+bin/
+obj/
+*.user
+
+# Runtime state (runbook logs/marks, local credentials) — never committed
+data/
+
+# Script-managed dev process state (PIDs, logs)
+.run/
+
+# Node / Angular
+node_modules/
+dist/
+.angular/
+
+# The SPA build, only ever placed here by the Dockerfile's build stage (or a manual
+# copy for local single-process testing) — never a committed source artifact.
+server/src/Lodge.Server/wwwroot/
+
+# Editors
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Env
+.env
+.env.local

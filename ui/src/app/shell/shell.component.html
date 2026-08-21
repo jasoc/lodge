@@ -1,0 +1,14 @@
+<div id="navigation-drawer">
+  <app-navigation-drawer></app-navigation-drawer>
+</div>
+<div id="router">
+  <div id="navigation-bar">
+    <lodge-breadcrumb></lodge-breadcrumb>
+  </div>
+  <div id="router_inner">
+    <m3-icon class="watermark" [filled]="true">{{ themeService.currentWatermark() }}</m3-icon>
+    <div id="router_inner_scrollable" class="router_inner_scrollable">
+      <router-outlet></router-outlet>
+    </div>
+  </div>
+</div>

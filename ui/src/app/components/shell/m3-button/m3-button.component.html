@@ -1,0 +1,30 @@
+<button
+  class="m3-button"
+  matRipple
+  [matRippleColor]="'var(--lodge-background-shader)'"
+  [class.thin]="Type() === 'thin'"
+  [class.fab]="Type() === 'fab'"
+  [class.sidenav-left]="Type() === 'sidenav-left'"
+>
+  <div class="m3-button__inner">
+    @if (Icon() != null) {
+      <div
+        class="m3-icon m3-button-margin-animated"
+        [class.m3-button-margin-has-text]="hasText()"
+        [class.m3-button-margin-no-text]="!hasText()"
+      >
+        <m3-icon class="lodge-fade-enter" [filled]="iconFilled()" [weight]="600">{{
+          Icon()
+        }}</m3-icon>
+      </div>
+    }
+    @if (hasText()) {
+      <div class="text lodge-fade-enter">
+        {{ Text() }}
+      </div>
+    }
+    @if (hasText()) {
+      <span style="width: 31px"></span>
+    }
+  </div>
+</button>

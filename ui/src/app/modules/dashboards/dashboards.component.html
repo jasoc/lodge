@@ -1,0 +1,50 @@
+<div class="lodge-dashboard-main">
+  <div class="lodge-dashboard-main-header">
+    <h1>All Dashboards</h1>
+    <button mat-fab extended color="primary" (click)="newDashboard()">
+      <mat-icon fontSet="material-symbols-outlined">create</mat-icon>
+      Create
+    </button>
+  </div>
+  <table mat-table [dataSource]="dataSource" matSort>
+    <!-- Position Column -->
+    <ng-container matColumnDef="name">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header sortActionDescription="Sort by name">
+        Name
+      </th>
+      <td mat-cell *matCellDef="let element">
+        {{ element.name }}
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="actions">
+      <th mat-header-cell *matHeaderCellDef>Actions</th>
+      <td mat-cell *matCellDef="let element">
+        <a
+          mat-raised-button
+          color="primary"
+          class="density-minus-1"
+          matTooltip="Open"
+          [routerLink]="'/dashboards/' + element.id"
+        >
+          <mat-icon fontSet="material-symbols-outlined">link</mat-icon>
+          Open
+        </a>
+        <a
+          mat-raised-button
+          color="accent"
+          class="density-minus-1"
+          matTooltip="Edit"
+          [routerLink]="'/dashboards/composer/' + element.id"
+          aria-label="Edit"
+        >
+          <mat-icon fontSet="material-symbols-outlined">edit</mat-icon>
+          Edit
+        </a>
+      </td>
+    </ng-container>
+
+    <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+    <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+  </table>
+</div>

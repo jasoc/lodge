@@ -4,14 +4,10 @@ import { bootstrapApplication } from '@angular/platform-browser';
 
 import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
-import { DashboardsWidgetCardComponent } from './app/modules/dashboards/widgets/card/dashboards-widget-card.component';
-import { DashboardsWidgetLabelComponent } from './app/modules/dashboards/widgets/label/dashboards-widget-label.component';
-import { DashboardsWidgetSpacerComponent } from './app/modules/dashboards/widgets/spacer/dashboards-widget-spacer.component';
+import { LODGE_WIDGETS } from './app/modules/dashboards/widgets';
 
-GridstackComponent.addComponentToSelectorType([
-  DashboardsWidgetCardComponent,
-  DashboardsWidgetSpacerComponent,
-  DashboardsWidgetLabelComponent,
-]);
+// GridStack needs an explicit selector -> component Type mapping to instantiate widgets
+// dynamically from saved grid JSON; LODGE_WIDGETS is the single source of truth for it.
+GridstackComponent.addComponentToSelectorType(LODGE_WIDGETS.map((w) => w.component));
 
 bootstrapApplication(AppComponent, appConfig).catch((err) => console.error(err));

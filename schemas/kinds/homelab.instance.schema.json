@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lodge.dev/schemas/kinds/homelab.instance.schema.json",
+  "title": "Homelab Instance",
+  "description": "A homelab: the VMs its hypervisor should run, keyed by hostname.",
+  "allOf": [
+    {
+      "$ref": "https://lodge.dev/schemas/common/instance.base.schema.json"
+    }
+  ],
+  "type": "object",
+  "required": ["virtual_machines"],
+  "properties": {
+    "virtual_machines": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/virtualMachine"
+      }
+    }
+  },
+  "$defs": {
+    "virtualMachine": {
+      "type": "object",
+      "required": ["cpu_cores", "memory_mb", "disk_gb", "os", "network"],
+      "additionalProperties": false,
+      "properties": {
+        "cpu_cores": { "type": "integer", "minimum": 1 },
+        "memory_mb": { "type": "integer", "minimum": 256 },
+        "disk_gb": { "type": "integer", "minimum": 1 },
+        "os": { "type": "string", "minLength": 1, "description": "Template/image the VM is cloned from." },
+        "start_on_boot": { "type": "boolean", "default": true },
+        "network": {
+          "type": "object",
+          "required": ["bridge", "ip_address"],
+          "additionalProperties": false,
+          "properties": {
+            "bridge": { "type": "string", "minLength": 1 },
+            "ip_address": {
+              "type": "string",
+              "description": "CIDR address, or \"dhcp\".",
+              "pattern": "^(dhcp|\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2})$"
+            },
+            "gateway": { "type": "string", "pattern": "^\\d{1,3}(\\.\\d{1,3}){3}$" }
+          }
+        }
+      }
+    }
+  }
+}

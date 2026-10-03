@@ -1,12 +1,17 @@
 # Production-shaped local test: one Lodge container (API + SPA + self-migration) plus
-# Postgres. Dev doesn't use this — see ./scripts/run.sh, which runs the server natively
-# and only containerizes Postgres.
+# Postgres. Native dev (./scripts/run.sh) runs only the `postgres` service from here, with
+# docker-compose.dev.yml layered on top, and runs the server + SPA natively — so both
+# share the same database in ./data/postgres. Fixed project name so the container is the
+# same one no matter what the checkout folder is called.
+name: lodge
+
 services:
   postgres:
     image: postgres:16-alpine
+    container_name: postgres16-lodge-dev
     env_file: .env
     volumes:
-      - lodge-postgres-data:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -29,11 +34,11 @@ services:
       # Bind-mount the SSOT read-only so it stays external to the image.
       - ./inventory:/repo/inventory:ro
       - ./schemas:/repo/schemas:ro
-      - ./runbooks:/repo/runbooks:ro
-      - lodge-runbook-data:/repo/data
+      - ./data/runbooks:/repo/data
+      # The host's docker daemon, for `executor: docker` actions: Lodge pulls/builds
+      # playbook images and runs them as sibling containers. Root-equivalent on the host —
+      # anyone who can merge to the inventory can run arbitrary containers here. To narrow
+      # that, put a socket proxy in front and set DOCKER_HOST on this service instead.
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${SERVER_PORT}:8080"
-
-volumes:
-  lodge-postgres-data:
-  lodge-runbook-data:

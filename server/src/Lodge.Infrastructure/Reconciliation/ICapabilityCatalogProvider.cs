@@ -17,4 +17,8 @@ public sealed record CatalogLoadResult(CapabilityCatalog Catalog, IReadOnlyList<
 public interface ICapabilityCatalogProvider
 {
     Task<CatalogLoadResult> GetCatalogAsync(string kindCode, string instanceCode, CancellationToken cancellationToken = default);
+
+    /// <summary>The generic (no instance override) catalog for a kind — what the read-only
+    /// capability browser shows, since it has no single instance in scope.</summary>
+    Task<CatalogLoadResult> GetGenericCatalogAsync(string kindCode, CancellationToken cancellationToken = default);
 }

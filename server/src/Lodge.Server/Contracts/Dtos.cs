@@ -21,6 +21,7 @@ public sealed record ActionDto(
     string CapabilityCode,
     string SignalPath,
     string? ItemKey,
+    string ActionKey,
     string RunbookRef,
     string Trigger,
     string Label,
@@ -29,7 +30,24 @@ public sealed record ActionDto(
     bool Synthetic,
     IReadOnlyList<PendingPromptDto> PendingPrompts,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? CompletedAt);
+    DateTimeOffset? CompletedAt,
+    string? ExecutionRef = null);
+
+/// <summary>
+/// A slice of the action's latest run log (see <c>GET …/actions/{id}/log?offset=</c>).
+/// <see cref="Available"/> is false when the action never ran or its executor keeps no
+/// local log (webhooks). <see cref="Running"/> and <see cref="Message"/> are the executor's
+/// live view of the run — fresher than the action row, which the loop updates per cycle.
+/// </summary>
+public sealed record ActionLogDto(
+    Guid ActionId,
+    string? RunId,
+    string ActionStatus,
+    bool Available,
+    bool Running,
+    string? Message,
+    string Text,
+    long NextOffset);
 
 public sealed record PendingPromptDto(
     string Name,
@@ -42,6 +60,74 @@ public sealed record AuditEventDto(
     string Actor,
     string? PayloadJson,
     DateTimeOffset CreatedAt);
+
+/// <summary>An <see cref="ActionDto"/> plus the instance it belongs to — the row shape for
+/// the cross-instance Drift/Actions pages, which have no single kind/instance in scope.</summary>
+public sealed record GlobalActionDto(
+    Guid Id,
+    string CapabilityCode,
+    string SignalPath,
+    string? ItemKey,
+    string ActionKey,
+    string RunbookRef,
+    string Trigger,
+    string Label,
+    string Policy,
+    string Status,
+    bool Synthetic,
+    IReadOnlyList<PendingPromptDto> PendingPrompts,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? CompletedAt,
+    string KindCode,
+    Guid InstanceId,
+    string InstanceCode,
+    string InstanceDisplayName);
+
+/// <summary>An <see cref="AuditEventDto"/> plus the instance it belongs to (when any) — the
+/// row shape for the cross-instance Audit Log page.</summary>
+public sealed record GlobalAuditEventDto(
+    Guid Id,
+    string KindCode,
+    string EventType,
+    string Actor,
+    string? PayloadJson,
+    DateTimeOffset CreatedAt,
+    Guid? InstanceId,
+    string? InstanceCode,
+    string? InstanceDisplayName);
+
+/// <summary>Read-only view of a kind's parsed capability catalog — no instance context, no
+/// DB query, just what the YAML declares. Backs the Kinds/Capabilities browser.</summary>
+public sealed record CapabilityCatalogDto(
+    string KindCode,
+    IReadOnlyList<CapabilityDefinitionDto> Capabilities);
+
+public sealed record CapabilityDefinitionDto(
+    string Code,
+    string Title,
+    string Description,
+    IReadOnlyList<SignalDefinitionDto> Signals);
+
+public sealed record SignalDefinitionDto(
+    string Path,
+    string Kind,
+    IReadOnlyList<SignalRuleDto> Rules);
+
+public sealed record SignalRuleDto(
+    string Trigger,
+    string? WhenJson,
+    string? ItemKey,
+    IReadOnlyList<ActionTemplateDto> Actions);
+
+public sealed record ActionTemplateDto(
+    string Key,
+    string Runbook,
+    string Label,
+    string Policy,
+    IReadOnlyList<RuleInputDto> Inputs,
+    IReadOnlyList<string> DependsOn);
+
+public sealed record RuleInputDto(string Name, string Kind, string? Value, bool Required);
 
 /// <summary>Response to a successful `POST /api/v1/auth/login` — the raw token is shown once.</summary>
 public sealed record LoginResponseDto(string Token, string SubjectId, DateTimeOffset? ExpiresAt);

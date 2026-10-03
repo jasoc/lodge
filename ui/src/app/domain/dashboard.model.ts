@@ -3,11 +3,6 @@ import { BaseWidget } from 'gridstack/dist/angular';
 
 import { DynamicFormRoot } from '../components/dynamic-form/types/dynamic-form';
 
-export type LodgeWidgetInfo = {
-  widgetType: Type<BaseWidget>;
-  metadata: WidgetMetadata;
-};
-
 export interface DashboardModel {
   id?: string;
   name?: string;
@@ -20,17 +15,30 @@ export interface DashboardUpdateModel {
   json_grid?: string;
 }
 
-export type WidgetMetadata = {
-  id: string;
+/** Static descriptor for one widget type — the single source of truth both GridStack's own
+ * selector registry (main.ts) and the composer's widget palette read from. */
+export interface WidgetDescriptor {
+  selector: string;
   name: string;
-  description: string | undefined;
-  icon?: string | undefined;
-  minH?: number | undefined;
-  minW?: number | undefined;
+  description: string;
+  component: Type<BaseWidget>;
+  icon?: string;
+  minH?: number;
+  minW?: number;
   optionsForm?: DynamicFormRoot;
-};
+}
 
-export interface LabelOptions {
-  content: string;
-  size: string;
+export interface KindSummaryOptions {
+  kind_code: string;
+}
+
+export interface InstanceStatusOptions {
+  kind_code: string;
+  instance_code: string;
+}
+
+export interface SignalValueOptions {
+  kind_code: string;
+  instance_code: string;
+  signal_path: string;
 }

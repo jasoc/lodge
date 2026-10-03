@@ -271,12 +271,26 @@ public static class CapabilityCatalogLoader
                     $"{where}: action '{a.Runbook}' is AUTO but declares prompt inputs — AUTO runs unattended with nobody to answer them.");
             }
 
+            var executorKind = ParseExecutor(a.Executor, where);
+            DockerExecutorConfig? dockerConfig = null;
+            if (executorKind == ExecutorKind.Docker)
+            {
+                dockerConfig = ParseDocker(a.Docker, $"{where}, action '{a.Key}'");
+            }
+            else if (a.Docker is not null)
+            {
+                throw new CatalogFormatException(
+                    $"{where}: action '{a.Key}' declares a 'docker' block but 'executor' is not 'docker'.");
+            }
+
             actions.Add(new ActionTemplate
             {
                 Key = a.Key!.Trim(),
                 Runbook = a.Runbook!,
                 Label = a.Label ?? a.Runbook!,
                 Policy = policy,
+                ExecutorKind = executorKind,
+                Docker = dockerConfig,
                 Inputs = inputs,
                 DependsOn = (a.DependsOn ?? new List<string>()).Select(d => d.Trim()).ToList()
             });
@@ -361,6 +375,91 @@ public static class CapabilityCatalogLoader
             _ => throw new CatalogFormatException($"{where}: unknown trigger 'on: {on}' (expected add, delete, or modify).")
         };
 
+    /// <summary>
+    /// Exactly one of <c>image</c> (pulled as-is) or <c>build</c> (a folder of the
+    /// inventory, built and cached by the executor). <c>entrypoint</c>/<c>command</c> are
+    /// optional with either — omitted, the image's own ENTRYPOINT/CMD apply, like a plain
+    /// <c>docker run</c>. Build paths are syntactically confined here (relative, no
+    /// <c>..</c>); the catalog provider resolves them against the kind folder and rejects
+    /// anything that still escapes it.
+    /// </summary>
+    private static DockerExecutorConfig ParseDocker(DockerDto? dto, string where)
+    {
+        if (dto is null)
+        {
+            throw new CatalogFormatException($"{where}: declares 'executor: docker' but has no 'docker' block.");
+        }
+
+        var hasImage = !string.IsNullOrWhiteSpace(dto.Image);
+        if (hasImage == (dto.Build is not null))
+        {
+            throw new CatalogFormatException(
+                $"{where}: the 'docker' block needs exactly one of 'image' (a ready-made image) or 'build' (a playbook folder).");
+        }
+
+        DockerBuildConfig? build = null;
+        if (dto.Build is not null)
+        {
+            var context = NormalizeRelativePath(dto.Build.Context, "docker.build.context", where)
+                ?? throw new CatalogFormatException($"{where}: 'docker.build' is missing its 'context' folder.");
+            var dockerfile = NormalizeRelativePath(dto.Build.Dockerfile, "docker.build.dockerfile", where);
+            var args = new SortedDictionary<string, string>(StringComparer.Ordinal);
+            foreach (var (name, value) in dto.Build.Args ?? new Dictionary<string, string?>())
+            {
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    throw new CatalogFormatException($"{where}: 'docker.build.args' has an empty argument name.");
+                }
+                args[name.Trim()] = value ?? string.Empty;
+            }
+
+            build = new DockerBuildConfig(
+                context,
+                dockerfile,
+                string.IsNullOrWhiteSpace(dto.Build.Target) ? null : dto.Build.Target.Trim(),
+                args.Count == 0 ? null : args);
+        }
+
+        return new DockerExecutorConfig(
+            hasImage ? dto.Image!.Trim() : null,
+            dto.Command ?? new List<string>(),
+            dto.Entrypoint is { Count: > 0 } ? dto.Entrypoint : null,
+            build);
+    }
+
+    private static string? NormalizeRelativePath(string? raw, string field, string where)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var path = raw.Trim().Replace('\\', '/');
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(seg => seg != ".").ToList();
+        if (path.StartsWith('/') || Path.IsPathRooted(path) || segments.Contains(".."))
+        {
+            throw new CatalogFormatException(
+                $"{where}: '{field}: {raw}' must be a relative path inside the kind's inventory folder (no leading '/', no '..').");
+        }
+        if (segments.Count == 0)
+        {
+            throw new CatalogFormatException($"{where}: '{field}: {raw}' does not name a folder or file.");
+        }
+
+        return string.Join('/', segments);
+    }
+
+    private static ExecutorKind ParseExecutor(string? executor, string where)
+        => executor?.Trim().ToLowerInvariant() switch
+        {
+            null or "" or "shell" => ExecutorKind.Shell,
+            "webhook" => ExecutorKind.Webhook,
+            "docker" => ExecutorKind.Docker,
+            "octopus" or "kubernetes" => throw new CatalogFormatException(
+                $"{where}: executor '{executor}' is reserved for a future release and not yet supported."),
+            _ => throw new CatalogFormatException($"{where}: unknown executor '{executor}' (expected shell, webhook, or docker).")
+        };
+
     private static List<RuleInput> ParseInputs(Dictionary<string, InputDto>? inputs)
     {
         var result = new List<RuleInput>();
@@ -387,6 +486,10 @@ public static class CapabilityCatalogLoader
             else if (spec.Prompt is not null)
             {
                 result.Add(new RuleInput { Name = name, Kind = RuleInputKind.Prompt, Value = spec.Prompt, Required = spec.Required });
+            }
+            else if (spec.Secret is not null)
+            {
+                result.Add(new RuleInput { Name = name, Kind = RuleInputKind.Secret, Value = spec.Secret });
             }
         }
 
@@ -425,8 +528,26 @@ public static class CapabilityCatalogLoader
         public string? Runbook { get; set; }
         public string? Label { get; set; }
         public string? Policy { get; set; }
+        public string? Executor { get; set; }
+        public DockerDto? Docker { get; set; }
         public Dictionary<string, InputDto>? Inputs { get; set; }
         public List<string>? DependsOn { get; set; }
+    }
+
+    private sealed class DockerDto
+    {
+        public string? Image { get; set; }
+        public DockerBuildDto? Build { get; set; }
+        public List<string>? Entrypoint { get; set; }
+        public List<string>? Command { get; set; }
+    }
+
+    private sealed class DockerBuildDto
+    {
+        public string? Context { get; set; }
+        public string? Dockerfile { get; set; }
+        public string? Target { get; set; }
+        public Dictionary<string, string?>? Args { get; set; }
     }
 
     private sealed class InputDto
@@ -434,6 +555,7 @@ public static class CapabilityCatalogLoader
         public string? From { get; set; }
         public string? Const { get; set; }
         public string? Prompt { get; set; }
+        public string? Secret { get; set; }
         public bool Required { get; set; }
     }
 }

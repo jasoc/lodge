@@ -5,6 +5,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Lets tests construct PassCliSecretProvider/DockerRunbookExecutor-adjacent internal
+         seams (e.g. IProcessRunner) with a fake, without a real external binary in CI. -->
+    <InternalsVisibleTo Include="Lodge.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 

@@ -1,0 +1,25 @@
+<div class="dashboards-widget-kind-summary">
+  <mat-icon class="widget-watermark" fontSet="material-symbols-outlined">category</mat-icon>
+  @if (!options.kind_code) {
+    <p class="widget-empty">Set a kind code in options.</p>
+  } @else if (loading()) {
+    <p class="widget-empty">Loading…</p>
+  } @else if (error()) {
+    <p class="widget-empty">Couldn't load "{{ options.kind_code }}".</p>
+  } @else {
+    <div class="widget-hero">
+      <mat-icon fontSet="material-symbols-outlined">category</mat-icon>
+      <p class="widget-title">{{ options.kind_code }}</p>
+    </div>
+    <div class="widget-stat-row">
+      <div class="widget-stat">
+        <span class="widget-stat-value">{{ instanceCount() }}</span>
+        <span class="widget-stat-label">instances</span>
+      </div>
+      <div class="widget-stat" [class.widget-stat-warn]="driftCount() > 0">
+        <span class="widget-stat-value">{{ driftCount() }}</span>
+        <span class="widget-stat-label">drifting</span>
+      </div>
+    </div>
+  }
+</div>

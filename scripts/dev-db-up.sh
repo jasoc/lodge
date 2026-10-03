@@ -1,6 +1,8 @@
 #!/bin/bash
-# Starts (or reuses) the local Postgres dev container. The server migrates itself on
-# startup, so there's no separate migration step to run here.
+# Starts (or reuses) the dev Postgres — the docker-compose.yml `postgres` service,
+# published on localhost — and waits until it's healthy. ./scripts/run.sh does this for
+# you; this is for running the server some other way (IDE, tests). The server migrates
+# itself on startup, so there's no separate migration step.
 # Usage: ./scripts/dev-db-up.sh
 set -euo pipefail
 

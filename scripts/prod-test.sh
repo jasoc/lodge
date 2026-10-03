@@ -16,6 +16,8 @@ cd "$ROOT"
 
 case "${1:-up}" in
     up)
+        # Bind-mount dirs created by us, not by the docker daemon as root (see lib/db.sh).
+        mkdir -p data/postgres data/runbooks
         docker compose up --build
         ;;
     down)

@@ -15,22 +15,25 @@ one, you can't also do in the other.
 ./scripts/run.sh
 ```
 
-That's it. On a machine with nothing installed, this installs the pinned .NET SDK and
-Node (via nvm), starts a Postgres container, and opens a tmux session with the server and
-the UI dev server each in their own pane. The server migrates its own schema on first
-boot. Visit `http://localhost:4200`.
+That's it. On a machine with nothing installed, this installs the pinned .NET SDK, Node
+(via nvm) and [process-compose](https://github.com/F1bonacc1/process-compose), then runs
+the stack from `process-compose.yaml` in a TUI: Postgres (the `postgres` service of
+`docker-compose.yml`), the server and the UI dev server, each with its own log. The
+server migrates its own schema on first boot. Visit `http://localhost:4200`.
 
 ```bash
-./scripts/run.sh --stop     # stop the tmux session (the DB container keeps running)
-./scripts/dev-db-down.sh    # tear the DB container down too
+./scripts/run.sh            # quitting the TUI leaves the stack running; re-run to reattach
+./scripts/run.sh --stop     # stop everything, Postgres included (data stays in ./data/postgres)
+./scripts/dev-db-down.sh    # remove the Postgres container (--wipe also deletes its data)
 ./scripts/prod-test.sh      # build and run the real single-container image via docker compose
 ```
 
 ## What's here
 
-- `inventory/acme/` — an invented example: one capability (`services`), one instance
-  (`demo`). Replace it with your own kind(s) and instance(s); nothing in the code is
-  specific to this example.
+- `inventory/homelab/` — the shipped example: one instance (`lab`) with a list of VMs,
+  each created (AUTO) and destroyed (after confirmation) by a Terraform playbook that runs
+  in a container. Every `inventory/<kind>/` folder is a kind; replace it with your own —
+  nothing in the code is specific to this example.
 - `server/` — the .NET backend (Core domain + reconciler, Infrastructure, the single
   ASP.NET Core host that serves both the API and the built UI).
 - `ui/` — the Angular 21 SPA.

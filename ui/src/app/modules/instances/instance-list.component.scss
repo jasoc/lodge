@@ -1,0 +1,41 @@
+:host {
+  position: relative;
+  display: block;
+  padding: 0 1.5rem;
+
+  .instance-list-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+
+    .page-title {
+      margin: 0.75rem 0;
+    }
+  }
+
+  .instances-container {
+    display: grid;
+    --min-card-width: 260px;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(var(--min-card-width), 1fr));
+    align-items: stretch;
+    width: 100%;
+    margin-block: 1rem 2rem;
+
+    m3-card {
+      height: 100%;
+    }
+  }
+
+  @media (min-width: 640px) {
+    .instances-container {
+      --min-card-width: 300px;
+    }
+  }
+  @media (min-width: 960px) {
+    .instances-container {
+      --min-card-width: 340px;
+    }
+  }
+}

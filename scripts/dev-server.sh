@@ -1,6 +1,6 @@
 #!/bin/bash
-# Runs Lodge.Server natively (not in a container) against the local Postgres dev
-# container. It migrates itself on startup — nothing else to run first.
+# Runs Lodge.Server natively (not in a container) against the dev Postgres (the
+# docker-compose.yml `postgres` service — ./scripts/dev-db-up.sh, or ./scripts/run.sh). It migrates itself on startup — nothing else to run first.
 # Usage: ./scripts/dev-server.sh
 set -euo pipefail
 

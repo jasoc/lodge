@@ -53,6 +53,14 @@ export const routes: Routes = [
             path: ':kind',
             children: [
               {
+                path: '',
+                pathMatch: 'full',
+                loadComponent: () =>
+                  import('./modules/instances/instance-list.component').then(
+                    (m) => m.InstanceListComponent,
+                  ),
+              },
+              {
                 path: ':instance',
                 loadComponent: () =>
                   import('./modules/instances/instance-detail.component').then(
@@ -60,6 +68,47 @@ export const routes: Routes = [
                   ),
               },
             ],
+          },
+        ],
+      },
+
+      // DRIFT — global filtered view over live (QUEUED) actions across every instance.
+      {
+        path: 'drift',
+        loadComponent: () =>
+          import('./modules/drift/drift.component').then((m) => m.DriftComponent),
+      },
+
+      // ACTIONS — global view over every action across every instance.
+      {
+        path: 'actions',
+        loadComponent: () =>
+          import('./modules/actions/actions.component').then((m) => m.ActionsComponent),
+      },
+
+      // AUDIT — global view over every audit event across every instance.
+      {
+        path: 'audit',
+        loadComponent: () =>
+          import('./modules/audit/audit.component').then((m) => m.AuditComponent),
+      },
+
+      // KINDS — read-only capability catalog browser (Phase 4).
+      {
+        path: 'kinds',
+        children: [
+          {
+            path: '',
+            pathMatch: 'full',
+            loadComponent: () =>
+              import('./modules/kinds/kinds.component').then((m) => m.KindsComponent),
+          },
+          {
+            path: ':kind/capabilities',
+            loadComponent: () =>
+              import('./modules/kinds/capabilities/kind-capabilities.component').then(
+                (m) => m.KindCapabilitiesComponent,
+              ),
           },
         ],
       },

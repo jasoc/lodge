@@ -2,13 +2,30 @@ import { inject, Injectable } from '@angular/core';
 
 import {
   ActionExecutionResultModel,
+  ActionLogModel,
   ActionModel,
   AuditEventModel,
+  CapabilityCatalogModel,
   CycleSummaryModel,
+  GlobalActionModel,
+  GlobalAuditEventModel,
   KindModel,
   InstanceDetailModel,
   InstanceModel,
 } from '../domain';
+
+/** All-optional, AND-combined filters for the cross-instance actions/events read surface. */
+export interface GlobalActionsFilter {
+  status?: string;
+  policy?: string;
+  kindCode?: string;
+  instanceId?: string;
+}
+
+export interface GlobalEventsFilter {
+  kindCode?: string;
+  instanceId?: string;
+}
 import { AuthService } from './auth.service';
 import { BackendService } from './backend.service';
 
@@ -21,6 +38,11 @@ export class LodgeService extends BackendService {
   private readonly authService = inject(AuthService);
   async getKinds(): Promise<KindModel[]> {
     const res = await this.get<KindModel[]>('/kinds');
+    return res.body!;
+  }
+
+  async getCapabilities(kindCode: string): Promise<CapabilityCatalogModel> {
+    const res = await this.get<CapabilityCatalogModel>(`/kinds/${kindCode}/capabilities`);
     return res.body!;
   }
 
@@ -44,6 +66,18 @@ export class LodgeService extends BackendService {
   async getEvents(kindCode: string, instanceCode: string): Promise<AuditEventModel[]> {
     const res = await this.get<AuditEventModel[]>(
       `/kinds/${kindCode}/instances/${instanceCode}/events`,
+    );
+    return res.body!;
+  }
+
+  async getActionLog(
+    kindCode: string,
+    instanceCode: string,
+    actionId: string,
+    offset: number,
+  ): Promise<ActionLogModel> {
+    const res = await this.get<ActionLogModel>(
+      `/kinds/${kindCode}/instances/${instanceCode}/actions/${actionId}/log?offset=${offset}`,
     );
     return res.body!;
   }
@@ -86,6 +120,26 @@ export class LodgeService extends BackendService {
 
   async reconcile(): Promise<CycleSummaryModel> {
     const res = await this.post<CycleSummaryModel>('/reconcile', {});
+    return res.body!;
+  }
+
+  /** Every action across every kind/instance — backs the Drift and Actions pages. */
+  async getAllActions(filter?: GlobalActionsFilter): Promise<GlobalActionModel[]> {
+    const params: Record<string, string> = {};
+    if (filter?.status) params['status'] = filter.status;
+    if (filter?.policy) params['policy'] = filter.policy;
+    if (filter?.kindCode) params['kind_code'] = filter.kindCode;
+    if (filter?.instanceId) params['instance_id'] = filter.instanceId;
+    const res = await this.get<GlobalActionModel[]>('/actions', params);
+    return res.body!;
+  }
+
+  /** Every audit event across every kind/instance — backs the Audit Log page. */
+  async getAllEvents(filter?: GlobalEventsFilter): Promise<GlobalAuditEventModel[]> {
+    const params: Record<string, string> = {};
+    if (filter?.kindCode) params['kind_code'] = filter.kindCode;
+    if (filter?.instanceId) params['instance_id'] = filter.instanceId;
+    const res = await this.get<GlobalAuditEventModel[]>('/events', params);
     return res.body!;
   }
 }

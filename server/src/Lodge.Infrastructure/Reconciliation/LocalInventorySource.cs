@@ -36,6 +36,33 @@ public sealed class LocalInventorySource : IInventorySource
         return $"local:{Convert.ToHexString(hash).ToLowerInvariant()[..24]}";
     }
 
+    public async Task<IReadOnlyList<KindDescriptor>> GetKindsAsync(CancellationToken cancellationToken = default)
+    {
+        var inventoryDir = Path.Combine(_repoRoot, "inventory");
+        if (!Directory.Exists(inventoryDir))
+        {
+            return Array.Empty<KindDescriptor>();
+        }
+
+        var kinds = new List<KindDescriptor>();
+        foreach (var dir in Directory.EnumerateDirectories(inventoryDir).OrderBy(d => d, StringComparer.Ordinal))
+        {
+            var code = Path.GetFileName(dir);
+            if (!KindManifest.IsValidCode(code))
+            {
+                continue;
+            }
+
+            var manifest = Path.Combine(dir, KindManifest.FileName);
+            var name = File.Exists(manifest)
+                ? KindManifest.ParseName(await File.ReadAllTextAsync(manifest, cancellationToken))
+                : null;
+            kinds.Add(new KindDescriptor(code, name));
+        }
+
+        return kinds;
+    }
+
     public async Task<IReadOnlyList<InstanceFile>> GetInstanceFilesAsync(string kindCode, CancellationToken cancellationToken = default)
     {
         var instancesDir = Path.Combine(_repoRoot, "inventory", kindCode, "instances");

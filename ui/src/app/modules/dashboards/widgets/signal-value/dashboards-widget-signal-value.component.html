@@ -1,0 +1,20 @@
+<div class="dashboards-widget-signal-value">
+  <mat-icon class="widget-watermark" fontSet="material-symbols-outlined">sensors</mat-icon>
+  @if (!options.kind_code || !options.instance_code || !options.signal_path) {
+    <p class="widget-empty">Set a kind code, instance code, and signal path in options.</p>
+  } @else if (loading()) {
+    <p class="widget-empty">Loading…</p>
+  } @else if (error()) {
+    <p class="widget-empty">Couldn't load "{{ options.kind_code }}/{{ options.instance_code }}".</p>
+  } @else {
+    <div class="widget-hero">
+      <mat-icon fontSet="material-symbols-outlined">sensors</mat-icon>
+      <p class="widget-title">{{ options.signal_path }}</p>
+    </div>
+    @if (found()) {
+      <code class="widget-value">{{ value() }}</code>
+    } @else {
+      <p class="widget-empty">Not present in current inventory.</p>
+    }
+  }
+</div>

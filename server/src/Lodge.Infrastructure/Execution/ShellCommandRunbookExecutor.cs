@@ -22,7 +22,7 @@ namespace Lodge.Infrastructure.Execution;
 /// guessed, since a non-child process's exit code generally isn't recoverable on Linux
 /// once this process didn't start it.
 /// </summary>
-public sealed class ShellCommandRunbookExecutor : IRunbookExecutor
+public sealed class ShellCommandRunbookExecutor : IRunbookExecutor, IRunbookLogReader
 {
     private readonly ShellExecutorOptions _options;
     private readonly ConcurrentDictionary<string, RunState> _runs = new(StringComparer.Ordinal);
@@ -84,6 +84,9 @@ public sealed class ShellCommandRunbookExecutor : IRunbookExecutor
 
         return Task.FromResult(StatusFromSidecar(runId));
     }
+
+    public Task<RunbookLogChunk?> ReadLogAsync(string runId, long offset, int maxBytes, CancellationToken cancellationToken = default)
+        => RunLogFile.ReadAsync(_options.LogDirectory, "shell-", runId, offset, maxBytes, cancellationToken);
 
     private RunbookRunStatus StatusFromLiveProcess(string runId, RunState state)
     {

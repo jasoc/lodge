@@ -27,9 +27,9 @@ jobs:
       - name: Validate the shipped example inventory against its schema
         run: |
           dotnet run --project server/tools/validate-schema -- \
-            inventory/acme/instances/demo \
+            inventory/homelab/instances/lab \
             schemas/common/instance.base.schema.json \
-            schemas/kinds/acme.instance.schema.json
+            schemas/kinds/homelab.instance.schema.json
 
   ui:
     runs-on: ubuntu-latest

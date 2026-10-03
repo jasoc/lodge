@@ -44,10 +44,15 @@ its own Postgres schema on startup. Only Postgres is a separate container.
   `instance`, `path`, `key`, `item`, `value`), `const` (fixed), or `prompt` (supplied by a
   human at confirm time).
 - **Runbook** — an execution detail, not part of an action's identity: a shell command
-  (`ShellCommandRunbookExecutor`) or an HTTP webhook (`WebhookRunbookExecutor`), dispatched
-  by `CompositeRunbookExecutor` based on which one's alias map recognizes the `runbook`
-  value. An unrecognized `runbook` value is executed by the shell executor as a literal
-  command — so a capability can point straight at a script path with zero extra config.
+  (`ShellCommandRunbookExecutor`), an HTTP webhook (`WebhookRunbookExecutor`) or a container
+  (`DockerRunbookExecutor`), dispatched by `CompositeRunbookExecutor` on the action's
+  explicit `executor:` (default `shell`). An unrecognized shell `runbook` value is executed
+  as a literal command — so a capability can point straight at a script path with zero
+  extra config. A docker action runs either a ready-made `image` or a `build` folder of the
+  inventory (`inventory/{kind}/playbooks/...`), built on the local daemon and cached by
+  content fingerprint; the fingerprint is part of the action's snapshot, so editing a
+  playbook re-queues pending actions for fresh confirmation (see
+  `inventory/homelab/playbooks/terraform-vm/`).
 - **past_history** — a tenant-YAML-equivalent, instance-YAML section declaring facts that
   already happened outside Lodge's governance (à la `terraform import`): the identity is
   adopted as a synthetic SUCCEEDED row instead of firing a real run for it.
@@ -89,7 +94,7 @@ inventory/{kind}/capabilities/*.yaml           capability definitions (signals �
 inventory/{kind}/runbook-permissions.yaml      runbook → allowed groups
 schemas/common/instance.base.schema.json       shared JSON Schema every kind composes
 schemas/kinds/{kind}.instance.schema.json      per-kind schema
-runbooks/                                      example shell scripts the shipped `acme` kind points at
+inventory/{kind}/playbooks/                    container playbooks for `executor: docker` actions
 server/src/Lodge.Core/          domain entities, the pure reconciler, capability catalog, seam interfaces
 server/src/Lodge.Infrastructure/ EF Core, git inventory sources, reconciliation loop, execution, auth, secrets
 server/src/Lodge.Server/        single ASP.NET Core host — minimal-API endpoints + serves the built SPA (wwwroot)
@@ -124,7 +129,8 @@ Reference it in a capability's `actions[].runbook`. For a local script: either a
 alias in `ShellExecutor:Runbooks` config, or just use the script path directly as the
 `runbook` value — the shell executor runs an unrecognized `runbook` string as a literal
 command. For an external webhook: add an alias in `WebhookExecutor:Runbooks` pointing at
-the target URL. Grant access by adding an entry to
+the target URL. For a container: `executor: docker` plus a `docker:` block with `image:`
+or `build: { context: playbooks/<name> }` — no server config at all. Grant access by adding an entry to
 `inventory/{kind}/runbook-permissions.yaml` mapping the `runbook` to `allowed_groups`;
 missing entries are denied for non-admins.
 
@@ -154,16 +160,18 @@ groups-based RBAC and service tokens for CI.
 ## Run and test
 
 ```bash
-./scripts/run.sh            # zero-touch: Postgres in Docker, server + SPA in a tmux session
-./scripts/run.sh --stop     # stop the tmux session (DB container keeps running)
-./scripts/dev-db-down.sh    # tear down the dev Postgres container
+./scripts/run.sh            # zero-touch: compose Postgres + native server + SPA under process-compose
+./scripts/run.sh --stop     # stop the whole stack (data stays in ./data/postgres)
+./scripts/dev-db-up.sh      # just the dev Postgres, e.g. to run the server from an IDE
+./scripts/dev-db-down.sh    # remove the dev Postgres container (--wipe: and its data)
 ./scripts/prod-test.sh      # build and run the single production container via docker compose
 
 dotnet build server/Lodge.slnx   # expect 0 warnings / 0 errors
 dotnet test  server/Lodge.slnx
 ```
 
-`./scripts/run.sh` also installs nvm/Node and the pinned .NET SDK if they're missing —
+`./scripts/run.sh` also installs nvm/Node, the pinned .NET SDK and process-compose (into
+`~/.local/bin`, via its official installer) if they're missing —
 see `scripts/lib/`. The only file any script creates unprompted is a root `.env`, copied
 from `.env.example` on first run; every variable in it is either what the official
 Postgres image itself expects (`POSTGRES_*`) or the literal ASP.NET Core config key

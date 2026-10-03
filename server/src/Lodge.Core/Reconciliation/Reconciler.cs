@@ -76,7 +76,12 @@ public static class Reconciler
         {
             if (liveByIdentity.Remove(required.Identity, out var live))
             {
-                var snapshotMatches = string.Equals(live.DesiredValueJson, required.DesiredValueJson, StringComparison.Ordinal);
+                // The executor config is part of the snapshot: a row approved against one
+                // image/playbook fingerprint must never run a different one, so a changed
+                // playbook folder re-queues the action for a fresh confirmation.
+                var snapshotMatches =
+                    string.Equals(live.DesiredValueJson, required.DesiredValueJson, StringComparison.Ordinal) &&
+                    string.Equals(live.ExecutorConfigJson, ExecutorConfigJson.Serialize(required.DockerConfig), StringComparison.Ordinal);
                 if (live.Status == ActionStatus.RUNNING || snapshotMatches)
                 {
                     // A RUNNING row is never superseded mid-flight even if its snapshot
@@ -495,6 +500,7 @@ public static class Reconciler
 
             var resolved = new Dictionary<string, string?>(StringComparer.Ordinal);
             var prompts = new List<PendingPrompt>();
+            var secretInputs = new List<SecretInputRef>();
             foreach (var inputDef in template.Inputs)
             {
                 switch (inputDef.Kind)
@@ -508,6 +514,9 @@ public static class Reconciler
                     case RuleInputKind.Prompt:
                         prompts.Add(new PendingPrompt(inputDef.Name, inputDef.Value ?? inputDef.Name, inputDef.Required));
                         break;
+                    case RuleInputKind.Secret:
+                        secretInputs.Add(new SecretInputRef(inputDef.Name, inputDef.Value ?? inputDef.Name));
+                        break;
                 }
             }
 
@@ -516,7 +525,8 @@ public static class Reconciler
 
             var required = new RequiredAction(
                 identity, trigger, capability.Code, template.Label, template.Runbook, template.Policy,
-                desiredValueJson, resolved, prompts, satisfied, adoptOnFaith)
+                desiredValueJson, resolved, prompts, secretInputs, template.ExecutorKind, template.Docker,
+                satisfied, adoptOnFaith)
             {
                 SucceededActionId = satisfied && _lastSuccess.TryGetValue(identity, out var succeededRow) ? succeededRow.Id : null
             };

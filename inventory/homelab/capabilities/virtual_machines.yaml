@@ -1,0 +1,41 @@
+# One VM per key under `virtual_machines`. Both actions run the Terraform playbook in
+# playbooks/terraform-vm (built and cached by Lodge on the local docker daemon), passing
+# the VM's name and its whole spec; only the command differs.
+capability: virtual_machines
+title: "Virtual Machines"
+description: "VMs on the homelab hypervisor, created and destroyed via Terraform."
+
+signals:
+  - path: virtual_machines
+    kind: keyed_collection
+    rules:
+      - on: add
+        actions:
+          - key: create_vm
+            runbook: homelab/terraform-create-vm
+            label: "Create VM"
+            policy: MANUAL_REQUIRED
+            executor: docker
+            docker:
+              build:
+                context: playbooks/terraform-vm
+              command: ["create"]
+            inputs:
+              vm_name: { from: key }
+              spec: { from: item }
+
+      # Never destroy unattended: removing a VM from the list queues this for a human.
+      - on: delete
+        actions:
+          - key: destroy_vm
+            runbook: homelab/terraform-destroy-vm
+            label: "Destroy VM"
+            policy: MANUAL_REQUIRED
+            executor: docker
+            docker:
+              build:
+                context: playbooks/terraform-vm
+              command: ["destroy"]
+            inputs:
+              vm_name: { from: key }
+              spec: { from: item }

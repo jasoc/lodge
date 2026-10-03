@@ -41,7 +41,11 @@ public sealed class WebhookRunbookExecutor
 
     public async Task<RunbookRunHandle> StartAsync(RunbookExecutionRequest request, CancellationToken cancellationToken = default)
     {
-        var target = _options.Runbooks[request.RunbookRef];
+        if (!_options.Runbooks.TryGetValue(request.RunbookRef, out var target))
+        {
+            throw new InvalidOperationException(
+                $"Action '{request.RunbookRef}' declares 'executor: webhook' but has no matching entry in WebhookExecutor:Runbooks.");
+        }
         var runId = $"webhook-{Guid.NewGuid():N}";
 
         var payload = new WebhookPayload(runId, request.KindCode, request.InstanceCode, request.RunbookRef, request.ActionId, request.Parameters);

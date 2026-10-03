@@ -1,0 +1,50 @@
+# Native dev stack, driven by ./scripts/run.sh (https://github.com/F1bonacc1/process-compose).
+# Postgres is the `postgres` service of docker-compose.yml (plus docker-compose.dev.yml to
+# publish it on localhost); the server and the Angular dev server run natively. Each
+# process gets its own scrollable log in the TUI.
+version: "0.5"
+
+log_location: .run/process-compose.log
+
+environment:
+  - "COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml"
+
+processes:
+  postgres:
+    # Pre-create the bind-mount dir as the current user: if docker creates a missing
+    # ./data itself it's owned by root, and the native server can't write its logs there.
+    command: mkdir -p data/postgres && docker compose up postgres
+    shutdown:
+      command: docker compose stop postgres
+      timeout_seconds: 30
+    readiness_probe:
+      # The compose healthcheck (pg_isready) decides. No `{{...}}` --format here:
+      # process-compose would treat it as one of its own templates.
+      exec:
+        command: docker compose ps --format json postgres | grep -q '"Health":"healthy"'
+      initial_delay_seconds: 1
+      period_seconds: 2
+      timeout_seconds: 5
+      failure_threshold: 60
+
+  server:
+    command: ./scripts/dev-server.sh
+    depends_on:
+      postgres:
+        condition: process_healthy
+    readiness_probe:
+      http_get:
+        host: localhost
+        port: 8080
+        path: /health
+      initial_delay_seconds: 5
+      period_seconds: 2
+      timeout_seconds: 2
+      # The first `dotnet run` restores and builds — give it a few minutes.
+      failure_threshold: 150
+
+  spa:
+    command: ./scripts/dev-spa.sh
+    depends_on:
+      server:
+        condition: process_started

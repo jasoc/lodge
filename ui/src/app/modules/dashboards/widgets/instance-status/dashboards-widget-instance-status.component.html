@@ -1,0 +1,24 @@
+<div class="dashboards-widget-instance-status">
+  <mat-icon class="widget-watermark" fontSet="material-symbols-outlined">dns</mat-icon>
+  @if (!options.kind_code || !options.instance_code) {
+    <p class="widget-empty">Set a kind code and instance code in options.</p>
+  } @else if (loading()) {
+    <p class="widget-empty">Loading…</p>
+  } @else if (error()) {
+    <p class="widget-empty">Couldn't load "{{ options.kind_code }}/{{ options.instance_code }}".</p>
+  } @else {
+    <div class="widget-hero">
+      <mat-icon fontSet="material-symbols-outlined">dns</mat-icon>
+      <p class="widget-title">{{ options.kind_code }} / {{ options.instance_code }}</p>
+    </div>
+    <div class="widget-stat-row">
+      <div class="widget-stat" [class.widget-stat-warn]="pendingCount() > 0">
+        <span class="widget-stat-value">{{ pendingCount() }}</span>
+        <span class="widget-stat-label">pending</span>
+      </div>
+    </div>
+    <p class="widget-footnote">
+      Last reconciled: {{ lastRevisionAt() ? (lastRevisionAt() | date: 'short') : 'never' }}
+    </p>
+  }
+</div>

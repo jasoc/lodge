@@ -1,0 +1,36 @@
+<h2 mat-dialog-title class="run-log-title">
+  <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+  <span>
+    {{ data.action.label }}
+    @if (data.action.item_key) {
+      <span class="run-log-item">· {{ data.action.item_key }}</span>
+    }
+  </span>
+  <mat-chip [color]="statusColor()" highlighted>{{ status() }}</mat-chip>
+</h2>
+
+<mat-dialog-content class="run-log-content">
+  @if (running()) {
+    <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+  }
+  @if (message(); as msg) {
+    <p class="run-log-message" [class.run-log-message-error]="status() === 'FAILED'">
+      {{ msg }}
+    </p>
+  }
+  @if (error(); as err) {
+    <p class="run-log-message run-log-message-error">{{ err }}</p>
+  }
+
+  @if (available()) {
+    <pre #logView class="run-log-view" (scroll)="onScroll()">{{
+      text() || (running() ? 'Waiting for output…' : '(no output)')
+    }}</pre>
+  } @else {
+    <p class="run-log-empty">No log is kept for this run.</p>
+  }
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-button mat-dialog-close>Close</button>
+</mat-dialog-actions>

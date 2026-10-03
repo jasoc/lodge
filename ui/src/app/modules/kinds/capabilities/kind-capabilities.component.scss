@@ -1,0 +1,121 @@
+@use 'tokens' as tokens;
+
+:host {
+  display: block;
+  padding: 0 1.5rem;
+
+  .page-title {
+    margin: 0.75rem 0 1rem;
+  }
+
+  .capability-card {
+    position: relative;
+    overflow: hidden;
+    display: block;
+    border-radius: 16px;
+    padding: tokens.$lodge-space-4;
+    margin-bottom: tokens.$lodge-space-4;
+    background: linear-gradient(
+      128deg,
+      var(--lodge-background-shader) 0%,
+      var(--lodge-background-shader) 100%
+    );
+
+    .watermark {
+      position: absolute;
+      top: 50%;
+      left: 90%;
+      transform: translate(-50%, -50%) scale(5);
+      color: var(--lodge-main-ui-text-color);
+      opacity: 0.05;
+      pointer-events: none;
+    }
+
+    .capability-card-hero {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      position: relative;
+      z-index: 1;
+
+      mat-icon {
+        color: var(--lodge-main-ui-text-color);
+        margin-right: tokens.$lodge-space-3;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 1.6rem;
+      }
+
+      .capability-code {
+        margin: 0;
+        color: var(--lodge-main-ui-text-color-light);
+        font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
+        font-size: 0.85rem;
+      }
+    }
+
+    .capability-description {
+      position: relative;
+      z-index: 1;
+      color: var(--lodge-main-ui-text-color-light);
+      margin: tokens.$lodge-space-2 0 0;
+    }
+
+    .signal-block {
+      position: relative;
+      z-index: 1;
+      margin-top: tokens.$lodge-space-4;
+      padding-top: tokens.$lodge-space-3;
+      border-top: 1px solid var(--lodge-background-shader-stronger);
+
+      .signal-header {
+        display: flex;
+        align-items: center;
+        gap: tokens.$lodge-space-2;
+        margin-bottom: tokens.$lodge-space-2;
+
+        mat-icon {
+          color: var(--lodge-main-ui-text-color-light);
+        }
+
+        code {
+          font-weight: 500;
+        }
+      }
+
+      .rule-row {
+        margin: tokens.$lodge-space-2 0 tokens.$lodge-space-2 tokens.$lodge-space-5;
+
+        .rule-row-header {
+          display: flex;
+          align-items: center;
+          gap: tokens.$lodge-space-2;
+          margin-bottom: tokens.$lodge-space-1;
+
+          .rule-detail {
+            color: var(--lodge-main-ui-text-color-light);
+            font-size: 0.85rem;
+          }
+        }
+
+        .action-row {
+          display: flex;
+          align-items: center;
+          gap: tokens.$lodge-space-2;
+          margin: tokens.$lodge-space-1 0 tokens.$lodge-space-1 tokens.$lodge-space-4;
+
+          .action-label {
+            font-weight: 500;
+          }
+
+          .action-runbook {
+            color: var(--lodge-main-ui-text-color-light);
+            font-size: 0.8rem;
+          }
+        }
+      }
+    }
+  }
+}

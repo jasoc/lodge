@@ -22,6 +22,27 @@ body {
   height: 100%;
   font-family: 'Roboto Flex Variable';
   background-color: var(--lodge-background-color);
+  // Every element inherits this by default now, so a plain <span>/<div>/<pre>/<code> with
+  // no ancestor setting `color` no longer falls back to the browser's black default on the
+  // dark theme — that was the "black text on dark background" bug (yaml view, action
+  // labels, ...). The explicit h1-h6/p rule below is now redundant but harmless.
+  color: var(--lodge-main-ui-text-color);
+
+  // The "About" page's branded type (previously opt-in via `.branded-font`) is now the
+  // app-wide default — `code`/`pre`/`.yaml-view` switch to a real monospace font-family
+  // below, and font-variation-settings has no effect on a non-variable font, so this
+  // never touches code/YAML rendering.
+  font-variation-settings:
+    'wdth' 100,
+    'opsz' 50,
+    'GRAD' 0,
+    'slnt' 0,
+    'XTRA' 500,
+    'YTLC' 500,
+    'YOPQ' 80,
+    'YTAS' 750,
+    'YTDE' -230,
+    'XOPQ' 92;
 
   // Applying Material Themes
   @include mat.elevation-classes();

@@ -1,0 +1,58 @@
+@use 'tokens' as tokens;
+
+.dashboards-widget-signal-value {
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
+  border-radius: 16px;
+  padding: tokens.$lodge-space-3;
+  background: linear-gradient(
+    128deg,
+    var(--lodge-background-shader) 0%,
+    var(--lodge-background-shader) 100%
+  );
+
+  .widget-watermark {
+    position: absolute;
+    top: 50%;
+    left: 85%;
+    transform: translate(-50%, -50%) scale(4);
+    color: var(--lodge-main-ui-text-color);
+    opacity: 0.06;
+    pointer-events: none;
+  }
+
+  .widget-empty {
+    position: relative;
+    color: var(--lodge-main-ui-text-color-light);
+    margin: 0;
+  }
+
+  .widget-hero {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: tokens.$lodge-space-2;
+    margin-bottom: tokens.$lodge-space-3;
+
+    mat-icon {
+      color: var(--lodge-accent-color-300, var(--lodge-main-ui-text-color));
+    }
+
+    .widget-title {
+      margin: 0;
+      font-weight: 600;
+      font-size: 1rem;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .widget-value {
+    position: relative;
+    display: block;
+    font-size: 1.4rem;
+    font-weight: 600;
+    font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
+  }
+}

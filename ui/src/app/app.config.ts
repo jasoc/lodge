@@ -4,6 +4,8 @@ import { provideAnimationsAsync } from '@angular/platform-browser/animations/asy
 import { provideRouter, withViewTransitions } from '@angular/router';
 
 import { authInterceptor } from './interceptors/auth.interceptor';
+import { LODGE_WIDGETS } from './modules/dashboards/widgets';
+import { LODGE_WIDGETS_TOKEN } from './modules/dashboards/widgets/lodge-widgets.token';
 import { routes } from './app.routes';
 
 export const appConfig: ApplicationConfig = {
@@ -19,5 +21,6 @@ export const appConfig: ApplicationConfig = {
     provideZonelessChangeDetection(),
     provideAnimationsAsync(),
     provideHttpClient(withFetch(), withInterceptors([authInterceptor])),
+    { provide: LODGE_WIDGETS_TOKEN, useValue: LODGE_WIDGETS },
   ],
 };

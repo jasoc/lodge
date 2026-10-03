@@ -25,13 +25,18 @@ public sealed record SucceededRecord(
     DateTimeOffset CompletedAt,
     bool Synthetic);
 
-/// <summary>Projection of one live (QUEUED/RUNNING/FAILED) action row.</summary>
+/// <summary>
+/// Projection of one live (QUEUED/RUNNING/FAILED) action row. <see cref="ExecutorConfigJson"/>
+/// is the executor config snapshot the row was emitted (and possibly approved) with, in
+/// <see cref="Catalog.ExecutorConfigJson"/>'s canonical encoding.
+/// </summary>
 public sealed record LiveActionRow(
     Guid Id,
     ActionIdentity Identity,
     SignalTrigger Trigger,
     ActionStatus Status,
-    string? DesiredValueJson);
+    string? DesiredValueJson,
+    string? ExecutorConfigJson = null);
 
 /// <summary>
 /// One action the current desired state calls for (or, when <see cref="Satisfied"/>,
@@ -53,6 +58,9 @@ public sealed record RequiredAction(
     string? DesiredValueJson,
     IReadOnlyDictionary<string, string?> ResolvedInputs,
     IReadOnlyList<PendingPrompt> PendingPrompts,
+    IReadOnlyList<SecretInputRef> SecretInputs,
+    ExecutorKind ExecutorKind,
+    DockerExecutorConfig? DockerConfig,
     bool Satisfied,
     bool AdoptOnFaith = false)
 {

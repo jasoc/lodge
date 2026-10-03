@@ -2,79 +2,282 @@
   <p>Loading…</p>
 } @else if (instance(); as t) {
   <div class="instance-header">
-    <h1 class="page-title">{{ t.instance.display_name }}</h1>
-    <p class="instance-subtitle">{{ kindCode }} / {{ instanceCode }} · {{ t.instance.region }}</p>
+    <div class="instance-header-title">
+      <h1 class="page-title">{{ t.instance.display_name }}</h1>
+      <p class="instance-subtitle">{{ kindCode }} / {{ instanceCode }} · {{ t.instance.region }}</p>
+    </div>
+    <div class="instance-header-actions">
+      <button
+        mat-flat-button
+        color="primary"
+        [disabled]="reconciling()"
+        (click)="reconcileNow()"
+      >
+        <mat-icon fontSet="material-symbols-outlined" [class.spin]="reconciling()">sync</mat-icon>
+        {{ reconciling() ? 'Reconciling…' : 'Reconcile now' }}
+      </button>
+      <a mat-button [routerLink]="['/audit']" [queryParams]="{ instance_id: t.instance.id }">
+        <mat-icon fontSet="material-symbols-outlined">history</mat-icon>
+        View in audit log
+      </a>
+    </div>
   </div>
 
   <m3-tabs>
-    <m3-tab icon="bolt" label="Actions">
-      @if (actions().length === 0) {
-        <p>No actions yet.</p>
-      }
-      @for (action of actions(); track action.id) {
-        <div class="action-row">
-          <div class="action-row-main">
-            <mat-chip [color]="statusColor(action.status)" highlighted>{{
-              action.status
-            }}</mat-chip>
-            <mat-chip>{{ action.policy }}</mat-chip>
-            <span class="action-label">{{ action.label }}</span>
-          </div>
-          <div class="action-row-buttons">
-            @if (canConfirm(action)) {
-              <button
-                mat-flat-button
-                color="primary"
-                [disabled]="busyActionId() === action.id"
-                (click)="startConfirm(action)"
-              >
-                <mat-icon fontSet="material-symbols-outlined">check</mat-icon>
-                Confirm
-              </button>
-            }
-            @if (canInvalidate(action)) {
-              <button
-                mat-stroked-button
-                color="warn"
-                [disabled]="busyActionId() === action.id"
-                (click)="invalidate(action)"
-              >
-                <mat-icon fontSet="material-symbols-outlined">undo</mat-icon>
-                Invalidate
-              </button>
-            }
-          </div>
-          @if (promptingActionId() === action.id) {
-            <div class="prompt-form">
-              <app-dynamic-form
-                [questions]="promptForm(action)"
-                (valuesChange)="promptValues.set($event)"
-              >
-              </app-dynamic-form>
-              <button mat-flat-button color="primary" (click)="confirm(action, promptValues())">
-                Submit and run
-              </button>
-            </div>
-          }
-        </div>
-      }
+    <m3-tab icon="bolt" label="Capabilities">
+      <ng-container [ngTemplateOutlet]="capabilityCardsTpl"></ng-container>
     </m3-tab>
 
     <m3-tab icon="description" label="Inventory">
       <pre class="yaml-view">{{ t.latest_yaml ?? '(no inventory revision yet)' }}</pre>
     </m3-tab>
 
-    <m3-tab icon="history" label="Audit log">
-      @if (events().length === 0) {
-        <p>No audit events yet.</p>
-      }
-      @for (event of events(); track event.id) {
-        <div class="event-row">
-          <span class="event-type">{{ event.event_type }}</span>
-          <span class="event-actor">{{ event.actor }}</span>
-          <span class="event-time">{{ event.created_at }}</span>
+    <m3-tab icon="hub" label="Canvas">
+      <div class="canvas-view">
+        <div
+          class="inventory-canvas"
+          (pointerdown)="onCanvasPointerDown($event)"
+          (pointermove)="onCanvasPointerMove($event)"
+          (pointerup)="onCanvasPointerUp()"
+          (pointerleave)="onCanvasPointerUp()"
+          (wheel)="onCanvasWheel($event)"
+        >
+          <button
+            mat-icon-button
+            class="inventory-canvas-reset"
+            aria-label="Reset view"
+            (click)="resetCanvasView()"
+          >
+            <mat-icon fontSet="material-symbols-outlined">center_focus_strong</mat-icon>
+          </button>
+          <div
+            class="inventory-canvas-surface"
+            [style.transform]="
+              'translate(' +
+              canvasOffsetX() +
+              'px, ' +
+              canvasOffsetY() +
+              'px) scale(' +
+              canvasScale() +
+              ')'
+            "
+          >
+            @for (node of inventoryNodes(); track node.key) {
+              <div class="inventory-node">
+                <p class="inventory-node-title">{{ node.key }}</p>
+                @for (sig of node.signals; track sig.path) {
+                  <div
+                    class="inventory-signal"
+                    [class.inventory-signal-active]="sig.isSignal"
+                    [class.inventory-signal-highlighted]="highlightedSignalPath() === sig.path"
+                    (click)="sig.isSignal && highlightSignal(sig.path)"
+                  >
+                    <code>{{ sig.path }}</code>
+                    <span>{{ formatSignalValue(sig.value) }}</span>
+                  </div>
+                }
+              </div>
+            }
+          </div>
         </div>
-      }
+
+        <ng-container [ngTemplateOutlet]="capabilityCardsTpl"></ng-container>
+      </div>
     </m3-tab>
   </m3-tabs>
+
+  <ng-template #capabilityCardsTpl>
+    @if (capabilityCards().length === 0) {
+      <p>No actions yet.</p>
+    }
+    <div class="capability-grid">
+      @for (card of capabilityCards(); track card.code) {
+        <div class="capability-panel">
+          <div class="capability-panel-header">
+            <h3>{{ card.title }}</h3>
+            <a
+              class="capability-panel-link"
+              [routerLink]="['/kinds', kindCode, 'capabilities']"
+              [fragment]="card.code"
+            >
+              What is this?
+            </a>
+          </div>
+
+          @if (card.buttons.length > 0) {
+            <div class="control-tiles">
+              @for (action of card.buttons; track action.id) {
+                <div
+                  class="control-tile"
+                  [class.control-tile-done]="action.status === 'SUCCEEDED'"
+                  [class.control-tile-running]="action.status === 'RUNNING'"
+                  [class.control-tile-highlighted]="highlightedSignalPath() === action.signal_path"
+                >
+                  <div class="control-tile-top">
+                    <mat-icon class="control-tile-icon" fontSet="material-symbols-outlined">{{
+                      controlIcon(action)
+                    }}</mat-icon>
+                    <mat-chip [color]="statusColor(action.status)" highlighted>{{
+                      action.status
+                    }}</mat-chip>
+                  </div>
+                  <p class="control-tile-label">{{ action.label }}</p>
+                  @if (action.item_key) {
+                    <p class="control-tile-item">{{ action.item_key }}</p>
+                  }
+                  <mat-chip class="control-tile-policy">{{ action.policy }}</mat-chip>
+
+                  @if (canConfirm(action)) {
+                    <button
+                      mat-fab
+                      extended
+                      color="primary"
+                      class="control-tile-button"
+                      [disabled]="busyActionId() === action.id"
+                      (click)="startConfirm(action)"
+                    >
+                      <mat-icon fontSet="material-symbols-outlined">check</mat-icon>
+                      {{ action.status === 'FAILED' ? 'Retry' : 'Confirm' }}
+                    </button>
+                  } @else if (action.status === 'RUNNING') {
+                    <button mat-fab extended disabled class="control-tile-button">
+                      <mat-icon fontSet="material-symbols-outlined">autorenew</mat-icon>
+                      Running…
+                    </button>
+                  } @else if (canInvalidate(action)) {
+                    <button
+                      mat-stroked-button
+                      color="warn"
+                      class="control-tile-button"
+                      [disabled]="busyActionId() === action.id"
+                      (click)="invalidate(action)"
+                    >
+                      <mat-icon fontSet="material-symbols-outlined">undo</mat-icon>
+                      Done · Invalidate
+                    </button>
+                  } @else {
+                    <button mat-fab extended disabled class="control-tile-button">
+                      <mat-icon fontSet="material-symbols-outlined">block</mat-icon>
+                      {{ action.status }}
+                    </button>
+                  }
+
+                  @if (hasLog(action)) {
+                    <button mat-button class="control-tile-log" (click)="openLog(action)">
+                      <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+                      Logs
+                    </button>
+                  }
+
+                  @if (promptingActionId() === action.id) {
+                    <div class="prompt-form">
+                      <app-dynamic-form
+                        [questions]="promptForm(action)"
+                        (valuesChange)="promptValues.set($event)"
+                      >
+                      </app-dynamic-form>
+                      <button
+                        mat-flat-button
+                        color="primary"
+                        (click)="confirm(action, promptValues())"
+                      >
+                        Submit and run
+                      </button>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          }
+
+          @if (card.autoActions.length > 0) {
+            <button
+              mat-button
+              class="toggle-link"
+              (click)="showAutoActions.set(!showAutoActions())"
+            >
+              <mat-icon fontSet="material-symbols-outlined">{{
+                showAutoActions() ? 'expand_less' : 'expand_more'
+              }}</mat-icon>
+              {{ card.autoActions.length }} automatic action(s)
+            </button>
+            @if (showAutoActions()) {
+              <div class="capability-history">
+                @for (action of card.autoActions; track action.id) {
+                  <div class="action-row">
+                    <div class="action-row-main">
+                      <mat-chip [color]="statusColor(action.status)" highlighted>{{
+                        action.status
+                      }}</mat-chip>
+                      <mat-chip>AUTO</mat-chip>
+                      <span class="action-label">{{ action.label }}</span>
+                      @if (action.item_key) {
+                        <span class="action-item">{{ action.item_key }}</span>
+                      }
+                      <span class="action-time">{{ action.created_at | date: 'short' }}</span>
+                    </div>
+                    @if (hasLog(action)) {
+                      <div class="action-row-buttons">
+                        <button mat-button (click)="openLog(action)">
+                          <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+                          Logs
+                        </button>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          }
+
+          <button mat-button class="toggle-link" (click)="showHistory.set(!showHistory())">
+            <mat-icon fontSet="material-symbols-outlined">{{
+              showHistory() ? 'expand_less' : 'expand_more'
+            }}</mat-icon>
+            History ({{ card.history.length }})
+          </button>
+          @if (showHistory()) {
+            <div class="capability-history">
+              @for (action of card.history; track action.id) {
+                <div class="action-row">
+                  <div class="action-row-main">
+                    <mat-chip [color]="statusColor(action.status)" highlighted>{{
+                      action.status
+                    }}</mat-chip>
+                    <mat-chip>{{ action.policy }}</mat-chip>
+                    <span class="action-label">{{ action.label }}</span>
+                    @if (action.item_key) {
+                      <span class="action-item">{{ action.item_key }}</span>
+                    }
+                    <span class="action-time">{{ action.created_at | date: 'short' }}</span>
+                  </div>
+                  @if (hasLog(action) || canInvalidate(action)) {
+                    <div class="action-row-buttons">
+                      @if (hasLog(action)) {
+                        <button mat-button (click)="openLog(action)">
+                          <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+                          Logs
+                        </button>
+                      }
+                      @if (canInvalidate(action)) {
+                      <button
+                        mat-stroked-button
+                        color="warn"
+                        [disabled]="busyActionId() === action.id"
+                        (click)="invalidate(action)"
+                      >
+                        <mat-icon fontSet="material-symbols-outlined">undo</mat-icon>
+                        Invalidate
+                      </button>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </ng-template>
 }

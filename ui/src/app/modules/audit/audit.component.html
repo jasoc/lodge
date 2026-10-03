@@ -1,0 +1,74 @@
+<div class="lodge-global-table">
+  <div class="lodge-global-table-header">
+    <h1>Audit Log</h1>
+    @if (instanceIdFilter()) {
+      <button mat-button class="density-minus-1" (click)="clearInstanceFilter()">
+        Filtered to one instance · Clear
+      </button>
+    }
+  </div>
+
+  @if (!loading() && dataSource.data.length === 0) {
+    <p>No audit events yet.</p>
+  }
+
+  <table mat-table [dataSource]="dataSource" matSort>
+    <ng-container matColumnDef="kind_code">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header sortActionDescription="Sort by kind">
+        Kind
+      </th>
+      <td mat-cell *matCellDef="let row">{{ row.kind_code }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="instance_display_name">
+      <th
+        mat-header-cell
+        *matHeaderCellDef
+        mat-sort-header
+        sortActionDescription="Sort by instance"
+      >
+        Instance
+      </th>
+      <td mat-cell *matCellDef="let row">{{ row.instance_display_name ?? '—' }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="event_type">
+      <th
+        mat-header-cell
+        *matHeaderCellDef
+        mat-sort-header
+        sortActionDescription="Sort by event type"
+      >
+        Event
+      </th>
+      <td mat-cell *matCellDef="let row">{{ row.event_type }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="actor">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header sortActionDescription="Sort by actor">
+        Actor
+      </th>
+      <td mat-cell *matCellDef="let row">{{ row.actor }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="created_at">
+      <th
+        mat-header-cell
+        *matHeaderCellDef
+        mat-sort-header
+        sortActionDescription="Sort by created at"
+      >
+        Created
+      </th>
+      <td mat-cell *matCellDef="let row">{{ row.created_at | date: 'short' }}</td>
+    </ng-container>
+
+    <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+    <tr
+      mat-row
+      *matRowDef="let row; columns: displayedColumns"
+      [class.clickable-row]="row.instance_code"
+      (click)="openInstance(row)"
+    ></tr>
+  </table>
+</div>

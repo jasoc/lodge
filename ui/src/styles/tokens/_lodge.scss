@@ -1,5 +1,13 @@
 $lodge-dark-primary-text: rgba(black, 0.87);
 $lodge-light-primary-text: #f1f1f1;
 
-$lodge-shell-rounding: 16px;
-$lodge-shell-margin: 16px;
+// Spacing scale — use these instead of hand-picked px values in component styles.
+$lodge-space-1: 4px;
+$lodge-space-2: 8px;
+$lodge-space-3: 12px;
+$lodge-space-4: 16px;
+$lodge-space-5: 24px;
+$lodge-space-6: 32px;
+
+$lodge-shell-rounding: 12px;
+$lodge-shell-margin: 10px;

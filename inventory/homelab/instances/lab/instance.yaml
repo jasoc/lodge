@@ -1,0 +1,34 @@
+# The homelab's VMs. Each key is one VM (its hostname); the fields are what you'd hand a
+# hypervisor. Adding a VM creates it, removing it asks for confirmation before destroying.
+virtual_machines:
+  dns-01:
+    cpu_cores: 1
+    memory_mb: 1024
+    disk_gb: 16
+    os: "alpine-3.20"
+    network:
+      bridge: "vmbr0"
+      ip_address: "192.168.10.10/24"
+      gateway: "192.168.10.1"
+    start_on_boot: true
+
+  docker-01:
+    cpu_cores: 4
+    memory_mb: 8192
+    disk_gb: 128
+    os: "debian-12"
+    network:
+      bridge: "vmbr0"
+      ip_address: "192.168.10.20/24"
+      gateway: "192.168.10.1"
+    start_on_boot: true
+
+  sandbox-01:
+    cpu_cores: 2
+    memory_mb: 4096
+    disk_gb: 32
+    os: "ubuntu-24.04"
+    network:
+      bridge: "vmbr1"
+      ip_address: "dhcp"
+    start_on_boot: false

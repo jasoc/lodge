@@ -21,6 +21,9 @@ public class Instance
 
     public DateTimeOffset CreatedAt { get; set; }
 
+    /// <summary>False once the instance's folder is gone from the inventory: hidden and no longer reconciled, history kept.</summary>
+    public bool Enabled { get; set; } = true;
+
     public Kind? Kind { get; set; }
 
     public ICollection<RegistryRevision> Revisions { get; set; } = new List<RegistryRevision>();

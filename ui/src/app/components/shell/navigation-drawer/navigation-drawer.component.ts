@@ -10,6 +10,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { Router } from '@angular/router';
 
 import { AuthService } from '../../../services/auth.service';
+import { LodgeService } from '../../../services/lodge.service';
 import { ThemeService } from '../../../services/theme.service';
 import { M3ButtonComponent } from '../m3-button/m3-button.component';
 import { NavigationElement, navigationElementsTree } from '../navigation-tree';
@@ -44,6 +45,7 @@ export class NavigationDrawerComponent {
   readonly router = inject(Router);
   readonly authService = inject(AuthService);
   readonly themeService = inject(ThemeService);
+  private readonly lodgeService = inject(LodgeService);
 
   readonly collapsed = signal(false);
   readonly userWidgetCollapsed = signal(true);
@@ -54,6 +56,53 @@ export class NavigationDrawerComponent {
   readonly themeForm = new FormGroup({
     theme: new FormControl(this.themeService.currentThemeStr()),
   });
+
+  constructor() {
+    this.loadKindInstanceNodes();
+  }
+
+  /** Injects one expandable nav entry per kind, each listing its instances as
+   * sub-elements, right after the "Lodge" separator — so instances are reachable from the
+   * drawer without going through Home first. */
+  private async loadKindInstanceNodes() {
+    const kinds = await this.lodgeService.getKinds();
+    const kindNodes: NavigationElement[] = [];
+    for (const kind of kinds) {
+      const instances = await this.lodgeService.getInstances(kind.code);
+      kindNodes.push(
+        new NavigationElement({
+          name: kind.name,
+          icon: 'dns',
+          redirect: `instances/${kind.code}`,
+          subElements: [
+            new NavigationElement({
+              name: 'Overview',
+              icon: 'navigate_next',
+              redirect: `instances/${kind.code}`,
+            }),
+            ...instances.map(
+              (instance) =>
+                new NavigationElement({
+                  name: instance.display_name,
+                  icon: 'dns',
+                  redirect: `instances/${kind.code}/${instance.instance_code}`,
+                }),
+            ),
+          ],
+        }),
+      );
+    }
+    if (kindNodes.length === 0) {
+      return;
+    }
+    this.navigationElementsTree.update((tree) => {
+      const updated = tree.map((el) => el.clone());
+      const tagIndex = updated.findIndex((el) => el.type === 'tag');
+      const insertAt = tagIndex === -1 ? updated.length : tagIndex + 1;
+      updated.splice(insertAt, 0, ...kindNodes);
+      return updated;
+    });
+  }
 
   logout() {
     this.authService.logout();

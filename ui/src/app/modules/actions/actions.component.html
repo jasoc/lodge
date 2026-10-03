@@ -1,0 +1,121 @@
+<div class="lodge-global-table">
+  <div class="lodge-global-table-header">
+    <h1>Actions</h1>
+    <div class="lodge-global-table-filters">
+      <mat-form-field class="density-minus-2">
+        <mat-label>Status</mat-label>
+        <mat-select [ngModel]="statusFilter()" (ngModelChange)="onStatusChange($event)">
+          <mat-option [value]="null">All</mat-option>
+          @for (status of statuses; track status) {
+            <mat-option [value]="status">{{ status }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+      <mat-form-field class="density-minus-2">
+        <mat-label>Policy</mat-label>
+        <mat-select [ngModel]="policyFilter()" (ngModelChange)="onPolicyChange($event)">
+          <mat-option [value]="null">All</mat-option>
+          @for (policy of policies; track policy) {
+            <mat-option [value]="policy">{{ policy }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+    </div>
+  </div>
+
+  @if (!loading() && dataSource.data.length === 0) {
+    <p>No actions match the current filters.</p>
+  }
+
+  <table mat-table [dataSource]="dataSource" matSort>
+    <ng-container matColumnDef="kind_code">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header sortActionDescription="Sort by kind">
+        Kind
+      </th>
+      <td mat-cell *matCellDef="let row">{{ row.kind_code }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="instance_display_name">
+      <th
+        mat-header-cell
+        *matHeaderCellDef
+        mat-sort-header
+        sortActionDescription="Sort by instance"
+      >
+        Instance
+      </th>
+      <td mat-cell *matCellDef="let row">{{ row.instance_display_name }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="capability_code">
+      <th
+        mat-header-cell
+        *matHeaderCellDef
+        mat-sort-header
+        sortActionDescription="Sort by capability"
+      >
+        Capability
+      </th>
+      <td mat-cell *matCellDef="let row">{{ row.capability_code }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="label">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header sortActionDescription="Sort by label">
+        Action
+      </th>
+      <td mat-cell *matCellDef="let row">{{ row.label }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="policy">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header sortActionDescription="Sort by policy">
+        Policy
+      </th>
+      <td mat-cell *matCellDef="let row">
+        <mat-chip>{{ row.policy }}</mat-chip>
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="status">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header sortActionDescription="Sort by status">
+        Status
+      </th>
+      <td mat-cell *matCellDef="let row">
+        <mat-chip [color]="statusColor(row.status)" highlighted>{{ row.status }}</mat-chip>
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="created_at">
+      <th
+        mat-header-cell
+        *matHeaderCellDef
+        mat-sort-header
+        sortActionDescription="Sort by created at"
+      >
+        Created
+      </th>
+      <td mat-cell *matCellDef="let row">{{ row.created_at | date: 'short' }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="completed_at">
+      <th
+        mat-header-cell
+        *matHeaderCellDef
+        mat-sort-header
+        sortActionDescription="Sort by completed at"
+      >
+        Completed
+      </th>
+      <td mat-cell *matCellDef="let row">
+        {{ row.completed_at ? (row.completed_at | date: 'short') : '—' }}
+      </td>
+    </ng-container>
+
+    <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+    <tr
+      mat-row
+      *matRowDef="let row; columns: displayedColumns"
+      class="clickable-row"
+      (click)="openInstance(row)"
+    ></tr>
+  </table>
+</div>

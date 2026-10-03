@@ -2,7 +2,7 @@
   position: relative;
 
   h1 {
-    margin: 1rem 0 3rem 2rem;
+    margin: 0.75rem 0 2rem 1.5rem;
   }
 
   .settings-header {
@@ -18,7 +18,7 @@
       flex-direction: row;
       align-items: center;
       justify-content: flex-start;
-      margin: 2rem 0;
+      margin: 1.5rem 0;
     }
 
     h3 {
@@ -26,18 +26,18 @@
     }
 
     mat-icon {
-      margin: 0 1rem;
+      margin: 0 0.75rem;
     }
   }
 
   .settings-container {
     display: grid;
     --min-card-width: 260px;
-    gap: 1.25rem;
+    gap: 1rem;
     grid-template-columns: repeat(auto-fill, minmax(var(--min-card-width), 1fr));
     align-items: stretch;
     width: 100%;
-    margin-block: 1.5rem 3rem;
+    margin-block: 1rem 2rem;
 
     m3-card {
       height: 100%;

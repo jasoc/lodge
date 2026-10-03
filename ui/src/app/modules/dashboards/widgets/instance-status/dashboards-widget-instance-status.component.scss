@@ -1,0 +1,81 @@
+@use 'tokens' as tokens;
+
+.dashboards-widget-instance-status {
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
+  border-radius: 16px;
+  padding: tokens.$lodge-space-3;
+  background: linear-gradient(
+    128deg,
+    var(--lodge-background-shader) 0%,
+    var(--lodge-background-shader) 100%
+  );
+
+  .widget-watermark {
+    position: absolute;
+    top: 50%;
+    left: 85%;
+    transform: translate(-50%, -50%) scale(4);
+    color: var(--lodge-main-ui-text-color);
+    opacity: 0.06;
+    pointer-events: none;
+  }
+
+  .widget-empty {
+    position: relative;
+    color: var(--lodge-main-ui-text-color-light);
+    margin: 0;
+  }
+
+  .widget-hero {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: tokens.$lodge-space-2;
+    margin-bottom: tokens.$lodge-space-3;
+
+    mat-icon {
+      color: var(--lodge-accent-color-300, var(--lodge-main-ui-text-color));
+    }
+  }
+
+  .widget-title {
+    margin: 0;
+    font-weight: 600;
+    font-size: 1rem;
+  }
+
+  .widget-stat-row {
+    position: relative;
+    display: flex;
+    gap: tokens.$lodge-space-4;
+  }
+
+  .widget-stat {
+    display: flex;
+    flex-direction: column;
+
+    &-value {
+      font-size: 1.8rem;
+      font-weight: 600;
+    }
+
+    &-label {
+      color: var(--lodge-main-ui-text-color-light);
+      font-size: 0.75rem;
+    }
+
+    &-warn .widget-stat-value {
+      color: #e57373;
+    }
+  }
+
+  .widget-footnote {
+    position: relative;
+    margin: tokens.$lodge-space-2 0 0;
+    color: var(--lodge-main-ui-text-color-light);
+    font-size: 0.75rem;
+  }
+}

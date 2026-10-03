@@ -22,6 +22,7 @@ export class AuthService extends BackendService {
   readonly subjectId = signal<string | null>(this.tokenStorage.get()?.subjectId ?? null);
 
   private configPromise: Promise<AuthConfigModel> | null = null;
+  private renewal: Promise<boolean> | null = null;
 
   userLogged(): boolean {
     return this.tokenStorage.get() !== null;
@@ -42,6 +43,35 @@ export class AuthService extends BackendService {
       await this.login();
     }
     // Oidc: nothing to do here silently — the route guard redirects to /auth/login.
+  }
+
+  /**
+   * Called by `authInterceptor` when the server rejected `staleToken`. Single-flighted, so
+   * a page firing many requests at once mints one replacement session, not one each.
+   * Resolves true when a fresh session is in place (NoAuth: silent re-login; or another
+   * request already renewed it), false when the user has to log in again (Oidc).
+   */
+  renewSession(staleToken: string): Promise<boolean> {
+    if (this.tokenStorage.get()?.token !== staleToken && this.userLogged()) {
+      return Promise.resolve(true);
+    }
+
+    this.renewal ??= (async () => {
+      try {
+        this.logout();
+        const config = await this.getConfig();
+        if (config.mode !== 'NoAuth') {
+          return false;
+        }
+        await this.login();
+        return true;
+      } catch {
+        return false;
+      } finally {
+        this.renewal = null;
+      }
+    })();
+    return this.renewal;
   }
 
   async login(): Promise<void> {

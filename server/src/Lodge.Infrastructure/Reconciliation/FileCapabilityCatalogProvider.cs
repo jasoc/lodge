@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Lodge.Core.Catalog;
+using Lodge.Infrastructure.Execution;
 using Lodge.Infrastructure.Git;
 using Microsoft.Extensions.Options;
 
@@ -12,17 +13,22 @@ namespace Lodge.Infrastructure.Reconciliation;
 /// well-known filename, since that same instance folder also holds the instance's inventory
 /// data files (instance.yaml, features.yaml, ...), which are not capability rules and are
 /// read by <see cref="IInventorySource"/> instead. Parsed files are cached until
-/// <see cref="Invalidate"/> (called once per cycle).
+/// <see cref="Invalidate"/> (called once per cycle). Every <c>docker.build</c> action is
+/// stamped here with its playbook folder's content fingerprint, so the reconciler sees a
+/// changed playbook as a changed executor config — the same way it sees changed desired
+/// state — and an approval never silently carries over to different playbook code.
 /// </summary>
 public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, ICacheInvalidatable
 {
     private sealed record LoadedDefinitions(IReadOnlyList<CapabilityDefinition> Definitions, IReadOnlyList<string> Errors);
 
     private readonly string _repoRoot;
+    private readonly PlaybookContextResolver _playbooks;
     private readonly ConcurrentDictionary<string, LoadedDefinitions> _cache = new(StringComparer.OrdinalIgnoreCase);
 
-    public FileCapabilityCatalogProvider(IOptions<GitSnapshotOptions> options)
+    public FileCapabilityCatalogProvider(IOptions<GitSnapshotOptions> options, PlaybookContextResolver playbooks)
     {
+        _playbooks = playbooks;
         _repoRoot = string.IsNullOrWhiteSpace(options.Value.RepoRoot)
             ? Directory.GetCurrentDirectory()
             : options.Value.RepoRoot;
@@ -33,10 +39,12 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
     public async Task<CatalogLoadResult> GetCatalogAsync(string kindCode, string instanceCode, CancellationToken cancellationToken = default)
     {
         var generic = await LoadDirectoryAsync(
+            kindCode,
             $"generic:{kindCode}",
             Path.Combine(_repoRoot, "inventory", kindCode, "capabilities"),
             cancellationToken);
         var overrides = await LoadFileAsync(
+            kindCode,
             $"instance:{kindCode}/{instanceCode}",
             Path.Combine(_repoRoot, "inventory", kindCode, "instances", instanceCode, "overrides.yaml"),
             cancellationToken);
@@ -57,7 +65,19 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
         }
     }
 
-    private async Task<LoadedDefinitions> LoadDirectoryAsync(string cacheKey, string directory, CancellationToken cancellationToken)
+    public async Task<CatalogLoadResult> GetGenericCatalogAsync(string kindCode, CancellationToken cancellationToken = default)
+    {
+        var generic = await LoadDirectoryAsync(
+            kindCode,
+            $"generic:{kindCode}",
+            Path.Combine(_repoRoot, "inventory", kindCode, "capabilities"),
+            cancellationToken);
+
+        var catalog = CapabilityCatalogLoader.Merge(kindCode, generic.Definitions, Array.Empty<CapabilityDefinition>());
+        return new CatalogLoadResult(catalog, generic.Errors);
+    }
+
+    private async Task<LoadedDefinitions> LoadDirectoryAsync(string kindCode, string cacheKey, string directory, CancellationToken cancellationToken)
     {
         if (_cache.TryGetValue(cacheKey, out var cached))
         {
@@ -75,7 +95,9 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
                 try
                 {
                     var yaml = await File.ReadAllTextAsync(file, cancellationToken);
-                    definitions.Add(CapabilityCatalogLoader.LoadCapability(yaml, Path.GetFileName(file)));
+                    var definition = CapabilityCatalogLoader.LoadCapability(yaml, Path.GetFileName(file));
+                    StampPlaybookFingerprints(kindCode, definition, errors);
+                    definitions.Add(definition);
                 }
                 catch (CatalogFormatException ex)
                 {
@@ -89,7 +111,7 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
         return loaded;
     }
 
-    private async Task<LoadedDefinitions> LoadFileAsync(string cacheKey, string filePath, CancellationToken cancellationToken)
+    private async Task<LoadedDefinitions> LoadFileAsync(string kindCode, string cacheKey, string filePath, CancellationToken cancellationToken)
     {
         if (_cache.TryGetValue(cacheKey, out var cached))
         {
@@ -104,7 +126,9 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
             try
             {
                 var yaml = await File.ReadAllTextAsync(filePath, cancellationToken);
-                definitions.Add(CapabilityCatalogLoader.LoadCapability(yaml, Path.GetFileName(filePath)));
+                var definition = CapabilityCatalogLoader.LoadCapability(yaml, Path.GetFileName(filePath));
+                StampPlaybookFingerprints(kindCode, definition, errors);
+                definitions.Add(definition);
             }
             catch (CatalogFormatException ex)
             {
@@ -115,5 +139,35 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
         var loaded = new LoadedDefinitions(definitions, errors);
         _cache[cacheKey] = loaded;
         return loaded;
+    }
+
+    /// <summary>
+    /// A context that can't be fingerprinted (missing folder, no Dockerfile, path escape)
+    /// surfaces as a validation error and leaves the fingerprint null: the action is still
+    /// shown, but the executor refuses to build it until the folder is fixed — at which
+    /// point the fingerprint appears, the config changes, and the row is re-queued.
+    /// </summary>
+    private void StampPlaybookFingerprints(string kindCode, CapabilityDefinition definition, List<string> errors)
+    {
+        foreach (var signal in definition.Signals)
+        {
+            foreach (var action in signal.Rules.SelectMany(r => r.Actions))
+            {
+                if (action.Docker?.Build is not { } build)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var fingerprint = _playbooks.ComputeFingerprint(kindCode, build);
+                    action.Docker = action.Docker with { Build = build with { Fingerprint = fingerprint } };
+                }
+                catch (Exception ex) when (ex is PlaybookContextException or IOException or UnauthorizedAccessException)
+                {
+                    errors.Add($"{definition.SourceFile ?? definition.Code}, action '{action.Key}': {ex.Message}");
+                }
+            }
+        }
     }
 }

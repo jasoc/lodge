@@ -28,6 +28,18 @@ RUN dotnet tool install --tool-path /app/publish/tools Badgie.Migrator
 # ---- runtime ----
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.0 AS runtime
 WORKDIR /app
+# docker.io + docker-buildx: client-only usage — no daemon ever runs in here.
+# DockerRunbookExecutor talks to the HOST's daemon through the socket docker-compose.yml
+# mounts at /var/run/docker.sock (or whatever DOCKER_HOST points at), pulling images and
+# building inventory playbook folders as sibling containers. buildx makes `docker build`
+# use BuildKit instead of the deprecated legacy builder.
+# TODO: install pass-cli (Proton Pass CLI) here too, for PassCliSecretProvider
+# (Secrets:Provider=PassCli) — its distribution/install method isn't verified from
+# anything in this repo (the homelab scripts assume it's already on PATH), so no install
+# command is guessed here; fill this in against the real pass-cli release artifact.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends docker.io docker-buildx \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=server-build /app/publish ./
 COPY --from=spa-build /spa/dist/spa/browser ./wwwroot
 # Lives under /repo (not /app) so MigrationRunner finds it the same way it finds
@@ -39,5 +51,6 @@ ENV ASPNETCORE_URLS=http://+:8080
 ENV GitSnapshot__RepoRoot=/repo
 ENV ShellExecutor__WorkingDirectory=/repo
 ENV ShellExecutor__LogDirectory=/repo/data/runbook-logs
+ENV DockerExecutor__LogDirectory=/repo/data/docker-runbook-logs
 
 ENTRYPOINT ["dotnet", "Lodge.Server.dll"]

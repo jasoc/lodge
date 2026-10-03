@@ -1,0 +1,57 @@
+<h1 class="page-title">{{ kindCode }} capabilities</h1>
+
+@if (loading()) {
+  <p>Loading…</p>
+} @else if (catalog(); as cat) {
+  @if (cat.capabilities.length === 0) {
+    <p>No capabilities defined for this kind yet.</p>
+  }
+  @for (capability of cat.capabilities; track capability.code) {
+    <section class="capability-card" [id]="capability.code">
+      <mat-icon class="watermark" fontSet="material-symbols-outlined">bolt</mat-icon>
+      <div class="capability-card-hero">
+        <mat-icon fontSet="material-symbols-outlined">bolt</mat-icon>
+        <div>
+          <h2>{{ capability.title }}</h2>
+          <p class="capability-code">{{ capability.code }}</p>
+        </div>
+      </div>
+      @if (capability.description) {
+        <p class="capability-description">{{ capability.description }}</p>
+      }
+
+      @for (signal of capability.signals; track signal.path) {
+        <div class="signal-block">
+          <div class="signal-header">
+            <mat-icon fontSet="material-symbols-outlined">sensors</mat-icon>
+            <code>{{ signal.path }}</code>
+            <mat-chip>{{ signal.kind }}</mat-chip>
+          </div>
+
+          @for (rule of signal.rules; track $index) {
+            <div class="rule-row">
+              <div class="rule-row-header">
+                <mat-chip color="accent">{{ rule.trigger }}</mat-chip>
+                @if (rule.when_json) {
+                  <span class="rule-detail">when {{ rule.when_json }}</span>
+                }
+                @if (rule.item_key) {
+                  <span class="rule-detail">item {{ rule.item_key }}</span>
+                }
+              </div>
+              @for (action of rule.actions; track action.key) {
+                <div class="action-row">
+                  <mat-chip [color]="action.policy === 'AUTO' ? 'primary' : 'accent'" highlighted>{{
+                    action.policy
+                  }}</mat-chip>
+                  <span class="action-label">{{ action.label }}</span>
+                  <code class="action-runbook">{{ action.runbook }}</code>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+    </section>
+  }
+}

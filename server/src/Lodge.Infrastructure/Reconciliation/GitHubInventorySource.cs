@@ -22,6 +22,25 @@ public sealed class GitHubInventorySource : IInventorySource
     public Task<string> GetHeadAsync(string kindCode, CancellationToken cancellationToken = default)
         => _client.GetBranchHeadShaAsync(_options.GitHub.Branch, cancellationToken);
 
+    public async Task<IReadOnlyList<KindDescriptor>> GetKindsAsync(CancellationToken cancellationToken = default)
+    {
+        var head = await _client.GetBranchHeadShaAsync(_options.GitHub.Branch, cancellationToken);
+        var kinds = new List<KindDescriptor>();
+        foreach (var dir in (await _client.ListSubdirectoriesAsync("inventory", head, cancellationToken)).OrderBy(d => d, StringComparer.Ordinal))
+        {
+            var code = dir.Split('/').Last();
+            if (!KindManifest.IsValidCode(code))
+            {
+                continue;
+            }
+
+            var manifest = await _client.GetFileContentAsync($"inventory/{code}/{KindManifest.FileName}", head, cancellationToken);
+            kinds.Add(new KindDescriptor(code, manifest is null ? null : KindManifest.ParseName(manifest)));
+        }
+
+        return kinds;
+    }
+
     public async Task<IReadOnlyList<InstanceFile>> GetInstanceFilesAsync(string kindCode, CancellationToken cancellationToken = default)
     {
         var instancesDir = $"inventory/{kindCode}/instances";

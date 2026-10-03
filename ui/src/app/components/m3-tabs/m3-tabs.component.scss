@@ -1,4 +1,5 @@
 @use 'theme' as theme;
+@use 'tokens' as tokens;
 
 :host {
   height: 100%;
@@ -71,10 +72,10 @@
 
   .opened-tab {
     overflow: auto;
-    $MARGIN: 16px;
-    padding: 16px;
-    height: calc(100% - $MARGIN * 2);
-    width: calc(100% - $MARGIN * 2);
+    $MARGIN: tokens.$lodge-space-3;
+    padding: $MARGIN;
+    height: calc(100% - #{$MARGIN} * 2);
+    width: calc(100% - #{$MARGIN} * 2);
 
     &::-webkit-scrollbar {
       width: 5px;

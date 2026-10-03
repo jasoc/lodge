@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Lodge.Core.Domain.Enums;
 
 namespace Lodge.Core.Catalog;
@@ -12,7 +13,14 @@ public enum RuleInputKind
     Const,
 
     /// <summary>Asked from the human at confirm time; unresolved until then.</summary>
-    Prompt
+    Prompt,
+
+    /// <summary>
+    /// A reference to a secret, resolved to a plaintext value only inside
+    /// <see cref="Lodge.Core.Abstractions.ISecretProvider"/> at execution time — never by
+    /// the pure Reconciler, never persisted resolved, never logged.
+    /// </summary>
+    Secret
 }
 
 /// <summary>A single declared input to a runbook.</summary>
@@ -25,7 +33,8 @@ public sealed class RuleInput
     /// <summary>
     /// For <see cref="RuleInputKind.From"/>: the context key. For
     /// <see cref="RuleInputKind.Const"/>: the literal value. For
-    /// <see cref="RuleInputKind.Prompt"/>: the human-facing prompt text.
+    /// <see cref="RuleInputKind.Prompt"/>: the human-facing prompt text. For
+    /// <see cref="RuleInputKind.Secret"/>: the secret reference.
     /// </summary>
     public string? Value { get; set; }
 
@@ -35,6 +44,57 @@ public sealed class RuleInput
 
 /// <summary>A prompt whose value must be supplied by a human at confirm time.</summary>
 public sealed record PendingPrompt(string Name, string Prompt, bool Required);
+
+/// <summary>
+/// An unresolved secret reference carried on a required action — resolved to a plaintext
+/// value only by <see cref="Lodge.Core.Abstractions.ISecretProvider"/> at execution time.
+/// </summary>
+public sealed record SecretInputRef(string Name, string SecretRef);
+
+/// <summary>
+/// Config for <see cref="ExecutorKind.Docker"/>: what a Docker-executed action runs —
+/// either a ready-made <see cref="Image"/> or a <see cref="Build"/> context folder inside
+/// the inventory (exactly one of the two), plus an optional entrypoint override and fixed
+/// command argv. Parameter values never get templated into <see cref="Entrypoint"/>/<see
+/// cref="Command"/> — they flow in purely as <c>LODGE_PARAM_*</c> environment variables
+/// (plus the whole map as <c>LODGE_PARAMS_JSON</c>), the same convention the shell
+/// executor already uses.
+/// </summary>
+public sealed record DockerExecutorConfig(
+    string? Image,
+    IReadOnlyList<string> Command,
+    IReadOnlyList<string>? Entrypoint = null,
+    DockerBuildConfig? Build = null);
+
+/// <summary>
+/// A playbook image built from a folder of the inventory itself rather than pulled.
+/// <see cref="Context"/> is relative to <c>inventory/{kind}/</c>; <see cref="Dockerfile"/>
+/// is relative to the context. <see cref="Args"/> are static build args only — runtime
+/// parameters never reach the build, so they can't bust the image cache or end up baked
+/// into image history. <see cref="Fingerprint"/> is a content hash of the context (plus
+/// dockerfile/target/args) stamped by the catalog provider when the catalog is loaded:
+/// it is both the image cache key and what an approved action is pinned to.
+/// </summary>
+public sealed record DockerBuildConfig(
+    string Context,
+    string? Dockerfile = null,
+    string? Target = null,
+    IReadOnlyDictionary<string, string>? Args = null,
+    string? Fingerprint = null);
+
+/// <summary>
+/// The one canonical JSON encoding of an action's executor config — used both to persist
+/// it on the action row and to compare a live row's snapshot against the current catalog,
+/// so the two never disagree on formatting.
+/// </summary>
+public static class ExecutorConfigJson
+{
+    public static string? Serialize(DockerExecutorConfig? config)
+        => config is null ? null : JsonSerializer.Serialize(config);
+
+    public static DockerExecutorConfig? Deserialize(string? json)
+        => string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<DockerExecutorConfig>(json);
+}
 
 /// <summary>
 /// One action a rule requires when it matches: a direct Octopus runbook reference plus
@@ -56,6 +116,12 @@ public sealed class ActionTemplate
     public string Label { get; set; } = string.Empty;
 
     public ActionPolicy Policy { get; set; } = ActionPolicy.MANUAL_REQUIRED;
+
+    /// <summary>Which executor runs this action's runbook — declared explicitly, never inferred.</summary>
+    public ExecutorKind ExecutorKind { get; set; } = ExecutorKind.Shell;
+
+    /// <summary>Non-null only when <see cref="ExecutorKind"/> is <see cref="ExecutorKind.Docker"/>.</summary>
+    public DockerExecutorConfig? Docker { get; set; }
 
     public IReadOnlyList<RuleInput> Inputs { get; set; } = new List<RuleInput>();
 

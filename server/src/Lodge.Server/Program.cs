@@ -14,8 +14,8 @@ var repoRoot = RepoRootLocator.Resolve(builder.Configuration["GitSnapshot:RepoRo
 builder.Configuration["GitSnapshot:RepoRoot"] = repoRoot;
 
 // Shell executor scripts/logs are addressed relative to the repo root too, so a runbook
-// alias like "runbooks/provision-service.sh" resolves the same way regardless of the
-// process's own working directory.
+// alias like "scripts/ops/backup.sh" resolves the same way regardless of the process's own
+// working directory.
 if (string.IsNullOrWhiteSpace(builder.Configuration["ShellExecutor:WorkingDirectory"]))
 {
     builder.Configuration["ShellExecutor:WorkingDirectory"] = repoRoot;
@@ -26,6 +26,13 @@ if (string.IsNullOrWhiteSpace(builder.Configuration["ShellExecutor:LogDirectory"
     var relative = builder.Configuration["ShellExecutor:LogDirectory"];
     relative = string.IsNullOrWhiteSpace(relative) ? "data/runbook-logs" : relative;
     builder.Configuration["ShellExecutor:LogDirectory"] = Path.Combine(repoRoot, relative);
+}
+if (string.IsNullOrWhiteSpace(builder.Configuration["DockerExecutor:LogDirectory"]) ||
+    !Path.IsPathRooted(builder.Configuration["DockerExecutor:LogDirectory"]))
+{
+    var relative = builder.Configuration["DockerExecutor:LogDirectory"];
+    relative = string.IsNullOrWhiteSpace(relative) ? "data/docker-runbook-logs" : relative;
+    builder.Configuration["DockerExecutor:LogDirectory"] = Path.Combine(repoRoot, relative);
 }
 
 builder.Services.AddLodgeInfrastructure(builder.Configuration);

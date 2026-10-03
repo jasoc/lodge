@@ -50,6 +50,7 @@ public class LodgeDbContext : DbContext
             e.Property(x => x.Generation).HasColumnName("generation");
             e.Property(x => x.Region).HasColumnName("region").HasMaxLength(64);
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.Enabled).HasColumnName("enabled");
             e.HasIndex(x => new { x.KindCode, x.InstanceCode }).IsUnique();
             e.HasOne(x => x.Kind).WithMany(p => p.Instances)
                 .HasForeignKey(x => x.KindCode).OnDelete(DeleteBehavior.Restrict);
@@ -87,6 +88,9 @@ public class LodgeDbContext : DbContext
             e.Property(x => x.DesiredValueJson).HasColumnName("desired_value_json");
             e.Property(x => x.ResolvedInputsJson).HasColumnName("resolved_inputs_json");
             e.Property(x => x.PendingPromptsJson).HasColumnName("pending_prompts_json");
+            e.Property(x => x.ExecutorKind).HasColumnName("executor_kind").HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.ExecutorConfigJson).HasColumnName("executor_config_json");
+            e.Property(x => x.SecretInputsJson).HasColumnName("secret_inputs_json");
             e.Property(x => x.ExecutionRef).HasColumnName("execution_ref").HasMaxLength(256);
             e.Property(x => x.Synthetic).HasColumnName("synthetic");
             e.Property(x => x.CreatedAt).HasColumnName("created_at");

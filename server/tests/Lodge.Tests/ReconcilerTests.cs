@@ -731,4 +731,136 @@ public class ReconcilerTests
         Assert.Empty(second.ToSupersede);
         Assert.Empty(second.ToAdopt);
     }
+
+    // --- executor / secret inputs ----------------------------------------------------------
+
+    private static CapabilityCatalog DockerVmCatalog()
+    {
+        var capability = CapabilityCatalogLoader.LoadCapability("""
+            capability: virtual_machines
+            title: "Virtual Machines"
+            signals:
+              - path: virtual_machines
+                kind: keyed_collection
+                rules:
+                  - on: add
+                    actions:
+                      - key: run_ansible_profile
+                        runbook: homelab-ops/ansible-profile
+                        policy: MANUAL_REQUIRED
+                        executor: docker
+                        docker:
+                          image: "homelab/toolbox:latest"
+                          command: ["ansible-profile"]
+                        inputs:
+                          docker_host: { from: item.private_ip }
+                          registry_token: { secret: "Homelab/environments/REGISTRY_PULL_TOKEN" }
+            """);
+        return CapabilityCatalogLoader.Merge("acme", new[] { capability }, Array.Empty<CapabilityDefinition>());
+    }
+
+    [Fact]
+    public void Docker_executor_and_secret_inputs_propagate_unresolved_into_the_required_action()
+    {
+        var result = Reconciler.Reconcile(Input(DockerVmCatalog(), """
+            virtual_machines:
+              vm-alpha-01:
+                private_ip: "192.168.1.10"
+            """));
+
+        var action = Assert.Single(result.ToCreate);
+        Assert.Equal(ExecutorKind.Docker, action.ExecutorKind);
+        Assert.NotNull(action.DockerConfig);
+        Assert.Equal("homelab/toolbox:latest", action.DockerConfig!.Image);
+        Assert.Equal(new[] { "ansible-profile" }, action.DockerConfig.Command);
+
+        // The pure Reconciler never resolves a secret — it only carries the reference.
+        var secret = Assert.Single(action.SecretInputs);
+        Assert.Equal("registry_token", secret.Name);
+        Assert.Equal("Homelab/environments/REGISTRY_PULL_TOKEN", secret.SecretRef);
+        Assert.DoesNotContain("registry_token", action.ResolvedInputs.Keys);
+
+        Assert.Equal("192.168.1.10", action.ResolvedInputs["docker_host"]);
+    }
+
+    [Fact]
+    public void Shell_actions_default_to_shell_executor_with_no_docker_config()
+    {
+        var result = Reconciler.Reconcile(Input(SsoCatalog(), "features:\n  sso_login: true"));
+
+        Assert.All(result.ToCreate, a =>
+        {
+            Assert.Equal(ExecutorKind.Shell, a.ExecutorKind);
+            Assert.Null(a.DockerConfig);
+            Assert.Empty(a.SecretInputs);
+        });
+    }
+
+    // --- executor config snapshot --------------------------------------------------------
+
+    private static CapabilityCatalog PlaybookCatalog(string? fingerprint)
+    {
+        var catalog = CapabilityCatalogLoader.Merge("homelab", new[] { CapabilityCatalogLoader.LoadCapability("""
+            capability: probes
+            signals:
+              - path: checks
+                kind: keyed_collection
+                rules:
+                  - on: add
+                    actions:
+                      - key: probe
+                        runbook: homelab-ops/probe
+                        executor: docker
+                        docker:
+                          build:
+                            context: playbooks/probe
+            """) }, Array.Empty<CapabilityDefinition>());
+
+        // What FileCapabilityCatalogProvider does at load time.
+        var action = catalog.Capabilities[0].Signals[0].Rules[0].Actions[0];
+        action.Docker = action.Docker! with { Build = action.Docker.Build! with { Fingerprint = fingerprint } };
+        return catalog;
+    }
+
+    [Fact]
+    public void A_queued_row_pinned_to_the_current_playbook_fingerprint_is_kept()
+    {
+        var first = Assert.Single(Reconciler.Reconcile(Input(PlaybookCatalog("aaa"), "checks:\n  web: {}")).ToCreate);
+        var row = new LiveActionRow(Guid.NewGuid(), first.Identity, SignalTrigger.ADD, ActionStatus.QUEUED,
+            first.DesiredValueJson, ExecutorConfigJson.Serialize(first.DockerConfig));
+
+        var again = Reconciler.Reconcile(Input(PlaybookCatalog("aaa"), "checks:\n  web: {}", live: new[] { row }));
+
+        Assert.Empty(again.ToSupersede);
+        Assert.Empty(again.ToCreate);
+    }
+
+    [Theory]
+    [InlineData("QUEUED")]
+    [InlineData("FAILED")]
+    public void A_changed_playbook_fingerprint_supersedes_the_row_and_emits_a_fresh_one(string status)
+    {
+        var first = Assert.Single(Reconciler.Reconcile(Input(PlaybookCatalog("aaa"), "checks:\n  web: {}")).ToCreate);
+        var row = new LiveActionRow(Guid.NewGuid(), first.Identity, SignalTrigger.ADD, Enum.Parse<ActionStatus>(status),
+            first.DesiredValueJson, ExecutorConfigJson.Serialize(first.DockerConfig));
+
+        var changed = Reconciler.Reconcile(Input(PlaybookCatalog("bbb"), "checks:\n  web: {}", live: new[] { row }));
+
+        Assert.Equal(row.Id, Assert.Single(changed.ToSupersede));
+        var fresh = Assert.Single(changed.ToCreate);
+        Assert.Equal("bbb", fresh.DockerConfig!.Build!.Fingerprint);
+    }
+
+    [Fact]
+    public void A_running_row_is_never_superseded_by_a_playbook_change()
+    {
+        var first = Assert.Single(Reconciler.Reconcile(Input(PlaybookCatalog("aaa"), "checks:\n  web: {}")).ToCreate);
+        var row = new LiveActionRow(Guid.NewGuid(), first.Identity, SignalTrigger.ADD, ActionStatus.RUNNING,
+            first.DesiredValueJson, ExecutorConfigJson.Serialize(first.DockerConfig));
+
+        var changed = Reconciler.Reconcile(Input(PlaybookCatalog("bbb"), "checks:\n  web: {}", live: new[] { row }));
+
+        Assert.Empty(changed.ToSupersede);
+        Assert.Empty(changed.ToCreate);
+    }
 }

@@ -1,35 +1,50 @@
 using Lodge.Core.Abstractions;
+using Lodge.Core.Domain.Enums;
 
 namespace Lodge.Infrastructure.Execution;
 
 /// <summary>
 /// The registered <see cref="IRunbookExecutor"/> — dispatches each runbook to whichever
-/// concrete executor actually handles it, so a capability catalog can freely mix local
-/// shell scripts and external webhooks. A runbook is a webhook target only if it's listed
-/// in <c>WebhookExecutor:Runbooks</c>; everything else goes to the shell executor, which
-/// itself falls back to treating the <c>runbook</c> value as a literal command when it's
-/// not in its own alias map either — so an unconfigured deployment still works.
+/// concrete executor its action explicitly declares via <see
+/// cref="RunbookExecutionRequest.ExecutorKind"/>, so a capability catalog can freely mix
+/// local shell scripts, external webhooks, and containerized runs. Dispatch is never
+/// inferred from the runbook string — an action that reaches here with a reserved,
+/// not-yet-implemented kind (<see cref="ExecutorKind.Octopus"/>/<see
+/// cref="ExecutorKind.Kubernetes"/>) fails loudly rather than silently falling back to
+/// shell, since misrouting a governed operation is a safety bug, not a graceful default.
 /// </summary>
-public sealed class CompositeRunbookExecutor : IRunbookExecutor
+public sealed class CompositeRunbookExecutor : IRunbookExecutor, IRunbookLogReader
 {
     private readonly WebhookRunbookExecutor _webhook;
     private readonly ShellCommandRunbookExecutor _shell;
+    private readonly DockerRunbookExecutor _docker;
 
-    public CompositeRunbookExecutor(WebhookRunbookExecutor webhook, ShellCommandRunbookExecutor shell)
+    public CompositeRunbookExecutor(WebhookRunbookExecutor webhook, ShellCommandRunbookExecutor shell, DockerRunbookExecutor docker)
     {
         _webhook = webhook;
         _shell = shell;
+        _docker = docker;
     }
 
     public Task<RunbookRunHandle> StartAsync(RunbookExecutionRequest request, CancellationToken cancellationToken = default)
-        => _webhook.CanHandle(request.RunbookRef)
-            ? _webhook.StartAsync(request, cancellationToken)
-            : _shell.StartAsync(request, cancellationToken);
+        => request.ExecutorKind switch
+        {
+            ExecutorKind.Shell => _shell.StartAsync(request, cancellationToken),
+            ExecutorKind.Webhook => _webhook.StartAsync(request, cancellationToken),
+            ExecutorKind.Docker => _docker.StartAsync(request, cancellationToken),
+            _ => throw new NotSupportedException($"Executor '{request.ExecutorKind}' is not yet implemented.")
+        };
 
     public Task<RunbookRunStatus> GetStatusAsync(string runId, CancellationToken cancellationToken = default)
-        => WebhookRunbookExecutor.IsWebhookRunId(runId)
-            ? _webhook.GetStatusAsync(runId, cancellationToken)
-            : _shell.GetStatusAsync(runId, cancellationToken);
+        => WebhookRunbookExecutor.IsWebhookRunId(runId) ? _webhook.GetStatusAsync(runId, cancellationToken)
+         : runId.StartsWith("docker-", StringComparison.Ordinal) ? _docker.GetStatusAsync(runId, cancellationToken)
+         : _shell.GetStatusAsync(runId, cancellationToken);
+
+    /// <summary>Webhook runs have no local log — their output lives in the target system.</summary>
+    public Task<RunbookLogChunk?> ReadLogAsync(string runId, long offset, int maxBytes, CancellationToken cancellationToken = default)
+        => WebhookRunbookExecutor.IsWebhookRunId(runId) ? Task.FromResult<RunbookLogChunk?>(null)
+         : runId.StartsWith("docker-", StringComparison.Ordinal) ? _docker.ReadLogAsync(runId, offset, maxBytes, cancellationToken)
+         : _shell.ReadLogAsync(runId, offset, maxBytes, cancellationToken);
 
     /// <summary>Used by the push-callback endpoint to record a status an external system
     /// reports for a webhook run it can't answer synchronously about.</summary>

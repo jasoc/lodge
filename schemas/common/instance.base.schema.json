@@ -2,18 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://lodge.dev/schemas/common/instance.base.schema.json",
   "title": "Lodge Instance Base",
-  "description": "Fields every kind instance file must provide.",
+  "description": "Fields any kind's instance files may provide. None is required: the instance code comes from its folder name, and display_name/generation/region fall back to defaults when absent. When present, they must have these shapes.",
   "type": "object",
-  "required": [
-    "kind_code",
-    "instance",
-    "display_name",
-    "generation",
-    "region",
-    "features",
-    "desired_state",
-    "services"
-  ],
   "properties": {
     "kind_code": {
       "type": "string",
@@ -36,21 +26,6 @@
     "region": {
       "type": "string",
       "minLength": 1
-    },
-    "features": {
-      "type": "object"
-    },
-    "desired_state": {
-      "type": "object"
-    },
-    "services": {
-      "type": "object"
-    },
-    "quirks": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
     }
   }
 }

@@ -48,6 +48,26 @@ export const navigationElementsTree: NavigationElement[] = [
     icon: 'token',
   }),
   new NavigationElement({
+    name: 'Drift',
+    icon: 'sync_problem',
+    redirect: 'drift',
+  }),
+  new NavigationElement({
+    name: 'Actions',
+    icon: 'bolt',
+    redirect: 'actions',
+  }),
+  new NavigationElement({
+    name: 'Audit Log',
+    icon: 'history',
+    redirect: 'audit',
+  }),
+  new NavigationElement({
+    name: 'Kinds',
+    icon: 'category',
+    redirect: 'kinds',
+  }),
+  new NavigationElement({
     name: 'Dashboards',
     icon: 'dataset',
     redirect: 'dashboards',

@@ -16,12 +16,12 @@
     align-items: center;
     flex-direction: row;
     justify-content: flex-start;
-    height: 8vh;
+    height: 56px;
     padding: 0 tokens.$lodge-shell-margin;
     cursor: pointer;
 
     p {
-      margin: 0 0 0 16px;
+      margin: 0 0 0 tokens.$lodge-space-3;
       font-weight: 500;
       font-size: 18px;
       color: var(--lodge-main-ui-text-color);
@@ -50,7 +50,7 @@
       var(--lodge-background-shader) 0%,
       var(--lodge-background-shader) 100%
     );
-    border-radius: 20px;
+    border-radius: 16px;
     margin: tokens.$lodge-shell-margin;
     padding: tokens.$lodge-shell-margin;
     display: flex;
@@ -139,7 +139,8 @@
   }
 
   .entries {
-    height: 92vh;
+    flex: 1 1 auto;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -179,12 +180,12 @@
         flex-direction: row;
         justify-content: space-between;
         width: 100%;
-        margin: 0px 8px 8px auto;
+        margin: 0 tokens.$lodge-space-1 tokens.$lodge-space-1 auto;
 
         .navigation-entry-subelements-left {
           width: 10%;
           margin-left: auto;
-          margin-right: 4px;
+          margin-right: tokens.$lodge-space-1;
           display: flex;
           justify-content: flex-end;
           align-items: center;
@@ -200,7 +201,7 @@
           width: 90%;
           flex-direction: column;
           m3-button {
-            margin: 0 8px 0 auto;
+            margin: 0 tokens.$lodge-space-1 0 auto;
           }
         }
       }
@@ -212,14 +213,14 @@
         var(--lodge-background-shader) 0%,
         var(--lodge-background-shader) 100%
       );
-      border-radius: 21px;
+      border-radius: 14px;
       width: 95%;
-      margin-top: 4px;
-      margin-bottom: 4px;
+      margin-top: tokens.$lodge-space-1;
+      margin-bottom: tokens.$lodge-space-1;
       transition: cubic-bezier(0.2, 0, 0, 1) 300ms;
 
       m3-button {
-        margin: 8px;
+        margin: tokens.$lodge-space-1 tokens.$lodge-space-2;
       }
 
       &:hover {
@@ -232,8 +233,8 @@
     }
 
     m3-button {
-      margin: 4px;
-      width: calc(100% - 16px);
+      margin: tokens.$lodge-space-1;
+      width: calc(100% - #{tokens.$lodge-space-3});
     }
   }
 }

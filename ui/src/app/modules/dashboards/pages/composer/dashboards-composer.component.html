@@ -27,16 +27,16 @@
           @for (selector of allWidgetsSelector; track selector) {
             <div class="widget-preview-title">
               <m3-icon>{{
-                dashboardService.getLodgeWidgetBySelector(selector).metadata.icon ?? 'widgets'
+                dashboardService.getLodgeWidgetBySelector(selector).icon ?? 'widgets'
               }}</m3-icon>
               <p>
-                {{ dashboardService.getLodgeWidgetBySelector(selector).metadata.name }}
+                {{ dashboardService.getLodgeWidgetBySelector(selector).name }}
               </p>
               <button mat-flat-button color="primary" (click)="addToDashboard(selector)">
                 Add
               </button>
             </div>
-            <gridstack [options]="getSelectorGridOptions(selector)" style="pointer-events: none">
+            <gridstack [options]="widgetPreviewOptions.get(selector)!" style="pointer-events: none">
               <div empty-content>Add items here or reload the grid</div>
             </gridstack>
             <div class="separator"></div>

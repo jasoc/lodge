@@ -1,33 +1,19 @@
 #!/bin/bash
-# Zero-touch local dev: starts the Postgres dev container, then opens a tmux session with
-# Lodge.Server and the Angular dev server each in their own pane — real, separate,
-# scrollable logs instead of one interleaved stream. Detach with `Ctrl+B D` to leave both
-# running; re-run this script to reattach. `./scripts/run.sh --stop` stops both panes (the
-# tmux session); the DB container is untouched either way — `./scripts/dev-db-down.sh`
-# tears that down separately. The only file this can create on its own is a root .env,
-# copied from .env.example on first run.
+# Zero-touch local dev: runs Postgres (the docker-compose.yml `postgres` service), Lodge.Server
+# and the Angular dev server under process-compose (process-compose.yaml at the repo root),
+# with a TUI showing each one's status and its own scrollable log.
+#
+# The stack runs detached from the TUI: quitting the TUI leaves everything running, and
+# re-running this script reattaches. `./scripts/run.sh --stop` stops the whole stack,
+# Postgres included (its data stays in ./data/postgres — `./scripts/dev-db-down.sh --wipe`
+# deletes it). The only file this can create on its own is a root .env, copied from
+# .env.example on first run.
 #
 # Usage: ./scripts/run.sh [--stop]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SESSION="lodge"
-
-if ! command -v tmux >/dev/null 2>&1; then
-    echo "tmux is required but not installed (it's a system package, this script won't install it for you)." >&2
-    echo "Debian/Ubuntu: sudo apt install tmux   Fedora: sudo dnf install tmux   Arch: sudo pacman -S tmux" >&2
-    exit 1
-fi
-
-if [ "${1:-}" = "--stop" ]; then
-    if tmux has-session -t "$SESSION" 2>/dev/null; then
-        tmux kill-session -t "$SESSION"
-        echo "==> Stopped tmux session '$SESSION' (server + SPA)."
-    else
-        echo "==> No '$SESSION' tmux session running."
-    fi
-    exit 0
-fi
+SOCKET="$ROOT/.run/process-compose.sock"
 
 # shellcheck source=lib/env.sh
 source "$ROOT/scripts/lib/env.sh"
@@ -35,37 +21,48 @@ source "$ROOT/scripts/lib/env.sh"
 source "$ROOT/scripts/lib/dotnet.sh"
 # shellcheck source=lib/node.sh
 source "$ROOT/scripts/lib/node.sh"
-# shellcheck source=lib/db.sh
-source "$ROOT/scripts/lib/db.sh"
+# shellcheck source=lib/process-compose.sh
+source "$ROOT/scripts/lib/process-compose.sh"
+
+lodge_stack_running() {
+    [ -S "$SOCKET" ] && process-compose list -U -u "$SOCKET" >/dev/null 2>&1
+}
+
+lodge_ensure_process_compose
+mkdir -p "$ROOT/.run"
+
+if [ "${1:-}" = "--stop" ]; then
+    if lodge_stack_running; then
+        process-compose down -U -u "$SOCKET"
+        echo "==> Stopped the dev stack (postgres, server, SPA)."
+    else
+        echo "==> No dev stack running."
+    fi
+    exit 0
+fi
+
+if lodge_stack_running; then
+    echo "==> Dev stack already running — attaching"
+    exec process-compose attach -U -u "$SOCKET"
+fi
+# A socket left behind by a crashed run would make the new server fail to bind.
+rm -f "$SOCKET"
 
 lodge_load_env "$ROOT"
-
-if tmux has-session -t "$SESSION" 2>/dev/null; then
-    echo "==> '$SESSION' tmux session already running — attaching (Ctrl+B D to detach)"
-    exec tmux attach -t "$SESSION"
-fi
 
 echo "== Toolchain =="
 lodge_ensure_dotnet "$ROOT"
 lodge_ensure_node "$ROOT/ui"
 
-echo "== Database =="
-lodge_db_up
+cat <<EOF2
 
-echo "==> Starting tmux session '$SESSION': server (left) + SPA (right)"
-tmux new-session -d -s "$SESSION" -n dev -c "$ROOT" "./scripts/dev-server.sh"
-tmux split-window -h -t "$SESSION:dev" -c "$ROOT" "./scripts/dev-spa.sh"
-tmux set-option -t "$SESSION" remain-on-exit on
-
-cat <<EOF
-
-==> Lodge is starting (server migrates itself on first boot — give it a few seconds):
+==> Starting the dev stack (server migrates itself on first boot):
       API+UI  http://localhost:8080
       UI dev  http://localhost:4200  (fast rebuild loop, proxies /api to :8080)
-    Ctrl+B D detaches without stopping anything; re-run this script to reattach.
-    tmux kill-session -t $SESSION stops both panes. The DB container keeps running
-    either way (./scripts/dev-db-down.sh to tear it down).
+    Quitting the TUI leaves the stack running; re-run this script to reattach,
+    ./scripts/run.sh --stop to stop everything.
 
-EOF
+EOF2
 
-exec tmux attach -t "$SESSION"
+cd "$ROOT"
+exec process-compose up -f process-compose.yaml -U -u "$SOCKET" --detached-with-tui

@@ -5,16 +5,28 @@ export type {
   InstanceDetailModel,
   PendingPromptModel,
   ActionModel,
+  ActionLogModel,
   ActionExecutionResultModel,
   AuditEventModel,
+  GlobalActionModel,
+  GlobalAuditEventModel,
   CycleSummaryModel,
 } from './lodge.model';
 export type {
-  LodgeWidgetInfo,
   DashboardModel,
   DashboardUpdateModel,
-  WidgetMetadata,
-  LabelOptions,
+  WidgetDescriptor,
+  KindSummaryOptions,
+  InstanceStatusOptions,
+  SignalValueOptions,
 } from './dashboard.model';
 export type { Breadcrumb } from './breadcrumb.model';
+export type {
+  RuleInputModel,
+  ActionTemplateModel,
+  SignalRuleModel,
+  SignalDefinitionModel,
+  CapabilityDefinitionModel,
+  CapabilityCatalogModel,
+} from './catalog.model';
 export type { M3CardAction } from './m3-card.model';

@@ -5,6 +5,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
 import { M3CardComponent } from '../../components/m3-card/m3-card.component';
 import { KindModel, InstanceModel } from '../../domain';
+import { autoRefresh } from '../../services/auto-refresh';
 import { LodgeService } from '../../services/lodge.service';
 
 interface InstanceRow {
@@ -30,10 +31,13 @@ export class HomeMainComponent {
 
   constructor() {
     this.load();
+    autoRefresh(() => this.load({ silent: true }));
   }
 
-  async load() {
-    this.loading.set(true);
+  async load(opts: { silent?: boolean } = {}) {
+    if (!opts.silent) {
+      this.loading.set(true);
+    }
     try {
       const kinds = await this.lodgeService.getKinds();
       const rows: InstanceRow[] = [];

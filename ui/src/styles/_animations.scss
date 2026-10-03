@@ -1,6 +1,7 @@
 // =============================================================================
 // Lodge CSS Animations — replaces Angular @angular/animations
 // =============================================================================
+@use 'tokens' as tokens;
 
 $lodge-ease: cubic-bezier(0.18, 0.89, 0.32, 1);
 $lodge-ease-standard: cubic-bezier(0.2, 0, 0, 1);
@@ -84,13 +85,13 @@ $lodge-ease-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
 .m3-button-margin-no-text {
-  margin-left: 9px;
+  margin-left: tokens.$lodge-space-2;
   margin-right: 0px;
 }
 
 .m3-button-margin-has-text {
-  margin-left: 16px;
-  margin-right: 24px;
+  margin-left: tokens.$lodge-space-3;
+  margin-right: tokens.$lodge-space-4;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +127,7 @@ $lodge-ease-standard: cubic-bezier(0.2, 0, 0, 1);
     width 280ms $lodge-ease,
     padding 280ms $lodge-ease;
   width: 340px;
-  padding: 16px;
+  padding: tokens.$lodge-space-3;
 
   &.sider-collapsed {
     width: 20px;

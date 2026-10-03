@@ -27,6 +27,8 @@ public static class DependencyInjection
         services.Configure<GitOptions>(configuration.GetSection(GitOptions.SectionName));
         services.Configure<ShellExecutorOptions>(configuration.GetSection(ShellExecutorOptions.SectionName));
         services.Configure<WebhookExecutorOptions>(configuration.GetSection(WebhookExecutorOptions.SectionName));
+        services.Configure<DockerExecutorOptions>(configuration.GetSection(DockerExecutorOptions.SectionName));
+        services.Configure<PassCliOptions>(configuration.GetSection(PassCliOptions.SectionName));
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
         services.Configure<OidcOptions>(configuration.GetSection(OidcOptions.SectionName));
 
@@ -55,6 +57,9 @@ public static class DependencyInjection
         services.AddScoped<ActionsQueryService>();
         services.AddScoped<SettingsService>();
 
+        // Shared by the catalog provider (stamps each docker.build action with its playbook
+        // folder's fingerprint) and the Docker executor (re-checks it before building).
+        services.AddSingleton<PlaybookContextResolver>();
         services.AddSingleton<ICapabilityCatalogProvider, FileCapabilityCatalogProvider>();
         services.AddScoped<ActionExecutionService>();
 
@@ -79,14 +84,14 @@ public static class DependencyInjection
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("oidc"),
             sp.GetRequiredService<IOptions<OidcOptions>>()));
 
-        // Runbook execution: a capability's `runbook` value is a webhook target if it's
-        // listed in WebhookExecutor:Runbooks, otherwise it goes to the shell executor
-        // (which itself falls back to running the `runbook` string as a literal command
-        // when it's not in its own alias map). CompositeRunbookExecutor is the one
-        // registered as IRunbookExecutor; both concrete executors stay singletons so run
-        // state persists across requests for status polling. MockRunbookExecutor remains
-        // available for demos and tests but isn't registered by default.
+        // Runbook execution: each action declares its executor explicitly
+        // (ExecutorKind: Shell/Webhook/Docker — see Lodge.Core.Domain.Enums.ExecutorKind),
+        // dispatched by CompositeRunbookExecutor, the one registered as IRunbookExecutor.
+        // All concrete executors stay singletons so run state persists across requests for
+        // status polling. MockRunbookExecutor remains available for demos and tests but
+        // isn't registered by default.
         services.AddSingleton<ShellCommandRunbookExecutor>();
+        services.AddSingleton<DockerRunbookExecutor>();
         // AddHttpClient<T>() registers T as transient, which would drop
         // WebhookRunbookExecutor's in-flight-run state on every injection — build it as a
         // singleton over a named client from IHttpClientFactory instead.
@@ -99,11 +104,27 @@ public static class DependencyInjection
         // reach TryReportWebhookStatus, which isn't part of the IRunbookExecutor contract.
         services.AddSingleton<CompositeRunbookExecutor>();
         services.AddSingleton<IRunbookExecutor>(sp => sp.GetRequiredService<CompositeRunbookExecutor>());
+        services.AddSingleton<IRunbookLogReader>(sp => sp.GetRequiredService<CompositeRunbookExecutor>());
 
-        // Env-var-backed secret provider: the OSS-friendly default so the executors and
-        // the GitHub inventory source can resolve real credentials without a
-        // company-specific vault. MockSecretProvider remains available for tests.
-        services.AddSingleton<ISecretProvider, EnvSecretProvider>();
+        // Secret provider, chosen by Secrets:Provider (mirrors Git:Provider above): "Env"
+        // (default) resolves from environment variables on the server process — the
+        // OSS-friendly default needing no company-specific vault; "PassCli" shells out to
+        // the pass-cli binary (Proton Pass CLI) to resolve real credentials; "Mock" is for
+        // tests/demos.
+        var secretsProvider = configuration["Secrets:Provider"] ?? "Env";
+        if (string.Equals(secretsProvider, "PassCli", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddSingleton<IProcessRunner, SystemProcessRunner>();
+            services.AddSingleton<ISecretProvider, PassCliSecretProvider>();
+        }
+        else if (string.Equals(secretsProvider, "Mock", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddSingleton<ISecretProvider, MockSecretProvider>();
+        }
+        else
+        {
+            services.AddSingleton<ISecretProvider, EnvSecretProvider>();
+        }
 
         return services;
     }

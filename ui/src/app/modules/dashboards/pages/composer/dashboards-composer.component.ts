@@ -71,6 +71,17 @@ export class DashboardsComposerComponent {
   } = {};
   readonly allWidgetsSelector: Array<string>;
 
+  /**
+   * Precomputed once, not called from the template: `[options]` on a `<gridstack>` element
+   * re-initializes the grid whenever it sees a new object reference. Calling
+   * `getSelectorGridOptions(selector)` directly from the template returned a fresh object
+   * (with a fresh `children` array) on every change-detection pass, so each preview grid in
+   * the sidebar kept re-adding its widget on every CD tick — visible as the sidebar
+   * previews multiplying without end. A stable Map computed once keeps the same object
+   * reference across renders, so the grid only (re)initializes when it actually should.
+   */
+  readonly widgetPreviewOptions = new Map<string, NgGridStackOptions>();
+
   readonly subOptions: NgGridStackOptions = {
     cellHeight: 50,
     column: 'auto',
@@ -95,6 +106,9 @@ export class DashboardsComposerComponent {
 
   constructor() {
     this.allWidgetsSelector = this.dashboardService.getAllWidgetsSelector();
+    for (const selector of this.allWidgetsSelector) {
+      this.widgetPreviewOptions.set(selector, this.getSelectorGridOptions(selector));
+    }
     this.dashboardService.onWidgetClickInComposerCallback = (w) => this.onWidgetSelectedCallBack(w);
 
     GridStack.addRemoveCB = gsCreateNgComponents;
@@ -130,9 +144,9 @@ export class DashboardsComposerComponent {
   }
 
   getSelectorGridOptions(selector: string): NgGridStackOptions {
-    const widgetInfo = this.dashboardService.getLodgeWidgetBySelector(selector);
-    const minH = widgetInfo.metadata.minH ?? 1;
-    const minW = widgetInfo.metadata.minW ?? 1;
+    const widget = this.dashboardService.getLodgeWidgetBySelector(selector);
+    const minH = widget.minH ?? 1;
+    const minW = widget.minW ?? 1;
     return {
       margin: 5,
       minRow: minH,
@@ -162,10 +176,10 @@ export class DashboardsComposerComponent {
 
   addToDashboard(selector: string) {
     if (!this.getMainGridComponent()?.el) return;
-    const widgetInfo = this.dashboardService.getLodgeWidgetBySelector(selector);
+    const widget = this.dashboardService.getLodgeWidgetBySelector(selector);
     this.getMainGridComponent()?.grid?.addWidget({
-      h: widgetInfo.metadata.minH,
-      w: widgetInfo.metadata.minW,
+      h: widget.minH,
+      w: widget.minW,
       selector,
     } as NgGridStackWidget);
     this.getMainGridComponent()?.grid?.save();
@@ -173,8 +187,8 @@ export class DashboardsComposerComponent {
 
   onWidgetSelectedCallBack(widget: BaseLodgeWidget<any>) {
     widget.highlight();
-    const widgetInfo = this.dashboardService.getLodgeWidgetBySelector(widget.getSelector());
-    this.currentOptionForm = widgetInfo.metadata.optionsForm;
+    const widgetDescriptor = this.dashboardService.getLodgeWidgetBySelector(widget.getSelector());
+    this.currentOptionForm = widgetDescriptor.optionsForm;
     this.currentOptionDefaultValues = widget.options;
     const outlet = this.currentOptionFormOutlet();
     const content = this.currentOptionFormContent();

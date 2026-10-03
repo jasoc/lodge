@@ -404,4 +404,250 @@ public class CapabilityCatalogLoaderTests
             () => CapabilityCatalogLoader.Merge("acme", new[] { capability }, Array.Empty<CapabilityDefinition>()));
         Assert.Contains("cycle", ex.Message);
     }
+
+    // --- executor -----------------------------------------------------------------------
+
+    [Fact]
+    public void LoadCapability_defaults_executor_to_shell()
+    {
+        var capability = CapabilityCatalogLoader.LoadCapability(SsoYaml);
+        Assert.Equal(ExecutorKind.Shell, capability.Signals[0].Rules[0].Actions[0].ExecutorKind);
+        Assert.Null(capability.Signals[0].Rules[0].Actions[0].Docker);
+    }
+
+    [Fact]
+    public void LoadCapability_parses_docker_executor_config()
+    {
+        var yaml = """
+            capability: vms
+            signals:
+              - path: virtual_machines
+                kind: keyed_collection
+                rules:
+                  - on: add
+                    actions:
+                      - key: run_ansible_profile
+                        runbook: homelab-ops/ansible-profile
+                        executor: docker
+                        docker:
+                          image: "homelab/toolbox:latest"
+                          command: ["ansible-profile"]
+            """;
+        var capability = CapabilityCatalogLoader.LoadCapability(yaml);
+        var action = capability.Signals[0].Rules[0].Actions[0];
+
+        Assert.Equal(ExecutorKind.Docker, action.ExecutorKind);
+        Assert.NotNull(action.Docker);
+        Assert.Equal("homelab/toolbox:latest", action.Docker!.Image);
+        Assert.Equal(new[] { "ansible-profile" }, action.Docker.Command);
+    }
+
+    [Fact]
+    public void LoadCapability_rejects_docker_executor_without_a_docker_block()
+    {
+        var yaml = """
+            capability: bad
+            signals:
+              - path: features.x
+                rules:
+                  - when: true
+                    actions: [ { key: k, runbook: r, executor: docker } ]
+            """;
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
+        Assert.Contains("no 'docker' block", ex.Message);
+    }
+
+    [Fact]
+    public void LoadCapability_rejects_a_docker_block_without_docker_executor()
+    {
+        var yaml = """
+            capability: bad
+            signals:
+              - path: features.x
+                rules:
+                  - when: true
+                    actions:
+                      - key: k
+                        runbook: r
+                        docker:
+                          image: "img"
+                          command: ["run"]
+            """;
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
+        Assert.Contains("'executor' is not 'docker'", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("octopus")]
+    [InlineData("kubernetes")]
+    public void LoadCapability_rejects_reserved_executors(string executor)
+    {
+        var yaml = $$"""
+            capability: bad
+            signals:
+              - path: features.x
+                rules:
+                  - when: true
+                    actions: [ { key: k, runbook: r, executor: {{executor}} } ]
+            """;
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
+        Assert.Contains("reserved for a future release", ex.Message);
+    }
+
+    [Fact]
+    public void LoadCapability_rejects_an_unknown_executor()
+    {
+        var yaml = """
+            capability: bad
+            signals:
+              - path: features.x
+                rules:
+                  - when: true
+                    actions: [ { key: k, runbook: r, executor: nonsense } ]
+            """;
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
+        Assert.Contains("unknown executor", ex.Message);
+    }
+
+    // --- secret inputs --------------------------------------------------------------------
+
+    [Fact]
+    public void LoadCapability_parses_secret_inputs()
+    {
+        var yaml = """
+            capability: vms
+            signals:
+              - path: virtual_machines
+                kind: keyed_collection
+                rules:
+                  - on: add
+                    actions:
+                      - key: k
+                        runbook: r
+                        inputs:
+                          registry_token: { secret: "Homelab/environments/REGISTRY_PULL_TOKEN" }
+            """;
+        var capability = CapabilityCatalogLoader.LoadCapability(yaml);
+        var action = capability.Signals[0].Rules[0].Actions[0];
+
+        Assert.Contains(action.Inputs, i =>
+            i.Name == "registry_token" && i.Kind == RuleInputKind.Secret && i.Value == "Homelab/environments/REGISTRY_PULL_TOKEN");
+    }
+
+    [Fact]
+    public void LoadCapability_allows_auto_actions_with_secret_inputs()
+    {
+        // Unlike prompt inputs, a secret needs no human to answer it — AUTO + secret is fine.
+        var yaml = """
+            capability: ok
+            signals:
+              - path: features.x
+                rules:
+                  - when: true
+                    actions:
+                      - key: k
+                        runbook: r
+                        policy: AUTO
+                        inputs:
+                          token: { secret: "Homelab/environments/TOKEN" }
+            """;
+        var capability = CapabilityCatalogLoader.LoadCapability(yaml);
+        Assert.Equal(ActionPolicy.AUTO, capability.Signals[0].Rules[0].Actions[0].Policy);
+    }
+
+    // --- docker image / build -----------------------------------------------------------------
+
+    private static string DockerYaml(string dockerBlock) => $$"""
+        capability: probes
+        signals:
+          - path: checks
+            kind: keyed_collection
+            rules:
+              - on: add
+                actions:
+                  - key: probe
+                    runbook: homelab-ops/probe
+                    executor: docker
+                    docker:
+        {{dockerBlock}}
+        """;
+
+    [Fact]
+    public void LoadCapability_parses_a_docker_build_playbook()
+    {
+        var capability = CapabilityCatalogLoader.LoadCapability(DockerYaml("""
+                          build:
+                            context: ./playbooks//http-probe/
+                            dockerfile: docker/Dockerfile
+                            target: runtime
+                            args:
+                              ZETA: "2"
+                              ALPINE_VERSION: "3.20"
+                          entrypoint: ["/bin/sh", "-c"]
+                          command: ["echo hi"]
+            """));
+        var docker = capability.Signals[0].Rules[0].Actions[0].Docker!;
+
+        Assert.Null(docker.Image);
+        Assert.Equal(new[] { "/bin/sh", "-c" }, docker.Entrypoint);
+        Assert.Equal(new[] { "echo hi" }, docker.Command);
+        var build = docker.Build!;
+        Assert.Equal("playbooks/http-probe", build.Context);
+        Assert.Equal("docker/Dockerfile", build.Dockerfile);
+        Assert.Equal("runtime", build.Target);
+        Assert.Equal(new[] { "ALPINE_VERSION", "ZETA" }, build.Args!.Keys);
+        Assert.Null(build.Fingerprint);
+    }
+
+    [Fact]
+    public void LoadCapability_allows_an_image_without_command()
+    {
+        var capability = CapabilityCatalogLoader.LoadCapability(DockerYaml("""
+                          image: "alpine:3.20"
+            """));
+        var docker = capability.Signals[0].Rules[0].Actions[0].Docker!;
+
+        Assert.Equal("alpine:3.20", docker.Image);
+        Assert.Empty(docker.Command);
+        Assert.Null(docker.Entrypoint);
+        Assert.Null(docker.Build);
+    }
+
+    [Theory]
+    [InlineData("""
+                          image: "alpine:3.20"
+                          build:
+                            context: playbooks/x
+        """)]
+    [InlineData("""
+                          command: ["echo"]
+        """)]
+    public void LoadCapability_requires_exactly_one_of_image_or_build(string block)
+    {
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(DockerYaml(block)));
+        Assert.Contains("exactly one of 'image'", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("../acme/playbooks/x")]
+    [InlineData("playbooks/../../x")]
+    [InlineData("/etc")]
+    public void LoadCapability_rejects_build_contexts_outside_the_kind_folder(string context)
+    {
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(DockerYaml($$"""
+                          build:
+                            context: "{{context}}"
+            """)));
+        Assert.Contains("relative path", ex.Message);
+    }
+
+    [Fact]
+    public void LoadCapability_rejects_a_build_without_context()
+    {
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(DockerYaml("""
+                          build:
+                            target: runtime
+            """)));
+        Assert.Contains("'context'", ex.Message);
+    }
 }

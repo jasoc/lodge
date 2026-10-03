@@ -1,3 +1,6 @@
+using Lodge.Core.Catalog;
+using Lodge.Core.Domain.Enums;
+
 namespace Lodge.Core.Abstractions;
 
 /// <summary>
@@ -20,7 +23,9 @@ public sealed record RunbookExecutionRequest(
     string InstanceCode,
     string RunbookRef,
     Guid ActionId,
-    IReadOnlyDictionary<string, string?> Parameters);
+    IReadOnlyDictionary<string, string?> Parameters,
+    ExecutorKind ExecutorKind = ExecutorKind.Shell,
+    DockerExecutorConfig? DockerConfig = null);
 
 /// <summary>Handle returned when a runbook run is started.</summary>
 public sealed record RunbookRunHandle(string RunId, RunbookRunState State);
@@ -41,4 +46,25 @@ public interface IRunbookExecutor
 
     /// <summary>Return the current status of a previously started run.</summary>
     Task<RunbookRunStatus> GetStatusAsync(string runId, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// One slice of a run's combined stdout/stderr, starting at a byte offset. Callers tail a
+/// live run by asking again from <see cref="NextOffset"/>; <see cref="NextOffset"/> never
+/// splits a UTF-8 character, so concatenated slices always decode cleanly.
+/// </summary>
+public sealed record RunbookLogChunk(string Text, long NextOffset);
+
+/// <summary>
+/// Optional executor capability: reading back what a run printed. Executors that keep a
+/// local log (shell, docker) implement it; ones whose output lives elsewhere (a webhook
+/// target) don't, and their runs simply have no log to show.
+/// </summary>
+public interface IRunbookLogReader
+{
+    /// <summary>
+    /// Up to <paramref name="maxBytes"/> of the run's log from <paramref name="offset"/>,
+    /// or null when this executor has no log for <paramref name="runId"/>.
+    /// </summary>
+    Task<RunbookLogChunk?> ReadLogAsync(string runId, long offset, int maxBytes, CancellationToken cancellationToken = default);
 }

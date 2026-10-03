@@ -1,0 +1,18 @@
+<h1 class="page-title">Kinds</h1>
+
+@if (loading()) {
+  <p>Loading…</p>
+} @else if (kinds().length === 0) {
+  <p>No kinds configured yet.</p>
+} @else {
+  <section class="kinds-container" aria-label="Kinds">
+    @for (kind of kinds(); track kind.code) {
+      <m3-card
+        [title]="kind.name"
+        [subTitle]="kind.enabled ? 'Enabled' : 'Disabled'"
+        titleIcon="category"
+        [link]="'/kinds/' + kind.code + '/capabilities'"
+      ></m3-card>
+    }
+  </section>
+}

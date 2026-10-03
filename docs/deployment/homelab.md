@@ -16,8 +16,8 @@ why did that happen?" at 2am, not to enforce RBAC on yourself.
 │   └───────────────┘                     │                    ▲                    │
 │                                          │ reconcile loop     │ bind mounts (ro)   │
 │                                          ▼                    │                    │
-│                                   runbooks/*.sh         inventory/, schemas/       │
-│                                   (bind mount)           (your Git working tree)   │
+│                                   playbook containers   inventory/, schemas/       │
+│                                   (host docker socket)   (your Git working tree)   │
 └─────────────────────────────────────────────────────────────────────────────────────┘
                     ▲
                     │ optional: Tailscale / a reverse proxy with a cert,
@@ -74,10 +74,12 @@ there's no OIDC redirect URI to keep in sync in this profile.
 
 ## Modeling your homelab
 
-The shipped `inventory/acme/` is a placeholder — a `services` capability toggling one
-instance's `web.enabled` flag. Replace it with your own `kind` (the *type* of thing
-you're governing — e.g. `host` for bare-metal boxes, `service` for the containers running
-on them) and one `instance` per concrete thing:
+The shipped `inventory/homelab/` is an example: one `lab` instance listing VMs, with a
+`virtual_machines` capability that creates each VM (AUTO) and destroys a removed one (after
+confirmation) via a Terraform playbook. Every `inventory/<kind>/` folder becomes a kind on
+the next reconciliation cycle (an optional `kind.yaml` gives it a display name). Model your
+own `kind` (the *type* of thing you're governing — e.g. `host` for bare-metal boxes,
+`service` for the containers running on them) with one `instance` per concrete thing:
 
 ```
 inventory/
@@ -94,10 +96,20 @@ inventory/
         state.yaml
 ```
 
-Runbooks are plain shell scripts (`runbooks/*.sh`), invoked with `LODGE_INSTANCE_CODE`
-and `LODGE_PARAM_*` env vars — see the shipped `runbooks/provision-service.sh` for the
-shape. Point a signal's `runbook:` at a script path directly; no alias config needed
-unless you want a friendlier name in the capability YAML.
+A shell runbook (`executor: shell`, the default) is any command on the server host, invoked
+with `LODGE_INSTANCE_CODE` and `LODGE_PARAM_*` env vars. Point an action's `runbook:` at a
+script path directly; no alias config needed unless you want a friendlier name in the
+capability YAML.
+
+For tooling Lodge's image doesn't ship (ansible, terraform, ...), use `executor: docker`.
+The action can run a ready-made `image:` or a playbook folder with a Dockerfile under
+`inventory/<kind>/playbooks/`. Lodge builds that folder on the host's docker daemon
+(`docker-compose.yml` mounts `/var/run/docker.sock`) and caches the image by content hash.
+The container receives the same `LODGE_PARAM_*` variables, plus `LODGE_PARAMS_JSON`.
+Mounting the socket gives root-equivalent access to the host: anyone who can merge to the
+inventory can run containers on it. `inventory/homelab/` is a working example: its VMs are
+created and destroyed by `playbooks/terraform-vm/`, which reads the VM spec through
+`TF_VAR_*` variables.
 
 ## RBAC in this profile
 

@@ -1,44 +1,41 @@
 #!/bin/bash
-# Manages the local Postgres dev container. Docker is used here only for the database —
-# the server runs natively (see dev-server.sh) and migrates itself on startup, so there's
-# no separate migration step here. Idempotent: safe to call lodge_db_up repeatedly.
+# Manages the dev Postgres: the `postgres` service of the root docker-compose.yml, with
+# docker-compose.dev.yml publishing its port on localhost. Docker is used here only for the
+# database — the server runs natively (see dev-server.sh) and migrates itself on startup.
+# Data lives in ./data/postgres (the compose bind mount), shared with
+# ./scripts/prod-test.sh. Expects lodge_load_env to have run (compose reads .env itself, but
+# POSTGRES_* must be exported for the readiness check).
 
-LODGE_DB_CONTAINER="lodge-postgres-dev"
-LODGE_DB_VOLUME="lodge-postgres-dev-data"
+LODGE_DB_COMPOSE_FILE="docker-compose.yml:docker-compose.dev.yml"
+
+# Runs `docker compose` against the dev overlay from the repo root.
+lodge_db_compose() {
+    local root
+    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    (cd "$root" && COMPOSE_FILE="$LODGE_DB_COMPOSE_FILE" docker compose "$@")
+}
 
 lodge_db_up() {
-    if docker inspect "$LODGE_DB_CONTAINER" >/dev/null 2>&1; then
-        if [ "$(docker inspect -f '{{.State.Running}}' "$LODGE_DB_CONTAINER")" = "true" ]; then
-            echo "==> Postgres dev container already running"
-        else
-            echo "==> Starting existing Postgres dev container"
-            docker start "$LODGE_DB_CONTAINER" >/dev/null
-        fi
-    else
-        echo "==> Creating Postgres dev container ($LODGE_DB_CONTAINER)"
-        docker run -d --name "$LODGE_DB_CONTAINER" \
-            -e POSTGRES_DB="$POSTGRES_DB" \
-            -e POSTGRES_USER="$POSTGRES_USER" \
-            -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-            -p "${POSTGRES_PORT}:5432" \
-            -v "${LODGE_DB_VOLUME}:/var/lib/postgresql/data" \
-            postgres:16-alpine >/dev/null
-    fi
-
-    echo -n "==> Waiting for Postgres to be ready"
-    for _ in $(seq 1 30); do
-        if docker exec "$LODGE_DB_CONTAINER" pg_isready -U "$POSTGRES_USER" >/dev/null 2>&1; then
-            echo " ready"
-            return 0
-        fi
-        echo -n "."
-        sleep 1
-    done
-    echo " timed out waiting for Postgres"
-    return 1
+    local root
+    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    # Pre-create the bind-mount dir as us: a ./data docker creates itself is owned by root,
+    # and the natively running server then can't write its run logs under it.
+    mkdir -p "$root/data/postgres"
+    echo "==> Starting Postgres (docker compose service 'postgres')"
+    lodge_db_compose up -d --wait postgres
 }
 
 lodge_db_down() {
-    docker rm -f "$LODGE_DB_CONTAINER" >/dev/null 2>&1 || true
-    echo "==> Postgres dev container removed (data volume kept: $LODGE_DB_VOLUME)"
+    lodge_db_compose rm --stop --force postgres >/dev/null
+    echo "==> Postgres container removed (./data/postgres kept)"
+}
+
+lodge_db_wipe() {
+    local root
+    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    lodge_db_compose rm --stop --force postgres >/dev/null
+    # The files belong to the container's postgres uid, not to us — delete them from a
+    # throwaway container instead of asking for sudo.
+    docker run --rm -v "$root/data:/data" postgres:16-alpine rm -rf /data/postgres
+    echo "==> Postgres container and ./data/postgres removed"
 }

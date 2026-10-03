@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Lodge.Core.Abstractions;
+using Lodge.Core.Catalog;
 using Lodge.Core.Domain.Enums;
 using Lodge.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -28,17 +29,20 @@ public sealed class ActionExecutionService
     private readonly IRunbookExecutor _executor;
     private readonly IPermissionResolver _permissions;
     private readonly ICurrentUserAccessor _currentUser;
+    private readonly ISecretProvider _secrets;
 
     public ActionExecutionService(
         LodgeDbContext db,
         IRunbookExecutor executor,
         IPermissionResolver permissions,
-        ICurrentUserAccessor currentUser)
+        ICurrentUserAccessor currentUser,
+        ISecretProvider secrets)
     {
         _db = db;
         _executor = executor;
         _permissions = permissions;
         _currentUser = currentUser;
+        _secrets = secrets;
     }
 
     /// <summary>
@@ -49,9 +53,10 @@ public sealed class ActionExecutionService
     public async Task StartAutoAsync(
         ActionEntity action, string kindCode, string instanceCode, CancellationToken cancellationToken = default)
     {
-        var parameters = BuildParameters(action, promptValues: null, kindCode, instanceCode);
+        var parameters = await BuildParametersAsync(action, promptValues: null, kindCode, instanceCode, cancellationToken);
         var handle = await _executor.StartAsync(new RunbookExecutionRequest(
-            kindCode, instanceCode, action.RunbookRef, action.Id, parameters), cancellationToken);
+            kindCode, instanceCode, action.RunbookRef, action.Id, parameters,
+            action.ExecutorKind, ExecutorConfigJson.Deserialize(action.ExecutorConfigJson)), cancellationToken);
 
         action.Status = ActionStatus.RUNNING;
         action.ExecutionRef = handle.RunId;
@@ -107,9 +112,10 @@ public sealed class ActionExecutionService
                 $"User '{user.DisplayName}' is not permitted to run '{action.RunbookRef}'.", Denied: true);
         }
 
-        var parameters = BuildParameters(action, promptValues, kindCode, instanceCode);
+        var parameters = await BuildParametersAsync(action, promptValues, kindCode, instanceCode, cancellationToken);
         var handle = await _executor.StartAsync(new RunbookExecutionRequest(
-            kindCode, instanceCode, action.RunbookRef, action.Id, parameters), cancellationToken);
+            kindCode, instanceCode, action.RunbookRef, action.Id, parameters,
+            action.ExecutorKind, ExecutorConfigJson.Deserialize(action.ExecutorConfigJson)), cancellationToken);
 
         action.Status = ActionStatus.RUNNING;
         action.ExecutionRef = handle.RunId;
@@ -199,7 +205,35 @@ public sealed class ActionExecutionService
             return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef, null);
         }
 
-        var status = await _executor.GetStatusAsync(action.ExecutionRef, cancellationToken);
+        var message = await ApplyExecutorStatusAsync(action, kindCode, cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef, message);
+    }
+
+    /// <summary>
+    /// Lands every finished run of one instance's RUNNING actions right now, instead of
+    /// waiting for the next reconciliation cycle — called before the UI reads actions, so a
+    /// completed run never keeps showing as RUNNING for up to a whole loop interval.
+    /// </summary>
+    public async Task RefreshRunningAsync(Guid instanceId, string kindCode, CancellationToken cancellationToken = default)
+    {
+        var running = await _db.Actions
+            .Where(a => a.InstanceId == instanceId && a.Status == ActionStatus.RUNNING && a.ExecutionRef != null)
+            .ToListAsync(cancellationToken);
+        foreach (var action in running)
+        {
+            await ApplyExecutorStatusAsync(action, kindCode, cancellationToken);
+        }
+        if (running.Count > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>Moves a RUNNING action to the executor's terminal state, if it has one; doesn't save.</summary>
+    private async Task<string?> ApplyExecutorStatusAsync(ActionEntity action, string kindCode, CancellationToken cancellationToken)
+    {
+        var status = await _executor.GetStatusAsync(action.ExecutionRef!, cancellationToken);
         var mapped = status.State switch
         {
             RunbookRunState.Succeeded => ActionStatus.SUCCEEDED,
@@ -219,19 +253,21 @@ public sealed class ActionExecutionService
                 state = status.State.ToString(),
                 status.Message
             });
-            await _db.SaveChangesAsync(cancellationToken);
         }
 
-        return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef, status.Message);
+        return status.Message;
     }
 
     /// <summary>
-    /// Merge resolved inputs (from/const), the instance/kind context, and any supplied
-    /// prompt values into the flat parameter map handed to the executor.
+    /// Merge resolved inputs (from/const), the instance/kind context, any supplied prompt
+    /// values, and — the only place this ever happens — secret inputs resolved to
+    /// plaintext via <see cref="ISecretProvider"/>, into the flat parameter map handed to
+    /// the executor. The resolved secret values live only in this local dictionary: they
+    /// are never written back to <c>action.*Json</c> and never passed to <c>AddAudit</c>.
     /// </summary>
-    private static IReadOnlyDictionary<string, string?> BuildParameters(
+    private async Task<IReadOnlyDictionary<string, string?>> BuildParametersAsync(
         ActionEntity action, IReadOnlyDictionary<string, string?>? promptValues,
-        string kindCode, string instanceCode)
+        string kindCode, string instanceCode, CancellationToken cancellationToken)
     {
         var parameters = new Dictionary<string, string?>(StringComparer.Ordinal)
         {
@@ -256,6 +292,18 @@ public sealed class ActionExecutionService
             foreach (var (key, value) in promptValues)
             {
                 parameters[key] = value;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(action.SecretInputsJson))
+        {
+            var secretRefs = JsonSerializer.Deserialize<List<SecretInputRef>>(action.SecretInputsJson);
+            if (secretRefs is not null)
+            {
+                foreach (var secretRef in secretRefs)
+                {
+                    parameters[secretRef.Name] = await _secrets.GetSecretAsync(secretRef.SecretRef, cancellationToken);
+                }
             }
         }
 

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Lodge.Core.Abstractions;
+using Lodge.Core.Catalog;
 using Lodge.Core.Diff;
 using Lodge.Core.Domain.Entities;
 using Lodge.Core.Domain.Enums;
@@ -74,6 +75,17 @@ public sealed class ReconciliationRunner
         var instancesReconciled = 0;
         var driftCount = 0;
 
+        try
+        {
+            await SyncKindsAsync(messages, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Never disable anything on a failed read — keep last cycle's kinds as they are.
+            _logger.LogError(ex, "Kind discovery from inventory failed");
+            messages.Add($"kind discovery failed — {ex.Message}");
+        }
+
         var kinds = await _db.Kinds.Where(p => p.Enabled).OrderBy(p => p.Code).ToListAsync(cancellationToken);
 
         foreach (var kind in kinds)
@@ -91,7 +103,7 @@ public sealed class ReconciliationRunner
             // Always reconcile every instance, even when the head did not move: the rule
             // catalog can change independently of any instance's inventory.
             var instances = await _db.Instances
-                .Where(t => t.KindCode == kind.Code)
+                .Where(t => t.KindCode == kind.Code && t.Enabled)
                 .OrderBy(t => t.InstanceCode)
                 .ToListAsync(cancellationToken);
 
@@ -142,6 +154,51 @@ public sealed class ReconciliationRunner
     }
 
     // --- Inventory bookkeeping ---------------------------------------------------------
+
+    /// <summary>
+    /// Makes the kinds table mirror the inventory's <c>inventory/{kind}/</c> folders: a new
+    /// folder registers (and enables) a kind, a vanished one disables it — never deletes,
+    /// so its instances and action history stay intact and come back if the folder does.
+    /// The display name follows the optional <c>kind.yaml</c>, defaulting to the code.
+    /// </summary>
+    private async Task SyncKindsAsync(List<string> messages, CancellationToken cancellationToken)
+    {
+        var declared = (await _inventory.GetKindsAsync(cancellationToken)).ToDictionary(k => k.Code, StringComparer.Ordinal);
+        var existing = await _db.Kinds.ToListAsync(cancellationToken);
+
+        foreach (var kind in existing)
+        {
+            if (declared.Remove(kind.Code, out var descriptor))
+            {
+                var name = descriptor.Name ?? kind.Code;
+                if (!kind.Enabled || kind.Name != name)
+                {
+                    if (!kind.Enabled)
+                    {
+                        messages.Add($"{kind.Code}: kind re-enabled (folder present in inventory)");
+                        AddAudit(null, kind.Code, "kind.enabled", "system", new { kind.Code });
+                    }
+                    kind.Enabled = true;
+                    kind.Name = name;
+                }
+            }
+            else if (kind.Enabled)
+            {
+                kind.Enabled = false;
+                messages.Add($"{kind.Code}: kind disabled (no inventory/{kind.Code}/ folder)");
+                AddAudit(null, kind.Code, "kind.disabled", "system", new { kind.Code });
+            }
+        }
+
+        foreach (var descriptor in declared.Values)
+        {
+            _db.Kinds.Add(new Kind { Code = descriptor.Code, Name = descriptor.Name ?? descriptor.Code, Enabled = true });
+            messages.Add($"{descriptor.Code}: kind registered from inventory");
+            AddAudit(null, descriptor.Code, "kind.registered", "system", new { descriptor.Code, descriptor.Name });
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+    }
 
     private async Task SyncInventoryAsync(string kindCode, List<string> messages, CancellationToken cancellationToken)
     {
@@ -205,9 +262,37 @@ public sealed class ReconciliationRunner
             messages.Add($"{kindCode}/{instance.InstanceCode}: new revision stored ({Shorten(head)})");
         }
 
+        await SyncInstanceEnablementAsync(kindCode, files.Select(f => f.InstanceCode).ToHashSet(StringComparer.Ordinal), messages, cancellationToken);
+
         state.LastSeenSha = head;
         state.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Same contract as <see cref="SyncKindsAsync"/>, one level down: an instance whose
+    /// folder no longer has inventory files is disabled (never deleted — its history
+    /// stays), and re-enabled if the folder comes back.
+    /// </summary>
+    private async Task SyncInstanceEnablementAsync(
+        string kindCode, IReadOnlySet<string> presentCodes, List<string> messages, CancellationToken cancellationToken)
+    {
+        var instances = await _db.Instances.Where(t => t.KindCode == kindCode).ToListAsync(cancellationToken);
+        foreach (var instance in instances)
+        {
+            var present = presentCodes.Contains(instance.InstanceCode);
+            if (present == instance.Enabled)
+            {
+                continue;
+            }
+
+            instance.Enabled = present;
+            var verb = present ? "enabled" : "disabled";
+            messages.Add(present
+                ? $"{kindCode}/{instance.InstanceCode}: instance re-enabled (folder present in inventory)"
+                : $"{kindCode}/{instance.InstanceCode}: instance disabled (no inventory/{kindCode}/instances/{instance.InstanceCode}/ files)");
+            AddAudit(instance.Id, kindCode, $"instance.{verb}", "system", new { instance = instance.InstanceCode });
+        }
     }
 
     private async Task<Instance> UpsertInstanceAsync(string kindCode, string instanceCode, string mergedYaml, CancellationToken cancellationToken)
@@ -370,7 +455,7 @@ public sealed class ReconciliationRunner
             .Where(a => a.Status is ActionStatus.QUEUED or ActionStatus.RUNNING or ActionStatus.FAILED)
             .Select(a => new LiveActionRow(
                 a.Id, new ActionIdentity(a.SignalPath, a.ItemKey, a.ActionKey),
-                a.Trigger, a.Status, a.DesiredValueJson))
+                a.Trigger, a.Status, a.DesiredValueJson, a.ExecutorConfigJson))
             .ToList();
 
         var input = new ReconciliationInput(
@@ -441,6 +526,9 @@ public sealed class ReconciliationRunner
             DesiredValueJson = required.DesiredValueJson,
             ResolvedInputsJson = JsonSerializer.Serialize(required.ResolvedInputs),
             PendingPromptsJson = JsonSerializer.Serialize(required.PendingPrompts),
+            ExecutorKind = required.ExecutorKind,
+            ExecutorConfigJson = ExecutorConfigJson.Serialize(required.DockerConfig),
+            SecretInputsJson = JsonSerializer.Serialize(required.SecretInputs),
             CreatedAt = now,
             UpdatedAt = now
         };

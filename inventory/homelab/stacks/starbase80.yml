@@ -1,0 +1,425 @@
+name: starbase80
+
+services:
+  starbase80:
+    image: jordanroher/starbase-80:1.6.6
+    container_name: starbase80
+    restart: unless-stopped
+    environment:
+      - TITLE=Sirio, Parisius Homelab
+      - HOVER=underline
+      - BGCOLORDARK=#000000
+      - CATEGORIES=small
+      # - LOGO=/starbase80.jpg
+    volumes:
+      # - ${SSD_NVME_VOLUMES_BASEDIR}/starbase80/public/favicon.ico:/app/public/favicon.ico
+      # - ${SSD_NVME_VOLUMES_BASEDIR}/starbase80/public/logo.png:/app/public/logo.png
+      - ${SSD_NVME_VOLUMES_BASEDIR}/starbase80/public/icons:/app/public/icons
+    configs:
+      - source: config.json
+        target: /app/src/config/config.json
+    networks:
+      - pangolin-private-proxy
+    # ports:
+    #   - 4173:4173
+    labels:
+      - pangolin.proxy-resources.grafana.name=Starbase80
+      - pangolin.proxy-resources.grafana.full-domain=dash.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.grafana.protocol=http
+      - pangolin.proxy-resources.grafana.auth.sso-enabled=false
+      - pangolin.proxy-resources.grafana.targets[0].method=http
+      - pangolin.proxy-resources.grafana.targets[0].port=4173
+
+configs:
+  config.json:
+    content: |
+      [
+      {
+          "category": "Favorites",
+          "services": [
+            {
+              "name": "Home Assistant",
+              "uri": "https://home.lab.parisius.dev",
+              "description": "Home automation",
+              "icon": "selfhst-home-assistant"
+            },
+            {
+              "name": "Jellyfin",
+              "uri": "https://jellyfin.lab.parisius.dev",
+              "description": "Media server",
+              "icon": "selfhst-jellyfin"
+            },
+            {
+              "name": "Seerr",
+              "uri": "https://seerr.lab.parisius.dev",
+              "description": "Media requests",
+              "icon": "selfhst-seerr"
+            },
+            {
+              "name": "Immich",
+              "uri": "https://immich.lab.parisius.dev",
+              "description": "Photo management",
+              "icon": "selfhst-immich"
+            },
+            {
+              "name": "Pangolin (private)",
+              "uri": "https://shield.lab.parisius.dev",
+              "description": "Pangolin Proxy",
+              "icon": "selfhst-pangolin"
+            },
+            {
+              "name": "Portainer",
+              "uri": "https://portainer.lab.parisius.dev",
+              "description": "Portainer CE",
+              "icon": "selfhst-portainer"
+            },
+            {
+              "name": "Backrest",
+              "uri": "https://backup.lab.parisius.dev",
+              "description": "Backup management",
+              "icon": "selfhst-backuppc"
+            },
+            {
+              "name": "Proxmox",
+              "uri": "https://192.168.178.10:8006",
+              "description": "Proxmox VE",
+              "icon": "selfhst-proxmox"
+            }
+          ]
+        },
+        {
+          "category": "Media",
+          "services": [
+            {
+              "name": "Jellyfin",
+              "uri": "https://jellyfin.lab.parisius.dev",
+              "description": "Media server",
+              "icon": "selfhst-jellyfin"
+            },
+            {
+              "name": "Seerr",
+              "uri": "https://seerr.lab.parisius.dev",
+              "description": "Media requests",
+              "icon": "selfhst-seerr"
+            },
+            {
+              "name": "Immich",
+              "uri": "https://immich.lab.parisius.dev",
+              "description": "Photo management",
+              "icon": "selfhst-immich"
+            }
+          ]
+        },
+        {
+          "category": "Arr Stack",
+          "services": [
+            {
+              "name": "Prowlarr",
+              "uri": "https://prowlarr.lab.parisius.dev",
+              "description": "Indexer manager",
+              "icon": "selfhst-prowlarr"
+            },
+            {
+              "name": "Radarr",
+              "uri": "https://radarr.lab.parisius.dev",
+              "description": "Movies automation",
+              "icon": "selfhst-radarr"
+            },
+            {
+              "name": "Sonarr",
+              "uri": "https://sonarr.lab.parisius.dev",
+              "description": "TV automation",
+              "icon": "selfhst-sonarr"
+            },
+            {
+              "name": "QBittorrent",
+              "uri": "https://torrent.lab.parisius.dev",
+              "description": "Torrent client",
+              "icon": "selfhst-qbittorrent"
+            }
+          ]
+        },
+        {
+          "category": "Automation & CI/CD",
+          "services": [
+            {
+              "name": "Woodpecker",
+              "uri": "https://cicd.lab.parisius.dev",
+              "description": "CI/CD server",
+              "icon": "selfhst-woodpecker-ci"
+            },
+            {
+              "name": "GitLab",
+              "uri": "https://gitlab.lab.parisius.dev",
+              "description": "Git and CI/CD",
+              "icon": "selfhst-gitlab"
+            },
+            {
+              "name": "n8n",
+              "uri": "https://n8n.lab.parisius.dev",
+              "description": "Workflow automation",
+              "icon": "selfhst-n8n"
+            }
+          ]
+        },
+        {
+          "category": "AI",
+          "services": [
+            {
+              "name": "Open WebUI",
+              "uri": "https://ai.lab.parisius.dev",
+              "description": "LLM Interface",
+              "icon": "selfhst-open-webui"
+            }
+          ]
+        },
+        {
+          "category": "Admin & Infrastructure",
+          "services": [
+            {
+              "name": "Pangolin (private)",
+              "uri": "https://shield.lab.parisius.dev",
+              "description": "Pangolin Proxy",
+              "icon": "selfhst-pangolin"
+            },
+            {
+              "name": "Portainer",
+              "uri": "https://portainer.lab.parisius.dev",
+              "description": "Portainer CE",
+              "icon": "selfhst-portainer"
+            },
+            {
+              "name": "Dockpeek",
+              "uri": "https://docker.lab.parisius.dev",
+              "description": "Docker management",
+              "icon": "selfhst-dockpeek"
+            },
+            {
+              "name": "Backrest",
+              "uri": "https://backup.lab.parisius.dev",
+              "description": "Backup management",
+              "icon": "selfhst-backuppc"
+            },
+            {
+              "name": "PiHole",
+              "uri": "https://pihole.lab.parisius.dev/admin",
+              "description": "DNS sinkhole",
+              "icon": "selfhst-pi-hole"
+            },
+            {
+              "name": "PiHole (direct IP fallback)",
+              "uri": "http://192.168.178.104:9080/admin",
+              "description": "Use if DNS/proxy is down",
+              "icon": "selfhst-pi-hole"
+            }
+          ]
+        },
+        {
+          "category": "Home",
+          "services": [
+            {
+              "name": "Home Assistant",
+              "uri": "https://home.lab.parisius.dev",
+              "description": "Home automation",
+              "icon": "selfhst-home-assistant"
+            },
+            {
+              "name": "Glance",
+              "uri": "https://glance.lab.parisius.dev",
+              "description": "Dashboard and RSS reader",
+              "icon": "selfhst-glance"
+            },
+            {
+              "name": "Trilium",
+              "uri": "https://trilium.lab.parisius.dev",
+              "description": "Note-taking application",
+              "icon": "selfhst-trilium-notes"
+            }
+          ]
+        },
+        {
+          "category": "Storage & Network",
+          "services": [
+            {
+              "name": "File Browser",
+              "uri": "https://drive.lab.parisius.dev",
+              "description": "File management",
+              "icon": "selfhst-file-browser"
+            },
+            {
+              "name": "Open Speedtest",
+              "uri": "https://speed.lab.parisius.dev",
+              "description": "Network speed test",
+              "icon": "selfhst-openspeedtest"
+            }
+          ]
+        },
+        {
+          "category": "Gaming",
+          "services": [
+            {
+              "name": "RomM",
+              "uri": "https://romm.lab.parisius.dev",
+              "description": "Retro gaming",
+              "icon": "selfhst-romm"
+            },
+            {
+              "name": "DiscoPanel",
+              "uri": "https://minecraft.lab.parisius.dev",
+              "description": "Minecraft server",
+              "icon": "selfhst-minecraft"
+            }
+          ]
+        },
+        {
+          "category": "Projects",
+          "services": [
+            {
+              "name": "Sol2earn",
+              "uri": "https://sol2earn.lab.parisius.dev",
+              "description": "Sol2earn game"
+            },
+            {
+              "name": "Sol2earn admin panel",
+              "uri": "https://sol2earn-admin.lab.parisius.dev",
+              "description": "Sol2earn admin panel"
+            },
+            {
+              "name": "Indovina Chi",
+              "uri": "https://indovina-chi.lab.parisius.dev",
+              "description": "Indovina Chi game frontend"
+            },
+            {
+              "name": "Indovina Chi Server",
+              "uri": "https://indovina-chi-server.lab.parisius.dev",
+              "description": "Indovina Chi game server"
+            },
+            {
+              "name": "Project Nomad",
+              "uri": "https://nomad.lab.parisius.dev",
+              "description": "Network management"
+            },
+            {
+              "name": "Nomad Logs",
+              "uri": "https://nomad-logs.lab.parisius.dev",
+              "description": "Project Nomad container logs (Dozzle)",
+              "icon": "selfhst-dozzle"
+            },
+            {
+              "name": "Rancher",
+              "uri": "https://rancher.lab.parisius.dev",
+              "description": "Kubernetes management",
+              "icon": "selfhst-rancher"
+            },
+            {
+              "name": "Simple Nginx",
+              "uri": "https://simple-nginx.lab.parisius.dev",
+              "description": "Static nginx test site",
+              "icon": "selfhst-nginx"
+            },
+            {
+              "name": "Video Kiosk",
+              "uri": "https://video-kiosk.lab.parisius.dev",
+              "description": "Video kiosk player"
+            }
+          ]
+        },
+        {
+          "category": "Hosts",
+          "services": [
+            {
+              "name": "FRITZ!Box 7530 AX",
+              "uri": "https://fritz.box",
+              "description": "Fritz Box router",
+              "icon": "selfhst-fritz"
+            },
+            {
+              "name": "FRITZ!Repeater 1200 AX",
+              "uri": "http://192.168.178.24/",
+              "description": "Fritz Box repeater",
+              "icon": "selfhst-fritz"
+            },
+            {
+              "name": "Proxmox",
+              "uri": "https://192.168.178.10:8006",
+              "description": "Proxmox VE",
+              "icon": "selfhst-proxmox"
+            },
+            {
+              "name": "Cockpit el10-docker",
+              "uri": "https://192.168.178.104:9090",
+              "description": "Cockpit on el10-docker",
+              "icon": "selfhst-rocky-linux"
+            },
+            {
+              "name": "Cockpit proxmox",
+              "uri": "https://192.168.178.10:9090",
+              "description": "Cockpit on proxmox",
+              "icon": "selfhst-debian"
+            }
+          ]
+        },
+        {
+          "category": "External",
+          "services": [
+            {
+              "name": "GitHub homelab repo",
+              "uri": "https://github.com/jasoc/homelab",
+              "description": "GitHub repository for homelab configuration",
+              "icon": "selfhst-github"
+            },
+            {
+              "name": "Proton home",
+              "uri": "https://account.proton.me",
+              "description": "Proton home",
+              "icon": "selfhst-proton"
+            },
+            {
+              "name": "Proton mail",
+              "uri": "https://mail.proton.me",
+              "description": "Personal email account",
+              "icon": "selfhst-proton-mail"
+            },
+            {
+              "name": "Proton Pass",
+              "uri": "https://pass.proton.me",
+              "description": "Password manager",
+              "icon": "selfhst-proton-pass"
+            },
+            {
+              "name": "Proton Drive",
+              "uri": "https://drive.proton.me",
+              "description": "Cloud file storage",
+              "icon": "selfhst-proton-drive"
+            },
+            {
+              "name": "Simple Login",
+              "uri": "https://simplelogin.io",
+              "description": "Email aliasing",
+              "icon": "selfhst-simplelogin"
+            },
+            {
+              "name": "Cloudflare",
+              "uri": "https://dash.cloudflare.com/0e1a71bc13af951e9927567b2e38f17c/parisius.dev/dns/records",
+              "description": "parisius.dev DNS management",
+              "icon": "selfhst-cloudflare"
+            },
+            {
+              "name": "Squarespace",
+              "uri": "https://account.squarespace.com/domains/managed/parisius.dev",
+              "description": "parisius.dev registrar",
+              "icon": "selfhst-powerdns"
+            },
+            {
+              "name": "Mend.io (Renovate bot)",
+              "uri": "https://developer.mend.io/github/jasoc/homelab",
+              "description": "Renovate bot for jasoc/homelab GitHub repository",
+              "icon": "selfhst-mend-renovate"
+            }
+          ]
+        }
+      ]
+
+networks:
+  pangolin-private-proxy:
+    external: true

@@ -1,0 +1,57 @@
+---
+# Installs and configures Docker CE. Used by any VM that needs to run
+# containers -- as-is for a plain docker node, or as a base for playbooks
+# that extend it (e.g. backrest-node.yml) with their own tasks.
+
+- name: Add Docker CE repository
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/centos/docker-ce.repo
+    dest: /etc/yum.repos.d/docker-ce.repo
+    mode: "0644"
+
+- name: Install Docker
+  ansible.builtin.dnf:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+
+- name: Persist IPv4 forwarding across reboots
+  ansible.builtin.copy:
+    content: "net.ipv4.ip_forward = 1\n"
+    dest: /etc/sysctl.d/99-docker-forward.conf
+    mode: "0644"
+
+- name: Enable IPv4 forwarding now
+  ansible.builtin.command:
+    cmd: sysctl -w net.ipv4.ip_forward=1
+  changed_when: false
+
+- name: Configure Docker to use the nftables firewall backend
+  # AlmaLinux/RHEL 10 dropped the legacy x_tables kernel modules
+  # (xt_addrtype, ip_tables, ...), which the iptables-nft compat CLI
+  # needs for Docker's default "iptables" backend. dockerd talks to
+  # nftables directly instead, sidestepping the missing modules.
+  ansible.builtin.copy:
+    content: |
+      {
+        "firewall-backend": "nftables"
+      }
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+  notify: Restart docker
+
+- name: Enable docker
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Add parisius to the docker group
+  ansible.builtin.user:
+    name: parisius
+    groups: docker
+    append: true

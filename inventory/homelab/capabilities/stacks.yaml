@@ -1,0 +1,70 @@
+# Compose stacks per VM: each VM lists, under `compose`, files of the flat folder
+# inventory/homelab/stacks/ (names or globs: portainer.yml, pangolin-*). Every matching file is one item with its own
+# actions:
+#   add    → deploy_stack (AUTO, once the VM's Ansible profile has run)
+#   modify → update_stack (AUTO) — editing the FILE is the change: its content is the item
+#   delete → remove_stack (MANUAL) — dropped from the list (or deleted): `compose down`,
+#            with the last deployed content, so it works even once the file is gone
+# Removing a whole VM doesn't remove its stacks one by one (the VM's destroy takes them
+# along); a recreated VM gets every stack deployed again.
+# Secrets: see virtual_machines.yaml — only the Proton Pass token comes from Lodge.
+capability: stacks
+title: "Compose Stacks"
+description: "Docker compose files deployed onto each VM over ssh."
+
+signals:
+  - path: proxmox.virtual_machines.*.compose
+    kind: scalar_list
+    files: stacks
+    rules:
+      - on: add
+        actions:
+          - key: deploy_stack
+            runbook: homelab/compose-deploy
+            label: "Deploy stack"
+            policy: AUTO
+            depends_on: [ "proxmox.virtual_machines.configure_vm" ]
+            executor: docker
+            docker:
+              build: { context: playbooks/compose }
+              command: ["deploy"]
+            inputs:
+              file: { from: item.file }
+              content: { from: item.content }
+              vm_name: { from: parent_key }
+              host: { from: parent.ip }
+              pass_pat: { secret: PROTON_PASS_PAT }
+
+      - on: modify
+        actions:
+          - key: update_stack
+            runbook: homelab/compose-update
+            label: "Update stack"
+            policy: AUTO
+            executor: docker
+            docker:
+              build: { context: playbooks/compose }
+              command: ["deploy"]
+            inputs:
+              file: { from: item.file }
+              content: { from: item.content }
+              vm_name: { from: parent_key }
+              host: { from: parent.ip }
+              pass_pat: { secret: PROTON_PASS_PAT }
+
+      - on: delete
+        actions:
+          - key: remove_stack
+            runbook: homelab/compose-remove
+            label: "Remove stack"
+            policy: MANUAL_REQUIRED
+            executor: docker
+            docker:
+              build: { context: playbooks/compose }
+              command: ["remove"]
+            inputs:
+              file: { from: item.file }
+              content: { from: item.content }
+              vm_name: { from: parent_key }
+              host: { from: parent.ip }
+              pass_pat: { secret: PROTON_PASS_PAT }

@@ -1,0 +1,53 @@
+---
+# Day 2 setup for the dedicated Backrest VM: a docker node (Backrest runs as a container,
+# declared under this VM's `containers` in the Lodge inventory) that also mounts every
+# backed-up VM's /volumes export so Backrest can back them all up from one place.
+#
+# Which VMs to mount isn't hand-maintained: it's every VM of the inventory with
+# `backed_up: true` (the old terraform docker_volume_hosts output).
+- name: Configure Backrest node
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    docker_volume_hosts: >-
+      {%- set hosts = {} -%}
+      {%- for name, vm_spec in (vms | default({})).items()
+            if (vm_spec.backed_up | default(false)) and name != vm_name -%}
+        {%- set _ = hosts.update({name: vm_spec.ip.split('/') | first}) -%}
+      {%- endfor -%}
+      {{ hosts }}
+
+  pre_tasks:
+    - name: Wait for the VM to accept SSH (fresh from Terraform/cloud-init)
+      ansible.builtin.wait_for_connection:
+        timeout: 600
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
+  roles:
+    - common
+    - docker
+
+  tasks:
+    - name: Ensure a local mount point exists for each VM's /volumes
+      ansible.builtin.file:
+        path: "/mnt/vms_volumes/{{ item.key }}"
+        state: directory
+        mode: "0755"
+      loop: "{{ docker_volume_hosts | dict2items }}"
+
+    - name: Add /volumes NFS mounts to /etc/fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: "^{{ item.value }}:/volumes\\s"
+        line: "{{ item.value }}:/volumes /mnt/vms_volumes/{{ item.key }} nfs defaults,ro,timeo=900,retrans=5,_netdev 0 0"
+        create: true
+      loop: "{{ docker_volume_hosts | dict2items }}"
+      register: backrest_fstab_result
+
+    - name: Mount all filesystems in fstab
+      ansible.builtin.command: mount -a
+      when: backrest_fstab_result is changed

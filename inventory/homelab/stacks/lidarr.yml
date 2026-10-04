@@ -1,0 +1,29 @@
+name: lidarr
+
+services:
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: lidarr
+    environment:
+      - PUID=1000
+      - PGID=1001
+      - TZ=${TZ}
+    volumes:
+      - ${HDD_VOLUMES_BASEDIR}/lidarr:/config
+      - ${ARRSTACK_BASE_PATH}:/data
+    # ports:
+    #   - 8686:8686
+    restart: unless-stopped
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.lidarr.name=Lidarr
+      - pangolin.proxy-resources.lidarr.full-domain=lidarr.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.lidarr.protocol=http
+      - pangolin.proxy-resources.lidarr.auth.sso-enabled=false
+      - pangolin.proxy-resources.lidarr.targets[0].method=http
+      - pangolin.proxy-resources.lidarr.targets[0].port=8686
+
+networks:
+  pangolin-private-proxy:
+    external: true

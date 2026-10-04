@@ -1,0 +1,65 @@
+# Cloud images downloaded onto Proxmox datastores, one per key under proxmox.images — what
+# a VM's `image` (a volume id, <datastore>:import/<file>) points at. Same generic Terraform
+# runner as the VMs, module `proxmox-image`, one state per image.
+# An image that's already on the datastore can be adopted with `import_id` on the item
+# (bpg/proxmox: <node>/<datastore>:<content_type>/<file>) — creating it again fails.
+capability: images
+title: "Cloud Images"
+description: "Images downloaded onto Proxmox datastores, for VMs to import their disk from."
+
+signals:
+  - path: proxmox.images
+    kind: keyed_collection
+    rules:
+      - on: add
+        actions:
+          - key: download_image
+            runbook: homelab/terraform-apply
+            label: "Download image (Terraform)"
+            policy: MANUAL_REQUIRED
+            executor: docker
+            docker:
+              build: { context: playbooks/terraform }
+              command: ["apply"]
+              mounts: ["tfstate:/state"]
+            inputs:
+              module: { const: proxmox-image }
+              unit: { from: path }
+              inputs: { from: item }
+              import_id: { from: item.import_id }
+              pass_pat: { secret: PROTON_PASS_PAT }
+
+      - on: modify
+        actions:
+          - key: update_image
+            runbook: homelab/terraform-apply-changes
+            label: "Apply image changes (Terraform)"
+            policy: MANUAL_REQUIRED
+            executor: docker
+            docker:
+              build: { context: playbooks/terraform }
+              command: ["apply"]
+              mounts: ["tfstate:/state"]
+            inputs:
+              module: { const: proxmox-image }
+              unit: { from: path }
+              inputs: { from: item }
+              import_id: { from: item.import_id }
+              pass_pat: { secret: PROTON_PASS_PAT }
+
+      - on: delete
+        actions:
+          - key: delete_image
+            runbook: homelab/terraform-destroy
+            label: "Delete image (Terraform)"
+            policy: MANUAL_REQUIRED
+            executor: docker
+            docker:
+              build: { context: playbooks/terraform }
+              command: ["destroy"]
+              mounts: ["tfstate:/state"]
+            inputs:
+              module: { const: proxmox-image }
+              unit: { from: path }
+              inputs: { from: item }
+              pass_pat: { secret: PROTON_PASS_PAT }

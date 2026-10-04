@@ -863,4 +863,251 @@ public class ReconcilerTests
         Assert.Empty(changed.ToSupersede);
         Assert.Empty(changed.ToCreate);
     }
+
+    // --- nested collections (containers inside VMs) ---------------------------------------
+
+    private static CapabilityCatalog VmWithContainersCatalog()
+    {
+        var vms = CapabilityCatalogLoader.LoadCapability("""
+            capability: vms
+            signals:
+              - path: proxmox.vms
+                kind: keyed_collection
+                exclude: [containers]
+                rules:
+                  - on: add
+                    actions:
+                      - key: apply_vm
+                        runbook: ops/apply
+                        inputs:
+                          vm: { from: item }
+                          vms: { from: collection }
+                      - key: configure_vm
+                        runbook: ops/configure
+                        depends_on: [ "proxmox.vms.apply_vm" ]
+                  - on: modify
+                    actions:
+                      - key: resize_vm
+                        runbook: ops/resize
+                  - on: delete
+                    actions:
+                      - key: destroy_vm
+                        runbook: ops/destroy
+            """);
+        var containers = CapabilityCatalogLoader.LoadCapability("""
+            capability: containers
+            signals:
+              - path: proxmox.vms.*.containers
+                kind: keyed_collection
+                rules:
+                  - on: add
+                    actions:
+                      - key: deploy
+                        runbook: ops/deploy
+                        depends_on: [ "proxmox.vms.configure_vm" ]
+                        inputs:
+                          name: { from: key }
+                          host: { from: parent.ip }
+                          vm: { from: parent_key }
+                  - on: modify
+                    actions:
+                      - key: update
+                        runbook: ops/update
+                  - on: delete
+                    actions:
+                      - key: remove
+                        runbook: ops/remove
+                        inputs:
+                          host: { from: parent.ip }
+            """);
+        return CapabilityCatalogLoader.Merge("homelab", new[] { vms, containers }, Array.Empty<CapabilityDefinition>());
+    }
+
+    private const string OneVmTwoContainers = """
+        proxmox:
+          vms:
+            vm1:
+              ip: "10.0.0.5"
+              cores: 2
+              containers:
+                web: { image: "nginx:1" }
+                db: { image: "postgres:16" }
+        """;
+
+    private static SucceededRecord Done(string path, string key, string action, SignalTrigger trigger, string? body, int minute)
+        => Succeeded(Id(path, key, action), trigger, body, T(minute), false);
+
+    [Fact]
+    public void Containers_wait_for_their_vm_and_are_excluded_from_its_body()
+    {
+        var first = Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers));
+
+        var apply = Assert.Single(first.ToCreate);
+        Assert.Equal("apply_vm", apply.Identity.ActionKey);
+        Assert.DoesNotContain("containers", apply.DesiredValueJson);
+        Assert.DoesNotContain("containers", apply.ResolvedInputs["vms"]);
+        Assert.Contains("\"vm1\"", apply.ResolvedInputs["vms"]);
+    }
+
+    [Fact]
+    public void Once_the_vm_is_configured_each_container_gets_its_own_deploy_with_parent_inputs()
+    {
+        var vmBody = Assert.Single(Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers)).ToCreate).DesiredValueJson;
+        var history = new[]
+        {
+            Done("proxmox.vms", "vm1", "apply_vm", SignalTrigger.ADD, vmBody, 1),
+            Done("proxmox.vms", "vm1", "configure_vm", SignalTrigger.ADD, vmBody, 2)
+        };
+
+        var result = Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers, history));
+
+        var deploys = result.ToCreate.Where(a => a.Identity.ActionKey == "deploy").OrderBy(a => a.Identity.ItemKey).ToList();
+        Assert.Equal(new[] { "vm1/db", "vm1/web" }, deploys.Select(d => d.Identity.ItemKey));
+        Assert.Equal("web", deploys[1].ResolvedInputs["name"]);
+        Assert.Equal("10.0.0.5", deploys[1].ResolvedInputs["host"]);
+        Assert.Equal("vm1", deploys[1].ResolvedInputs["vm"]);
+        Assert.DoesNotContain(result.ToCreate, a => a.Identity.ActionKey == "resize_vm");
+    }
+
+    [Fact]
+    public void Editing_a_container_updates_that_container_only_and_removing_one_removes_it()
+    {
+        var vmBody = Assert.Single(Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers)).ToCreate).DesiredValueJson;
+        var history = new[]
+        {
+            Done("proxmox.vms", "vm1", "apply_vm", SignalTrigger.ADD, vmBody, 1),
+            Done("proxmox.vms", "vm1", "configure_vm", SignalTrigger.ADD, vmBody, 2),
+            Done("proxmox.vms.*.containers", "vm1/web", "deploy", SignalTrigger.ADD, "{\"image\":\"nginx:1\"}", 3),
+            Done("proxmox.vms.*.containers", "vm1/db", "deploy", SignalTrigger.ADD, "{\"image\":\"postgres:16\"}", 3)
+        };
+
+        var edited = OneVmTwoContainers.Replace("nginx:1", "nginx:2").Replace("\n        db: { image: \"postgres:16\" }", "");
+        var result = Reconciler.Reconcile(Input(VmWithContainersCatalog(), edited, history));
+
+        Assert.Equal(new[] { "remove:vm1/db", "update:vm1/web" },
+            result.ToCreate.Select(a => $"{a.Identity.ActionKey}:{a.Identity.ItemKey}").Order());
+        Assert.Equal("10.0.0.5", result.ToCreate.Single(a => a.Identity.ActionKey == "remove").ResolvedInputs["host"]);
+    }
+
+    [Fact]
+    public void A_recreated_vm_needs_its_containers_deployed_again_and_a_vanished_vm_skips_container_removal()
+    {
+        var vmBody = Assert.Single(Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers)).ToCreate).DesiredValueJson;
+        var deployed = new[]
+        {
+            Done("proxmox.vms", "vm1", "apply_vm", SignalTrigger.ADD, vmBody, 1),
+            Done("proxmox.vms", "vm1", "configure_vm", SignalTrigger.ADD, vmBody, 2),
+            Done("proxmox.vms.*.containers", "vm1/web", "deploy", SignalTrigger.ADD, "{\"image\":\"nginx:1\"}", 3),
+            Done("proxmox.vms.*.containers", "vm1/db", "deploy", SignalTrigger.ADD, "{\"image\":\"postgres:16\"}", 3)
+        };
+
+        // VM removed from the inventory: only the VM destroy, no per-container removals.
+        var gone = Reconciler.Reconcile(Input(VmWithContainersCatalog(), "proxmox:\n  vms: {}", deployed));
+        Assert.Equal(new[] { "destroy_vm" }, gone.ToCreate.Select(a => a.Identity.ActionKey));
+
+        // Destroyed, then added back and re-provisioned: the old configure/deploys belong to
+        // the previous VM, so containers wait for the new configure and then deploy again.
+        var recreated = deployed.Append(Done("proxmox.vms", "vm1", "destroy_vm", SignalTrigger.DELETE, "null", 4))
+            .Append(Done("proxmox.vms", "vm1", "apply_vm", SignalTrigger.ADD, vmBody, 5)).ToList();
+        var waiting = Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers, recreated));
+        Assert.Equal(new[] { "configure_vm" }, waiting.ToCreate.Select(a => a.Identity.ActionKey));
+
+        recreated.Add(Done("proxmox.vms", "vm1", "configure_vm", SignalTrigger.ADD, vmBody, 6));
+        var redeploy = Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers, recreated));
+        Assert.Equal(new[] { "deploy:vm1/db", "deploy:vm1/web" },
+            redeploy.ToCreate.Select(a => $"{a.Identity.ActionKey}:{a.Identity.ItemKey}").Order());
+    }
+
+    // --- file-backed lists (compose files listed per VM) ----------------------------------
+
+    private static CapabilityCatalog StacksCatalog(Dictionary<string, string> files)
+    {
+        var capability = CapabilityCatalogLoader.LoadCapability("""
+            capability: stacks
+            signals:
+              - path: vms.*.compose
+                kind: scalar_list
+                files: stacks
+                rules:
+                  - on: add
+                    actions:
+                      - key: deploy
+                        runbook: ops/deploy
+                        inputs:
+                          file: { from: item.file }
+                          content: { from: item.content }
+                          host: { from: parent.ip }
+                  - on: modify
+                    actions:
+                      - key: update
+                        runbook: ops/update
+                  - on: delete
+                    actions:
+                      - key: remove
+                        runbook: ops/remove
+                        inputs:
+                          content: { from: item.content }
+            """);
+        capability.Signals[0].FileIndex = files; // what FileCapabilityCatalogProvider stamps
+        return CapabilityCatalogLoader.Merge("homelab", new[] { capability }, Array.Empty<CapabilityDefinition>());
+    }
+
+    private static readonly Dictionary<string, string> StackFiles = new()
+    {
+        ["home/glance.yml"] = "name: glance\n",
+        ["home/immich.yml"] = "name: immich\n",
+        ["network/pihole.yml"] = "name: pihole\n"
+    };
+
+    [Fact]
+    public void File_lists_expand_globs_into_one_item_per_file_carrying_its_content()
+    {
+        var result = Reconciler.Reconcile(Input(StacksCatalog(StackFiles), """
+            vms:
+              node1:
+                ip: "10.0.0.7"
+                compose: ["home/*", "network/pihole.yml"]
+            """));
+
+        Assert.Empty(result.ValidationErrors);
+        Assert.Equal(new[] { "node1/home/glance.yml", "node1/home/immich.yml", "node1/network/pihole.yml" },
+            result.ToCreate.Select(a => a.Identity.ItemKey).Order());
+        var pihole = result.ToCreate.Single(a => a.Identity.ItemKey == "node1/network/pihole.yml");
+        Assert.Equal("network/pihole.yml", pihole.ResolvedInputs["file"]);
+        Assert.Equal("name: pihole\n", pihole.ResolvedInputs["content"]);
+        Assert.Equal("10.0.0.7", pihole.ResolvedInputs["host"]);
+    }
+
+    [Fact]
+    public void Editing_a_listed_file_updates_it_and_unlisting_one_removes_it_with_its_last_content()
+    {
+        const string yaml = """
+            vms:
+              node1:
+                ip: "10.0.0.7"
+                compose: ["home/*"]
+            """;
+        var first = Reconciler.Reconcile(Input(StacksCatalog(StackFiles), yaml));
+        var history = first.ToCreate.Select(a => Succeeded(a.Identity, SignalTrigger.ADD, a.DesiredValueJson, T(1), false)).ToList();
+
+        var edited = new Dictionary<string, string>(StackFiles) { ["home/glance.yml"] = "name: glance\nservices: {}\n" };
+        var result = Reconciler.Reconcile(Input(StacksCatalog(edited), yaml.Replace("[\"home/*\"]", "[\"home/glance.yml\"]"), history));
+
+        Assert.Equal(new[] { "remove:node1/home/immich.yml", "update:node1/home/glance.yml" },
+            result.ToCreate.Select(a => $"{a.Identity.ActionKey}:{a.Identity.ItemKey}").Order());
+        Assert.Equal("name: immich\n", result.ToCreate.Single(a => a.Identity.ActionKey == "remove").ResolvedInputs["content"]);
+    }
+
+    [Fact]
+    public void A_listed_path_that_is_not_a_file_is_a_validation_error()
+    {
+        var result = Reconciler.Reconcile(Input(StacksCatalog(StackFiles), """
+            vms:
+              node1:
+                compose: ["home/nope.yml"]
+            """));
+
+        Assert.Contains(result.ValidationErrors, e => e.Contains("'home/nope.yml' is not a file under 'stacks/'"));
+        Assert.Empty(result.ToCreate);
+    }
 }

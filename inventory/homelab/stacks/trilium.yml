@@ -1,0 +1,28 @@
+name: home
+
+services:
+  trilium:
+    image: triliumnext/trilium:v0.104.1
+    container_name: trilium
+    restart: unless-stopped
+    environment:
+      - TRILIUM_DATA_DIR=/home/node/trilium-data
+    # ports:
+    #   - '8080:8080'
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/trilium:/home/node/trilium-data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.trilium.name=Trilium
+      - pangolin.proxy-resources.trilium.full-domain=trilium.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.trilium.protocol=http
+      - pangolin.proxy-resources.trilium.auth.sso-enabled=false
+      - pangolin.proxy-resources.trilium.targets[0].method=http
+      - pangolin.proxy-resources.trilium.targets[0].port=8080
+
+networks:
+  pangolin-private-proxy:
+    external: true

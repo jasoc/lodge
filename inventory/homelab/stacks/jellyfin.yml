@@ -1,0 +1,36 @@
+name: jellyfin
+
+services:
+
+  jellyfin:
+    image: jellyfin/jellyfin
+    container_name: jellyfin
+    # ports:
+    #  - 8920:8920
+    #  - 8096:8096
+    volumes:
+      - ${HDD_VOLUMES_BASEDIR}/jellyfin/config:/config
+      - ${HDD_VOLUMES_BASEDIR}/jellyfin/cache:/cache
+      - ${ARRSTACK_BASE_PATH}:/data
+      - ${MASS_HDD_PATH}/media/Movies:/movies
+      - ${MASS_HDD_PATH}/media/TV Series:/tvseries
+    restart: 'unless-stopped'
+    environment:
+      - JELLYFIN_PublishedServerUrl=https://jellyfin.${PRIVATE_DOMAIN}
+      - PUID=1000
+      - PGID=1001
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.jellyfin.name=Jellyfin
+      - pangolin.proxy-resources.jellyfin.full-domain=jellyfin.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.jellyfin.protocol=http
+      - pangolin.proxy-resources.jellyfin.auth.sso-enabled=false
+      - pangolin.proxy-resources.jellyfin.targets[0].method=http
+      - pangolin.proxy-resources.jellyfin.targets[0].port=8096
+
+networks:
+  pangolin-private-proxy:
+    external: true

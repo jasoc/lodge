@@ -230,8 +230,12 @@ public sealed class ActionExecutionService
         }
     }
 
-    /// <summary>Moves a RUNNING action to the executor's terminal state, if it has one; doesn't save.</summary>
-    private async Task<string?> ApplyExecutorStatusAsync(ActionEntity action, string kindCode, CancellationToken cancellationToken)
+    /// <summary>
+    /// Moves a RUNNING action to the executor's terminal state, if it has one; doesn't
+    /// save. Returns the executor's status message. The single place a run lands — the UI
+    /// read path and the reconciliation loop both go through it.
+    /// </summary>
+    public async Task<string?> ApplyExecutorStatusAsync(ActionEntity action, string kindCode, CancellationToken cancellationToken)
     {
         var status = await _executor.GetStatusAsync(action.ExecutionRef!, cancellationToken);
         var mapped = status.State switch
@@ -253,9 +257,61 @@ public sealed class ActionExecutionService
                 state = status.State.ToString(),
                 status.Message
             });
+
+            if (mapped == ActionStatus.SUCCEEDED && action.Policy == ActionPolicy.OPTIONAL)
+            {
+                await RequeueOptionalAsync(action, kindCode, cancellationToken);
+            }
         }
 
         return status.Message;
+    }
+
+    /// <summary>
+    /// OPTIONAL actions (checks, plans, tests) are re-invocable: one row per execution. The
+    /// reconciler would queue the next row on its next cycle anyway; doing it the moment
+    /// the run lands means the button is there again right away instead of up to a loop
+    /// interval later. Same snapshot as the row that just ran — if the inventory changed
+    /// meanwhile, the next cycle supersedes it like any stale live row.
+    /// </summary>
+    private async Task RequeueOptionalAsync(ActionEntity done, string kindCode, CancellationToken cancellationToken)
+    {
+        var hasLive = await _db.Actions.AnyAsync(a =>
+            a.InstanceId == done.InstanceId && a.SignalPath == done.SignalPath && a.ItemKey == done.ItemKey &&
+            a.ActionKey == done.ActionKey &&
+            (a.Status == ActionStatus.QUEUED || a.Status == ActionStatus.RUNNING || a.Status == ActionStatus.FAILED),
+            cancellationToken);
+        if (hasLive)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var next = new ActionEntity
+        {
+            Id = Guid.NewGuid(),
+            InstanceId = done.InstanceId,
+            CapabilityCode = done.CapabilityCode,
+            SignalPath = done.SignalPath,
+            ItemKey = done.ItemKey,
+            ActionKey = done.ActionKey,
+            RunbookRef = done.RunbookRef,
+            Trigger = done.Trigger,
+            Label = done.Label,
+            Policy = done.Policy,
+            Status = ActionStatus.QUEUED,
+            DesiredValueJson = done.DesiredValueJson,
+            ResolvedInputsJson = done.ResolvedInputsJson,
+            PendingPromptsJson = done.PendingPromptsJson,
+            ExecutorKind = done.ExecutorKind,
+            ExecutorConfigJson = done.ExecutorConfigJson,
+            SecretInputsJson = done.SecretInputsJson,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        _db.Actions.Add(next);
+        AddAudit(done.InstanceId, kindCode, "action.generated", "system",
+            new { next.Id, next.RunbookRef, next.SignalPath, next.ItemKey, policy = next.Policy.ToString(), requeuedAfter = done.Id });
     }
 
     /// <summary>

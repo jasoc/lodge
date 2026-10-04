@@ -314,11 +314,18 @@ public static class Reconciler
                     continue; // validated at catalog-load time; cannot fail for a loaded catalog
                 }
 
-                var targetItemKey = string.Equals(address.SignalPath, identity.SignalPath, StringComparison.Ordinal)
-                    ? identity.ItemKey
-                    : null;
+                var targetItemKey = TargetItemKey(address.SignalPath!, identity);
                 var targetIdentity = new ActionIdentity(address.SignalPath!, targetItemKey, address.ActionKey);
-                if (!_lastSuccess.ContainsKey(targetIdentity))
+                if (!_lastSuccess.TryGetValue(targetIdentity, out var success))
+                {
+                    return false;
+                }
+
+                // A success from before the item was last deleted belongs to a previous
+                // incarnation (a destroyed-then-recreated VM): it doesn't count.
+                if (targetItemKey is not null &&
+                    _lastDelete.TryGetValue((address.SignalPath!, targetItemKey), out var deletedAt) &&
+                    deletedAt > success.CompletedAt)
                 {
                     return false;
                 }
@@ -326,12 +333,46 @@ public static class Reconciler
             return true;
         }
 
+        /// <summary>
+        /// Which item a dependency on <paramref name="targetSignalPath"/> means for the
+        /// depending action: its own item on the same signal; its parent item when the
+        /// depending signal is nested under the target (a container waiting on its VM);
+        /// otherwise the target's scalar identity.
+        /// </summary>
+        private IReadOnlyCollection<SignalDefinition> AllSignals => _allSignals ??= _input.Catalog.Capabilities.SelectMany(c => c.Signals).ToList();
+        private IReadOnlyCollection<SignalDefinition>? _allSignals;
+
+        private string? TargetItemKey(string targetSignalPath, ActionIdentity identity)
+        {
+            if (string.Equals(targetSignalPath, identity.SignalPath, StringComparison.Ordinal))
+            {
+                return identity.ItemKey;
+            }
+
+            var depending = AllSignals.FirstOrDefault(s => string.Equals(s.Path, identity.SignalPath, StringComparison.Ordinal));
+            if (depending is { IsNested: true } &&
+                string.Equals(depending.ParentPath, targetSignalPath, StringComparison.Ordinal) &&
+                identity.ItemKey is { } nestedKey)
+            {
+                return SplitNestedKey(nestedKey).Parent;
+            }
+
+            return null;
+        }
+
+        private static (string Parent, string Child) SplitNestedKey(string key)
+        {
+            var at = key.IndexOf(SignalDefinition.NestedItemKeySeparator);
+            return at < 0 ? (key, key) : (key[..at], key[(at + 1)..]);
+        }
+
         public CapabilityEvaluation EvaluateCapability(CapabilityDefinition capability)
         {
             // Visibility gate first: a capability applies to a instance only when every
             // signal path exists in its YAML (false/empty containers count as present).
+            // A nested signal is present wherever its parent collection is.
             var resolved = capability.Signals
-                .Select(s => (Signal: s, Value: ResolvePath(_input.DesiredRoot, s.Path)))
+                .Select(s => (Signal: s, Value: ResolvePath(_input.DesiredRoot, s.ParentPath ?? s.Path)))
                 .ToList();
             var visible = resolved.All(r => r.Value.Found);
 
@@ -400,13 +441,16 @@ public static class Reconciler
         private SignalStatusView EvaluateCollectionSignal(CapabilityDefinition capability, SignalDefinition signal, object? node)
         {
             var currentJson = YamlFlattener.ToCanonicalJson(node);
-            if (!TryGetItems(signal, node, out var desiredItems, out var validationError))
+            if (!TryCollectItems(signal, node, out var desiredItems, out var parents, out var validationError))
             {
                 _errors.Add($"{_input.InstanceCode}: signal '{signal.Path}' — {validationError}");
                 return new SignalStatusView(signal.Path, signal.Kind, true, currentJson, Array.Empty<RequiredAction>(), validationError);
             }
 
             var actions = new List<RequiredAction>();
+            var collectionJson = CollectionJson(desiredItems);
+            Dictionary<string, string?> ItemContextFor(string key, string? bodyJson)
+                => ItemContext(signal, key, bodyJson, parents, collectionJson);
 
             // Present items: ADD (presence not confirmed) and MODIFY (body changed).
             foreach (var (key, bodyJson) in desiredItems)
@@ -416,14 +460,19 @@ public static class Reconciler
 
                 foreach (var rule in MatchingRules(signal, SignalTrigger.ADD, key))
                 {
-                    var context = ItemContext(signal.Path, key, bodyJson);
+                    var context = ItemContextFor(key, bodyJson);
                     foreach (var template in rule.Actions)
                     {
                         var identity = new ActionIdentity(signal.Path, key, template.Key);
                         var neverSucceeded = !_lastSuccess.TryGetValue(identity, out var success);
-                        // Confirmed-present for this identity unless a later delete undid it.
+                        // Confirmed-present for this identity unless a later delete undid it —
+                        // its own, or (nested) its parent's: a recreated VM needs its
+                        // containers deployed again.
                         var satisfied = !neverSucceeded &&
-                            !(_lastDelete.TryGetValue(itemId, out var deletedAt) && deletedAt > success!.CompletedAt);
+                            !(_lastDelete.TryGetValue(itemId, out var deletedAt) && deletedAt > success!.CompletedAt) &&
+                            !(signal.IsNested &&
+                              _lastDelete.TryGetValue((signal.ParentPath!, SplitNestedKey(key).Parent), out var parentDeletedAt) &&
+                              parentDeletedAt > success!.CompletedAt);
 
                         Emit(actions, capability, identity, SignalTrigger.ADD, template, bodyJson, context, satisfied);
                     }
@@ -433,7 +482,7 @@ public static class Reconciler
                 {
                     foreach (var rule in MatchingRules(signal, SignalTrigger.MODIFY, key))
                     {
-                        var context = ItemContext(signal.Path, key, bodyJson);
+                        var context = ItemContextFor(key, bodyJson);
                         foreach (var template in rule.Actions)
                         {
                             var identity = new ActionIdentity(signal.Path, key, template.Key);
@@ -461,10 +510,17 @@ public static class Reconciler
                 {
                     continue; // never confirmed, or already confirmed deleted: nothing to undo
                 }
+                if (signal.IsNested && !parents.ContainsKey(SplitNestedKey(key).Parent))
+                {
+                    // The whole parent is going away (a VM being destroyed takes its
+                    // containers with it) — its own DELETE covers this, and a recreated
+                    // parent re-requires the child via the parent-delete check above.
+                    continue;
+                }
 
                 foreach (var rule in MatchingRules(signal, SignalTrigger.DELETE, key))
                 {
-                    var context = ItemContext(signal.Path, key, c!.DesiredValueJson);
+                    var context = ItemContextFor(key, c!.DesiredValueJson);
                     foreach (var template in rule.Actions)
                     {
                         var identity = new ActionIdentity(signal.Path, key, template.Key);
@@ -551,15 +607,111 @@ public static class Reconciler
             => signal.Rules.Where(r => r.Trigger == trigger &&
                 (r.ItemKey is null || string.Equals(r.ItemKey, key, StringComparison.Ordinal)));
 
-        private Dictionary<string, string?> ItemContext(string signalPath, string key, string? bodyJson) => new(StringComparer.Ordinal)
+        /// <summary>
+        /// The <c>from:</c> context of one collection item. Beyond instance/kind/path/key/item:
+        /// <c>collection</c> is every current item of the signal as one JSON object (e.g. the
+        /// whole VM map a Terraform root module needs, even when applying a single VM); for a
+        /// nested signal <c>key</c> is the child's own key, and <c>parent_key</c>/<c>parent</c>
+        /// identify the item it lives in (the VM a container runs on).
+        /// </summary>
+        private Dictionary<string, string?> ItemContext(
+            SignalDefinition signal, string key, string? bodyJson,
+            IReadOnlyDictionary<string, string?> parents, string collectionJson)
         {
-            ["instance"] = _input.InstanceCode,
-            ["kind"] = _input.KindCode,
-            ["path"] = $"{signalPath}.{key}",
-            ["key"] = key,
-            ["item"] = Unwrap(bodyJson),
-            ["value"] = Unwrap(bodyJson)
-        };
+            var context = new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["instance"] = _input.InstanceCode,
+                ["kind"] = _input.KindCode,
+                ["path"] = $"{signal.Path}.{key}",
+                ["key"] = key,
+                ["item"] = Unwrap(bodyJson),
+                ["value"] = Unwrap(bodyJson),
+                ["collection"] = collectionJson
+            };
+
+            if (signal.IsNested)
+            {
+                var (parentKey, childKey) = SplitNestedKey(key);
+                context["path"] = $"{signal.ParentPath}.{parentKey}.{signal.ChildPath}.{childKey}";
+                context["key"] = childKey;
+                context["parent_key"] = parentKey;
+                context["parent"] = parents.TryGetValue(parentKey, out var parentJson) ? parentJson : null;
+            }
+
+            return context;
+        }
+
+        private static string CollectionJson(IReadOnlyDictionary<string, string?> items)
+        {
+            var obj = new System.Text.Json.Nodes.JsonObject();
+            foreach (var (key, body) in items.OrderBy(i => i.Key, StringComparer.Ordinal))
+            {
+                obj[key] = body is null ? null : System.Text.Json.Nodes.JsonNode.Parse(body);
+            }
+            return obj.ToJsonString();
+        }
+
+        /// <summary>
+        /// The signal's current items with <see cref="SignalDefinition.Exclude"/> applied. A
+        /// nested signal walks every item of its parent collection (<paramref name="node"/>
+        /// is the parent map) and keys each child <c>{parent}/{child}</c>; <paramref name="parents"/>
+        /// returns every current parent body (for <c>from: parent</c>), empty otherwise.
+        /// </summary>
+        private static bool TryCollectItems(
+            SignalDefinition signal, object? node,
+            out IReadOnlyDictionary<string, string?> items, out IReadOnlyDictionary<string, string?> parents,
+            out string? validationError)
+        {
+            var parentBodies = new Dictionary<string, string?>(StringComparer.Ordinal);
+            parents = parentBodies;
+
+            if (!signal.IsNested)
+            {
+                return TryGetItems(signal, node, signal.Exclude, out items, out validationError);
+            }
+
+            var result = new Dictionary<string, string?>(StringComparer.Ordinal);
+            items = result;
+            validationError = null;
+            if (node is null)
+            {
+                return true;
+            }
+            if (node is not IDictionary<object, object> parentMap)
+            {
+                validationError = $"parent collection '{signal.ParentPath}' must be a keyed map.";
+                return false;
+            }
+
+            foreach (var (rawParentKey, parentBody) in parentMap)
+            {
+                var parentKey = Convert.ToString(rawParentKey, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+                if (parentKey.Contains(SignalDefinition.NestedItemKeySeparator))
+                {
+                    validationError = $"parent key '{parentKey}' may not contain '{SignalDefinition.NestedItemKeySeparator}'.";
+                    return false;
+                }
+                parentBodies[parentKey] = YamlFlattener.ToCanonicalJson(parentBody);
+
+                var (found, childNode) = ResolvePath(parentBody, signal.ChildPath!);
+                if (!found)
+                {
+                    continue; // this parent simply has none
+                }
+                if (!TryGetItems(signal, childNode, signal.Exclude, out var children, out validationError))
+                {
+                    validationError = $"'{parentKey}': {validationError}";
+                    result.Clear();
+                    return false;
+                }
+                foreach (var (childKey, body) in children)
+                {
+                    result[$"{parentKey}{SignalDefinition.NestedItemKeySeparator}{childKey}"] = body;
+                }
+            }
+
+            return true;
+        }
 
         /// <summary>
         /// Extracts the stable-keyed items of a collection signal. Keyed collections must
@@ -567,7 +719,7 @@ public static class Reconciler
         /// about); scalar lists must contain only scalars, each being its own key.
         /// </summary>
         private static bool TryGetItems(
-            SignalDefinition signal, object? node,
+            SignalDefinition signal, object? node, IReadOnlyList<string> exclude,
             out IReadOnlyDictionary<string, string?> items, out string? validationError)
         {
             var result = new Dictionary<string, string?>(StringComparer.Ordinal);
@@ -583,7 +735,7 @@ public static class Reconciler
                     foreach (var kvp in dict)
                     {
                         var key = Convert.ToString(kvp.Key, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
-                        result[key] = YamlFlattener.ToCanonicalJson(kvp.Value);
+                        result[key] = YamlFlattener.ToCanonicalJson(WithoutFields(kvp.Value, exclude));
                     }
                     return true;
 
@@ -598,7 +750,16 @@ public static class Reconciler
                             return false;
                         }
                         var key = Convert.ToString(element, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
-                        result[key] = YamlFlattener.ToJsonValue(element);
+                        if (signal.Files is null)
+                        {
+                            result[key] = YamlFlattener.ToJsonValue(element);
+                            continue;
+                        }
+                        if (!TryAddFileItems(signal, key, result, out validationError))
+                        {
+                            result.Clear();
+                            return false;
+                        }
                     }
                     return true;
 
@@ -612,6 +773,109 @@ public static class Reconciler
                         "found a scalar value.";
                     return false;
             }
+        }
+
+        /// <summary>
+        /// Expands one entry of a file-backed list (a path or a <c>*</c>/<c>**</c> glob,
+        /// relative to the signal's <see cref="SignalDefinition.Files"/> folder) into one item
+        /// per matching file, keyed by its path, with body <c>{content, file, sha256}</c>. A
+        /// plain path naming no file is an error; a glob matching nothing is just empty.
+        /// </summary>
+        private static bool TryAddFileItems(
+            SignalDefinition signal, string entry, Dictionary<string, string?> result, out string? validationError)
+        {
+            validationError = null;
+            var index = signal.FileIndex;
+            if (index is null)
+            {
+                validationError = $"the files under '{signal.Files}' were not loaded.";
+                return false;
+            }
+
+            var pattern = entry.Trim().TrimStart('.', '/');
+            IEnumerable<string> matches;
+            if (pattern.Contains('*') || pattern.Contains('?'))
+            {
+                var regex = GlobToRegex(pattern);
+                matches = index.Keys.Where(k => regex.IsMatch(k));
+            }
+            else if (index.ContainsKey(pattern))
+            {
+                matches = new[] { pattern };
+            }
+            else
+            {
+                validationError = $"'{entry}' is not a file under '{signal.Files}/'.";
+                return false;
+            }
+
+            foreach (var file in matches.OrderBy(k => k, StringComparer.Ordinal))
+            {
+                var content = index[file];
+                var body = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["content"] = content,
+                    ["file"] = file,
+                    ["sha256"] = Convert.ToHexStringLower(
+                        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(content)))
+                };
+                result[file] = body.ToJsonString();
+            }
+            return true;
+        }
+
+        /// <summary><c>**</c> crosses folders, <c>*</c> and <c>?</c> stay within one path segment.</summary>
+        private static System.Text.RegularExpressions.Regex GlobToRegex(string glob)
+        {
+            var sb = new System.Text.StringBuilder("^");
+            for (var i = 0; i < glob.Length; i++)
+            {
+                var c = glob[i];
+                if (c == '*' && i + 1 < glob.Length && glob[i + 1] == '*')
+                {
+                    if (i + 2 < glob.Length && glob[i + 2] == '/')
+                    {
+                        sb.Append("(?:.*/)?"); // "**/": zero or more whole folders
+                        i += 2;
+                    }
+                    else
+                    {
+                        sb.Append(".*");
+                        i++;
+                    }
+                }
+                else if (c == '*')
+                {
+                    sb.Append("[^/]*");
+                }
+                else if (c == '?')
+                {
+                    sb.Append("[^/]");
+                }
+                else
+                {
+                    sb.Append(System.Text.RegularExpressions.Regex.Escape(c.ToString()));
+                }
+            }
+            return new System.Text.RegularExpressions.Regex(sb.Append('$').ToString());
+        }
+
+        private static object? WithoutFields(object? body, IReadOnlyList<string> exclude)
+        {
+            if (exclude.Count == 0 || body is not IDictionary<object, object> dict)
+            {
+                return body;
+            }
+
+            var copy = new Dictionary<object, object>();
+            foreach (var (k, v) in dict)
+            {
+                if (!exclude.Contains(Convert.ToString(k, System.Globalization.CultureInfo.InvariantCulture)))
+                {
+                    copy[k] = v;
+                }
+            }
+            return copy;
         }
 
         private static bool IsOff(SignalKind kind, string? currentValueJson)
@@ -656,11 +920,14 @@ public static class Reconciler
     /// </summary>
     private static string? ResolveFrom(string fromKey, IReadOnlyDictionary<string, string?> context)
     {
-        const string itemPrefix = "item.";
-        if (fromKey.StartsWith(itemPrefix, StringComparison.Ordinal) &&
-            context.TryGetValue("item", out var itemJson) && itemJson is not null)
+        foreach (var prefix in new[] { "item", "parent" })
         {
-            return ExtractJsonPath(itemJson, fromKey[itemPrefix.Length..]);
+            if (fromKey.StartsWith(prefix + ".", StringComparison.Ordinal))
+            {
+                return context.TryGetValue(prefix, out var json) && json is not null
+                    ? ExtractJsonPath(json, fromKey[(prefix.Length + 1)..])
+                    : null;
+            }
         }
 
         return context.TryGetValue(fromKey, out var value) ? value : null;

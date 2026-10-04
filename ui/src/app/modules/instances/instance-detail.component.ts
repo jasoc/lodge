@@ -21,22 +21,43 @@ import { LodgeService } from '../../services/lodge.service';
 import { RunLogDialogComponent, RunLogDialogData } from './run-log-dialog/run-log-dialog.component';
 
 /**
- * One capability's actions, grouped for the control-panel card grid.
- * - `buttons`: one big tile per distinct (signal_path, item_key, action_key) identity for
- *   every MANUAL_REQUIRED/OPTIONAL action — always shown, whatever its current status
- *   (pending, running, already done). AUTO never needs a click, so it's kept out of here.
- * - `autoActions`: same dedup, for AUTO identities — a compact, collapsible list, since
- *   these run themselves.
- * - `history`: every action row for the capability, newest first — collapsible, off by
- *   default.
+ * One OPTIONAL identity (a check, a plan, a test): re-invocable, one row per execution.
+ * `live` is the row the Run button acts on (QUEUED/FAILED, or RUNNING while it runs);
+ * `last` is the most recent finished run, for the result badge and its log.
+ */
+interface OptionalEntry {
+  key: string;
+  live: ActionModel | null;
+  last: ActionModel | null;
+  label: string;
+  item_key: string | null;
+  signal_path: string;
+}
+
+/**
+ * One capability's actions, split by what a human can do with them. Every list holds the
+ * latest row per (signal_path, item_key, action_key) identity, except `history`.
+ * - `todo`: waiting on a human — MANUAL_REQUIRED queued, anything FAILED (Retry), AUTO
+ *   held by prompts.
+ * - `optional`: OPTIONAL identities — always runnable again, shown as checks, not chores.
+ * - `applied`: currently-valid successes — at most revocable.
+ * - `running`: in flight right now (also surfaced in the page-wide strip).
+ * - `history`: every row, newest first.
  */
 interface CapabilityCard {
   code: string;
   title: string;
-  buttons: ActionModel[];
-  autoActions: ActionModel[];
+  todo: ActionModel[];
+  optional: OptionalEntry[];
+  applied: ActionModel[];
+  running: ActionModel[];
   history: ActionModel[];
 }
+
+type CardSection = 'todo' | 'optional' | 'applied' | 'history';
+
+/** How many rows a section shows before "Show all". */
+const SECTION_PREVIEW = 6;
 
 interface InventorySignalNode {
   path: string;
@@ -84,8 +105,12 @@ export class InstanceDetailComponent {
   readonly instance = signal<InstanceDetailModel | null>(null);
   readonly actions = signal<ActionModel[]>([]);
   readonly capabilities = signal<CapabilityCatalogModel | null>(null);
-  readonly showHistory = signal(false);
-  readonly showAutoActions = signal(false);
+  /** Free-text filter over label / item key / action key, across every card. */
+  readonly filter = signal('');
+  /** Per card+section open/closed overrides; unset falls back to the section default. */
+  private readonly sectionOpen = signal<Record<string, boolean>>({});
+  /** Card+section pairs expanded past the preview length. */
+  private readonly sectionExpanded = signal<Record<string, boolean>>({});
 
   /** Action id currently showing its pending-prompts form, if any. */
   readonly promptingActionId = signal<string | null>(null);
@@ -110,9 +135,22 @@ export class InstanceDetailComponent {
   private panStartX = 0;
   private panStartY = 0;
 
+  /** Every action in flight right now, plus AUTO ones about to start — the page-wide strip. */
+  readonly activeActions = computed(() =>
+    this.actions()
+      .filter((a) => a.status === 'RUNNING' || this.isStarting(a))
+      .sort((a, b) => (a.status === b.status ? 0 : a.status === 'RUNNING' ? -1 : 1)),
+  );
+
   readonly capabilityCards = computed<CapabilityCard[]>(() => {
     const catalog = this.capabilities();
     const titleByCode = new Map(catalog?.capabilities.map((c) => [c.code, c.title]) ?? []);
+    const needle = this.filter().trim().toLowerCase();
+    const matches = (a: ActionModel) =>
+      !needle ||
+      a.label.toLowerCase().includes(needle) ||
+      a.action_key.toLowerCase().includes(needle) ||
+      (a.item_key ?? '').toLowerCase().includes(needle);
 
     const groups = new Map<string, ActionModel[]>();
     for (const action of this.actions()) {
@@ -121,26 +159,74 @@ export class InstanceDetailComponent {
       groups.set(action.capability_code, list);
     }
 
-    return Array.from(groups.entries()).map(([code, actions]) => {
-      const buttonsByIdentity = new Map<string, ActionModel>();
-      const autoByIdentity = new Map<string, ActionModel>();
-      for (const action of actions) {
-        const target = action.policy === 'AUTO' ? autoByIdentity : buttonsByIdentity;
-        const identity = `${action.signal_path}::${action.item_key ?? ''}::${action.action_key}`;
-        const existing = target.get(identity);
-        if (!existing || action.created_at > existing.created_at) {
-          target.set(identity, action);
+    const cards: CapabilityCard[] = [];
+    for (const [code, actions] of groups) {
+      const visible = actions.filter(matches);
+      if (visible.length === 0) {
+        continue;
+      }
+
+      // Rows arrive newest first; the first seen per identity is its latest.
+      const latest = new Map<string, ActionModel>();
+      const optional = new Map<string, OptionalEntry>();
+      for (const action of visible) {
+        const key = this.identity(action);
+        if (action.policy === 'OPTIONAL') {
+          const entry = optional.get(key) ?? {
+            key,
+            live: null,
+            last: null,
+            label: action.label,
+            item_key: action.item_key,
+            signal_path: action.signal_path,
+          };
+          if (!entry.live && ['QUEUED', 'FAILED', 'RUNNING'].includes(action.status)) {
+            entry.live = action;
+          }
+          if (!entry.last && (action.status === 'SUCCEEDED' || action.status === 'FAILED')) {
+            entry.last = action;
+          }
+          optional.set(key, entry);
+        } else if (!latest.has(key)) {
+          latest.set(key, action);
         }
       }
 
-      return {
+      const todo: ActionModel[] = [];
+      const applied: ActionModel[] = [];
+      const running: ActionModel[] = [];
+      for (const action of latest.values()) {
+        if (action.status === 'RUNNING' || this.isStarting(action)) {
+          running.push(action);
+        } else if (action.status === 'QUEUED' || action.status === 'FAILED') {
+          todo.push(action);
+        } else if (action.status === 'SUCCEEDED' && !action.invalidated_at) {
+          applied.push(action);
+        }
+      }
+      for (const entry of optional.values()) {
+        if (entry.live?.status === 'RUNNING') {
+          running.push(entry.live);
+        }
+      }
+
+      // Failures first — they're the ones that went wrong, not just the ones waiting.
+      todo.sort((a, b) => Number(b.status === 'FAILED') - Number(a.status === 'FAILED'));
+      applied.sort((a, b) => (b.completed_at ?? b.created_at).localeCompare(a.completed_at ?? a.created_at));
+
+      cards.push({
         code,
         title: titleByCode.get(code) ?? code,
-        buttons: Array.from(buttonsByIdentity.values()),
-        autoActions: Array.from(autoByIdentity.values()),
-        history: actions,
-      };
-    });
+        todo,
+        optional: Array.from(optional.values()),
+        applied,
+        running,
+        history: visible,
+      });
+    }
+
+    // Cards that need a human float to the top.
+    return cards.sort((a, b) => Number(b.todo.length > 0) - Number(a.todo.length > 0));
   });
 
   /** Top-level inventory keys as canvas nodes, each with its nested paths flattened into
@@ -301,7 +387,12 @@ export class InstanceDetailComponent {
   }
 
   canInvalidate(action: ActionModel): boolean {
-    return action.status === 'SUCCEEDED' && !action.synthetic;
+    return action.status === 'SUCCEEDED' && !action.synthetic && !action.invalidated_at;
+  }
+
+  /** AUTO and unblocked: the loop starts it on its own within seconds. */
+  isStarting(action: ActionModel): boolean {
+    return action.status === 'QUEUED' && action.policy === 'AUTO' && action.pending_prompts.length === 0;
   }
 
   statusColor(status: string): 'primary' | 'accent' | 'warn' {
@@ -310,11 +401,49 @@ export class InstanceDetailComponent {
     return 'accent';
   }
 
-  controlIcon(action: ActionModel): string {
-    if (action.status === 'RUNNING') return 'autorenew';
-    if (action.status === 'FAILED') return 'error';
-    if (action.status === 'SUCCEEDED') return 'check_circle';
-    return 'touch_app';
+  isSectionOpen(card: CapabilityCard, section: CardSection): boolean {
+    const override = this.sectionOpen()[`${card.code}:${section}`];
+    if (override !== undefined) {
+      return override;
+    }
+    // A filter is a search: open whatever it found.
+    if (this.filter().trim()) {
+      return section !== 'history';
+    }
+    return section === 'todo' || section === 'optional';
+  }
+
+  toggleSection(card: CapabilityCard, section: CardSection) {
+    const key = `${card.code}:${section}`;
+    this.sectionOpen.update((s) => ({ ...s, [key]: !this.isSectionOpen(card, section) }));
+  }
+
+  visibleRows<T>(card: CapabilityCard, section: CardSection, rows: T[]): T[] {
+    return this.sectionExpanded()[`${card.code}:${section}`] ? rows : rows.slice(0, SECTION_PREVIEW);
+  }
+
+  hiddenCount(card: CapabilityCard, section: CardSection, rows: unknown[]): number {
+    return this.sectionExpanded()[`${card.code}:${section}`] ? 0 : Math.max(0, rows.length - SECTION_PREVIEW);
+  }
+
+  expandSection(card: CapabilityCard, section: CardSection) {
+    this.sectionExpanded.update((s) => ({ ...s, [`${card.code}:${section}`]: true }));
+  }
+
+  /** "3m ago" style, coarse on purpose — refreshed with every poll. */
+  ago(iso: string | null): string {
+    if (!iso) {
+      return '';
+    }
+    const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+  }
+
+  private identity(action: ActionModel): string {
+    return `${action.signal_path}::${action.item_key ?? ''}::${action.action_key}`;
   }
 
   highlightSignal(path: string) {

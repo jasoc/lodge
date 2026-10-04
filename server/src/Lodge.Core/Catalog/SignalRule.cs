@@ -64,7 +64,18 @@ public sealed record DockerExecutorConfig(
     string? Image,
     IReadOnlyList<string> Command,
     IReadOnlyList<string>? Entrypoint = null,
-    DockerBuildConfig? Build = null);
+    DockerBuildConfig? Build = null,
+    IReadOnlyList<DockerMount>? Mounts = null,
+    IReadOnlyDictionary<string, string>? Env = null);
+
+/// <summary>
+/// One mount of a docker action, written <c>alias:/container/path[:ro]</c> in YAML. The
+/// alias — never a host path — names an entry of the server's
+/// <c>DockerExecutor:Mounts</c> config (a host path, or <c>volume:&lt;name&gt;</c> for a
+/// docker named volume such as an NFS one). The inventory stays portable, and it can only
+/// reach what the operator chose to expose.
+/// </summary>
+public sealed record DockerMount(string Alias, string Target, bool ReadOnly);
 
 /// <summary>
 /// A playbook image built from a folder of the inventory itself rather than pulled.
@@ -94,6 +105,7 @@ public static class ExecutorConfigJson
 
     public static DockerExecutorConfig? Deserialize(string? json)
         => string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<DockerExecutorConfig>(json);
+
 }
 
 /// <summary>

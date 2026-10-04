@@ -1,0 +1,9 @@
+name: whoami
+
+services:
+  whoami:
+    image: traefik/whoami:v1.10
+    container_name: whoami
+    restart: unless-stopped
+    ports:
+      - 8080:80

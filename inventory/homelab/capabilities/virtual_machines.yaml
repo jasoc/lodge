@@ -1,41 +1,116 @@
-# One VM per key under `virtual_machines`. Both actions run the Terraform playbook in
-# playbooks/terraform-vm (built and cached by Lodge on the local docker daemon), passing
-# the VM's name and its whole spec; only the command differs.
+# One Proxmox VM per key under proxmox.virtual_machines. Lifecycle:
+#   add    → apply_vm (Terraform creates it, MANUAL) → configure_vm (Ansible profile, AUTO)
+#   modify → apply_vm_changes (Terraform updates it in place, MANUAL)
+#   delete → destroy_vm (Terraform destroys it, MANUAL)
+#   plan_vm (OPTIONAL, any time): what Terraform would change for this VM right now
+#
+# Terraform: the generic runner (playbooks/terraform) applies the `proxmox-vm` module as
+# its own root with its own state, named after the item's path
+# (/state/proxmox.virtual_machines.<vm>.tfstate) — one unit per VM, nothing shared, so a
+# plain apply/destroy is always exactly this VM. The whole item goes in as `inputs`; fields
+# the module doesn't declare (ansible_profile, backed_up, ...) are dropped. An existing VM
+# can be adopted instead of created with `import_id: <node>/<vm_id>` on the item.
+#
+# A VM's `compose` list is excluded from its body: those files are their own capability
+# (stacks.yaml), and editing the list never counts as a change to the VM.
+#
+# Secrets: pass_pat is the Proton Pass personal access token (Homelab vault), resolved by
+# Lodge from PROTON_PASS_PAT — the only credential Lodge hands over; every run fetches the
+# rest (provider tokens, ssh key) from Proton Pass itself.
 capability: virtual_machines
 title: "Virtual Machines"
-description: "VMs on the homelab hypervisor, created and destroyed via Terraform."
+description: "Proxmox VMs: created and destroyed with Terraform, configured with Ansible."
 
 signals:
-  - path: virtual_machines
+  - path: proxmox.virtual_machines
     kind: keyed_collection
+    exclude: [compose]
     rules:
       - on: add
         actions:
-          - key: create_vm
-            runbook: homelab/terraform-create-vm
-            label: "Create VM"
+          - key: apply_vm
+            runbook: homelab/terraform-apply
+            label: "Create VM (Terraform)"
             policy: MANUAL_REQUIRED
             executor: docker
             docker:
-              build:
-                context: playbooks/terraform-vm
-              command: ["create"]
+              build: { context: playbooks/terraform }
+              command: ["apply"]
+              mounts: ["tfstate:/state"]
+            inputs:
+              module: { const: proxmox-vm }
+              unit: { from: path }
+              name: { from: key }
+              inputs: { from: item }
+              import_id: { from: item.import_id }
+              pass_pat: { secret: PROTON_PASS_PAT }
+
+          - key: configure_vm
+            runbook: homelab/ansible-profile
+            label: "Configure VM (Ansible profile)"
+            policy: AUTO
+            depends_on: [ "proxmox.virtual_machines.apply_vm" ]
+            executor: docker
+            docker:
+              build: { context: playbooks/ansible }
             inputs:
               vm_name: { from: key }
-              spec: { from: item }
+              vm: { from: item }
+              vms: { from: collection }
+              profile: { from: item.ansible_profile }
+              host: { from: item.ip }
+              pass_pat: { secret: PROTON_PASS_PAT }
 
-      # Never destroy unattended: removing a VM from the list queues this for a human.
+          - key: plan_vm
+            runbook: homelab/terraform-plan
+            label: "Plan VM (Terraform, read-only)"
+            policy: OPTIONAL
+            executor: docker
+            docker:
+              build: { context: playbooks/terraform }
+              command: ["plan"]
+              mounts: ["tfstate:/state"]
+            inputs:
+              module: { const: proxmox-vm }
+              unit: { from: path }
+              name: { from: key }
+              inputs: { from: item }
+              import_id: { from: item.import_id }
+              pass_pat: { secret: PROTON_PASS_PAT }
+
+      - on: modify
+        actions:
+          - key: apply_vm_changes
+            runbook: homelab/terraform-apply-changes
+            label: "Apply VM changes (Terraform)"
+            policy: MANUAL_REQUIRED
+            executor: docker
+            docker:
+              build: { context: playbooks/terraform }
+              command: ["apply"]
+              mounts: ["tfstate:/state"]
+            inputs:
+              module: { const: proxmox-vm }
+              unit: { from: path }
+              name: { from: key }
+              inputs: { from: item }
+              import_id: { from: item.import_id }
+              pass_pat: { secret: PROTON_PASS_PAT }
+
       - on: delete
         actions:
           - key: destroy_vm
-            runbook: homelab/terraform-destroy-vm
-            label: "Destroy VM"
+            runbook: homelab/terraform-destroy
+            label: "Destroy VM (Terraform)"
             policy: MANUAL_REQUIRED
             executor: docker
             docker:
-              build:
-                context: playbooks/terraform-vm
+              build: { context: playbooks/terraform }
               command: ["destroy"]
+              mounts: ["tfstate:/state"]
             inputs:
-              vm_name: { from: key }
-              spec: { from: item }
+              module: { const: proxmox-vm }
+              unit: { from: path }
+              name: { from: key }
+              inputs: { from: item }
+              pass_pat: { secret: PROTON_PASS_PAT }

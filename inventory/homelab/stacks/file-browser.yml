@@ -1,0 +1,31 @@
+name: file-browser
+
+services:
+  file-browser:
+    image: filebrowser/filebrowser:v2-s6
+    container_name: file-browser
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1001
+      - UMASK=002
+      - TZ=${TZ}
+    volumes:
+      - ${MASS_HDD_PATH}:/srv
+      - ${SSD_NVME_VOLUMES_BASEDIR}/file-browser/database:/database
+      - ${SSD_NVME_VOLUMES_BASEDIR}/file-browser/config:/config
+    # ports:
+    #   - 80:80
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.filebrowser.name=File Browser
+      - pangolin.proxy-resources.filebrowser.full-domain=drive.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.filebrowser.protocol=http
+      - pangolin.proxy-resources.filebrowser.auth.sso-enabled=false
+      - pangolin.proxy-resources.filebrowser.targets[0].method=http
+      - pangolin.proxy-resources.filebrowser.targets[0].port=80
+
+networks:
+  pangolin-private-proxy:
+    external: true

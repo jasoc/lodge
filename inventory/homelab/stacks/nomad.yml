@@ -1,0 +1,143 @@
+# Project N.O.M.A.D. management services Docker Compose configuration
+#
+# This compose file defines the admin server, database, and other supporting services required to run Project N.O.M.A.D.
+# You can use this with `docker-compose up -d` to start all the necessary services with a single command after installation.
+#
+# Note: we recommend leaving all of the environment variables as-is except for any "replaceme" values,
+# which must be updated for the admin server to start successfully. The default values are optimized for ease of installation and use,
+# but you can customize them as needed (e.g. changing ports, database connection details, log level, etc.)
+name: project-nomad
+
+services:
+  nomad-admin:
+    image: ghcr.io/crosstalk-solutions/project-nomad:v1.34.0
+    pull_policy: always
+    container_name: nomad-admin
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Enables host.docker.internal on Linux
+    ports:
+      - "8080:8080"
+    volumes:
+      - ${HDD_VOLUMES_BASEDIR}/nomad/storage:/app/storage # If you change the default storage path (/opt/project-nomad/storage), make sure to update the disk-collector config as well!
+      - /var/run/docker.sock:/var/run/docker.sock # Allows the admin service to communicate with the Host's Docker daemon
+      - ${HDD_VOLUMES_BASEDIR}/nomad/shared:/app/update-shared # Shared volume for update communication
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - LOG_LEVEL=info
+      - APP_KEY=${NOMAD_APP_KEY}
+      - HOST=0.0.0.0
+      - URL=http://192.168.178.111:8080
+      - DB_HOST=nomad-mysql
+      - DB_PORT=3306
+      - DB_DATABASE=nomad
+      - DB_USER=nomad_user
+      - DB_PASSWORD=${NOMAD_MYSQL_PASSWORD}
+      - DB_NAME=nomad
+      - DB_SSL=false
+      - REDIS_HOST=nomad-redis
+      - REDIS_PORT=6379
+    depends_on:
+      nomad-mysql:
+        condition: service_healthy
+      nomad-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - project-nomad
+    labels:
+      - pangolin.proxy-resources.nomad.name=Project Nomad
+      - pangolin.proxy-resources.nomad.full-domain=nomad.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.nomad.protocol=http
+      - pangolin.proxy-resources.nomad.auth.sso-enabled=false
+      - pangolin.proxy-resources.nomad.targets[0].method=http
+      - pangolin.proxy-resources.nomad.targets[0].port=8080
+
+  nomad-dozzle:
+    image: amir20/dozzle:v10.7
+    container_name: nomad-dozzle
+    restart: unless-stopped
+    ports:
+      - "9999:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock # Allows Dozzle to read logs from the Host's Docker daemon
+    environment:
+      - DOZZLE_ENABLE_ACTIONS=false # Disabled — unauthenticated container stop/restart on LAN
+      - DOZZLE_ENABLE_SHELL=false  # Disabled — shell access + Docker socket = privilege escalation
+    networks:
+      - project-nomad
+    labels:
+      - pangolin.proxy-resources.nomad-logs.name=Nomad Logs (Dozzle)
+      - pangolin.proxy-resources.nomad-logs.full-domain=nomad-logs.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.nomad-logs.protocol=http
+      - pangolin.proxy-resources.nomad-logs.auth.sso-enabled=false
+      - pangolin.proxy-resources.nomad-logs.targets[0].method=http
+      - pangolin.proxy-resources.nomad-logs.targets[0].port=8080
+
+  nomad-mysql:
+    image: mysql:8.0
+    container_name: nomad-mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${NOMAD_MYSQL_PASSWORD}
+      - MYSQL_DATABASE=nomad
+      - MYSQL_USER=nomad_user
+      - MYSQL_PASSWORD=${NOMAD_MYSQL_PASSWORD}
+    volumes:
+      - ${HDD_VOLUMES_BASEDIR}/nomad/mysql:/var/lib/mysql # Persist MySQL data on the host. This path can be changed if needed, just make sure it's writable by the container. Host persistence is important for the database to ensure your data isn't lost when the container is removed or updated.
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - project-nomad
+
+  nomad-redis:
+    image: redis:8-alpine
+    container_name: nomad-redis
+    restart: unless-stopped
+    volumes:
+      - ${HDD_VOLUMES_BASEDIR}/nomad/redis:/data # Persist Redis data on the host. This path can be changed if needed, just make sure it's writable by the container. Host persistence is important for Redis to ensure your data isn't lost when the container is removed or updated.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - project-nomad
+
+  nomad-updater:
+    # Updater is a lightweight sidecar container that allows the admin container to be updated from within it's own UI
+    image: ghcr.io/crosstalk-solutions/project-nomad-sidecar-updater:v1.0.0
+    pull_policy: always
+    container_name: nomad-updater
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock # Allows communication with the Host's Docker daemon
+      - ${HDD_VOLUMES_BASEDIR}/nomad/updater:/opt/project-nomad # Writable access required so the updater can set the correct image tag in compose.yml. This needs to be the same location that the compose file is located at on the host for the updater to work correctly
+      - ${HDD_VOLUMES_BASEDIR}/nomad/shared:/shared # Shared volume for communication with admin container
+    networks:
+      - project-nomad
+
+  nomad-disk-collector:
+    # Disk Collector is a lightweight privileged container that collects disk usage information from the host system and shares it with the admin container so it can be displayed in the UI. 
+    # It requires read-only access to the host filesystem and is designed to be as secure and limited in scope as possible while still providing the necessary functionality.
+    image: ghcr.io/crosstalk-solutions/project-nomad-disk-collector:v1.31.1
+    pull_policy: always
+    container_name: nomad-disk-collector
+    restart: unless-stopped
+    volumes:
+      - /vault:/host:ro,rslave  # Read-only view of host FS with rslave propagation so /sys and /proc submounts are visible
+      - ${HDD_VOLUMES_BASEDIR}/nomad/storage:/storage
+    networks:
+      - project-nomad
+
+networks:
+  project-nomad:
+    driver: bridge

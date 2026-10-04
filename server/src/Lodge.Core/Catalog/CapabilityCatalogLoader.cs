@@ -72,6 +72,9 @@ public static class CapabilityCatalogLoader
             {
                 Path = s.Path,
                 Kind = s.Kind,
+                Exclude = s.Exclude,
+                Files = s.Files,
+                FileIndex = s.FileIndex,
                 Rules = s.Rules.ToList()
             }).ToList<SignalDefinition>()
         }).ToList();
@@ -225,15 +228,46 @@ public static class CapabilityCatalogLoader
         var rules = new List<SignalRule>();
         foreach (var r in dto.Rules ?? new List<RuleDto>())
         {
-            rules.Add(LoadRule(capabilityCode, path, kind, r, sourceFile));
+            rules.Add(LoadRule(capabilityCode, path, kind, !string.IsNullOrWhiteSpace(dto.Files), r, sourceFile));
         }
 
-        var signal = new SignalDefinition { Path = path, Kind = kind, Rules = rules };
+        var where = $"{Location(sourceFile, capabilityCode)}, signal '{path}'";
+        var segments = path.Split('.');
+        var wildcards = segments.Count(s => s == "*");
+        if (wildcards > 0 &&
+            (kind == SignalKind.Scalar || wildcards > 1 || segments[0] == "*" || segments[^1] == "*"))
+        {
+            throw new CatalogFormatException(
+                $"{where}: a '*' segment is only valid once, in the middle of a collection path " +
+                "(e.g. 'proxmox.virtual_machines.*.compose').");
+        }
+        if (segments.Any(s => s.Length == 0))
+        {
+            throw new CatalogFormatException($"{where}: the path has an empty segment.");
+        }
+
+        var exclude = (dto.Exclude ?? new List<string>()).Select(e => e.Trim()).Where(e => e.Length > 0).ToList();
+        if (exclude.Count > 0 && kind != SignalKind.KeyedCollection)
+        {
+            throw new CatalogFormatException($"{where}: 'exclude' only applies to keyed_collection signals.");
+        }
+
+        string? files = null;
+        if (!string.IsNullOrWhiteSpace(dto.Files))
+        {
+            if (kind != SignalKind.ScalarList)
+            {
+                throw new CatalogFormatException($"{where}: 'files' only applies to scalar_list signals (a list of file paths).");
+            }
+            files = NormalizeRelativePath(dto.Files, "files", where);
+        }
+
+        var signal = new SignalDefinition { Path = path, Kind = kind, Exclude = exclude, Files = files, Rules = rules };
         ValidateSignalInvariants(capabilityCode, signal, sourceFile);
         return signal;
     }
 
-    private static SignalRule LoadRule(string capabilityCode, string path, SignalKind kind, RuleDto dto, string? sourceFile)
+    private static SignalRule LoadRule(string capabilityCode, string path, SignalKind kind, bool fileBacked, RuleDto dto, string? sourceFile)
     {
         var where = $"{Location(sourceFile, capabilityCode)}, signal '{path}'";
         var trigger = ParseTrigger(dto.On, where);
@@ -246,9 +280,11 @@ public static class CapabilityCatalogLoader
         {
             throw new CatalogFormatException($"{where}: collection signals take 'on: add|delete|modify' rules, not 'when' state-match rules.");
         }
-        if (kind == SignalKind.ScalarList && trigger == SignalTrigger.MODIFY)
+        if (kind == SignalKind.ScalarList && trigger == SignalTrigger.MODIFY && !fileBacked)
         {
-            throw new CatalogFormatException($"{where}: 'on: modify' is meaningless for a scalar_list signal — a scalar value is its own identity.");
+            throw new CatalogFormatException(
+                $"{where}: 'on: modify' is meaningless for a scalar_list signal — a scalar value is its own identity " +
+                "(unless the list names files: with 'files:', editing a file is a modify).");
         }
 
         var actions = new List<ActionTemplate>();
@@ -420,11 +456,57 @@ public static class CapabilityCatalogLoader
                 args.Count == 0 ? null : args);
         }
 
+        var mounts = new List<DockerMount>();
+        foreach (var raw in dto.Mounts ?? new List<string>())
+        {
+            mounts.Add(ParseMount(raw, where));
+        }
+
+        SortedDictionary<string, string>? env = null;
+        foreach (var (name, value) in dto.Env ?? new Dictionary<string, string?>())
+        {
+            if (!EnvNamePattern.IsMatch(name ?? string.Empty) || name!.StartsWith("LODGE_", StringComparison.Ordinal))
+            {
+                throw new CatalogFormatException(
+                    $"{where}: 'docker.env' name '{name}' must be a plain variable name and may not start with LODGE_ (reserved for inputs).");
+            }
+            env ??= new SortedDictionary<string, string>(StringComparer.Ordinal);
+            env[name] = value ?? string.Empty;
+        }
+
         return new DockerExecutorConfig(
             hasImage ? dto.Image!.Trim() : null,
             dto.Command ?? new List<string>(),
             dto.Entrypoint is { Count: > 0 } ? dto.Entrypoint : null,
-            build);
+            build,
+            mounts.Count == 0 ? null : mounts,
+            env);
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex EnvNamePattern = new("^[A-Za-z_][A-Za-z0-9_]*$");
+    private static readonly System.Text.RegularExpressions.Regex MountAliasPattern = new("^[A-Za-z0-9_-]+$");
+
+    /// <summary><c>alias:/absolute/target</c> with an optional <c>:ro</c>/<c>:rw</c> suffix.</summary>
+    private static DockerMount ParseMount(string? raw, string where)
+    {
+        var parts = (raw ?? string.Empty).Trim().Split(':');
+        var readOnly = false;
+        if (parts.Length == 3 && parts[2] is "ro" or "rw")
+        {
+            readOnly = parts[2] == "ro";
+        }
+        else if (parts.Length != 2)
+        {
+            parts = Array.Empty<string>();
+        }
+
+        if (parts.Length < 2 || !MountAliasPattern.IsMatch(parts[0]) || !parts[1].StartsWith('/'))
+        {
+            throw new CatalogFormatException(
+                $"{where}: mount '{raw}' must be 'alias:/container/path[:ro]', where alias names an entry of the server's DockerExecutor:Mounts.");
+        }
+
+        return new DockerMount(parts[0], parts[1], readOnly);
     }
 
     private static string? NormalizeRelativePath(string? raw, string field, string where)
@@ -511,6 +593,8 @@ public static class CapabilityCatalogLoader
     {
         public string? Path { get; set; }
         public string? Kind { get; set; }
+        public List<string>? Exclude { get; set; }
+        public string? Files { get; set; }
         public List<RuleDto>? Rules { get; set; }
     }
 
@@ -540,6 +624,8 @@ public static class CapabilityCatalogLoader
         public DockerBuildDto? Build { get; set; }
         public List<string>? Entrypoint { get; set; }
         public List<string>? Command { get; set; }
+        public List<string>? Mounts { get; set; }
+        public Dictionary<string, string?>? Env { get; set; }
     }
 
     private sealed class DockerBuildDto

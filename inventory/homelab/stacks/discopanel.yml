@@ -1,0 +1,33 @@
+name: discopanel
+
+services:
+  discopanel:
+    image: nickheyer/discopanel:v2.0.15
+    container_name: discopanel
+    restart: unless-stopped
+
+    ports:
+      - "25565:25565"
+      # - "8080:8080"
+
+    network_mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+  
+      - ${SSD_NVME_VOLUMES_BASEDIR}/discopanel/data:/app/data
+      - ${SSD_NVME_VOLUMES_BASEDIR}/discopanel/backups:/app/backups
+      - ${SSD_NVME_VOLUMES_BASEDIR}/discopanel/tmp:/app/tmp
+    environment:
+      - DISCOPANEL_DATA_DIR=/app/data
+      - DISCOPANEL_HOST_DATA_PATH=${SSD_NVME_VOLUMES_BASEDIR}/discopanel/data
+      - TZ=${TZ}
+
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+#     networks:
+#       - pangolin-private-proxy
+
+# networks:
+#   pangolin-private-proxy:
+#     external: true

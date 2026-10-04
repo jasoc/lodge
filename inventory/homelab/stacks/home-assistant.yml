@@ -1,0 +1,66 @@
+name: home-assistant
+
+services:
+  home-assistant:
+    image: "homeassistant/home-assistant:2026.8.1"
+    container_name: home-assistant
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/home_assistant/config:/config
+      - /etc/localtime:/etc/localtime:ro
+    restart: unless-stopped
+    network_mode: host
+    # ports:
+    #   - "8123:8123"
+    configs:
+      - source: configuration.yaml
+        target: /config/configuration.yaml
+    labels:
+      - pangolin.proxy-resources.home-assistant.name=Home Assistant
+      - pangolin.proxy-resources.home-assistant.full-domain=home.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.home-assistant.protocol=http
+      - pangolin.proxy-resources.home-assistant.auth.sso-enabled=false
+      - pangolin.proxy-resources.home-assistant.targets[0].method=http
+      - pangolin.proxy-resources.home-assistant.targets[0].hostname=192.168.178.104
+      - pangolin.proxy-resources.home-assistant.targets[0].port=8123
+
+  matter-server:
+    container_name: matter-server
+    image: ghcr.io/home-assistant-libs/python-matter-server:8.1.0
+    restart: unless-stopped
+    network_mode: host
+    security_opt:
+      - apparmor=unconfined
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/matter-server:/data
+      - /run/dbus:/run/dbus:ro
+
+  music-assistant-server:
+    image: ghcr.io/music-assistant/server:2.9.13
+    container_name: music-assistant-server
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/home_assistant/music-assistant-server:/data/
+    cap_add:
+      - SYS_ADMIN
+      - DAC_READ_SEARCH
+    security_opt:
+      - apparmor:unconfined
+    environment:
+      - LOG_LEVEL=info
+
+configs:
+  configuration.yaml:
+    content: |
+      default_config:
+      frontend:
+        themes: !include_dir_merge_named themes
+      automation: !include automations.yaml
+      script: !include scripts.yaml
+      scene: !include scenes.yaml
+      http:
+        use_x_forwarded_for: true
+        trusted_proxies:
+          - 10.0.0.0/8
+          - 172.0.0.0/8
+          - 192.0.0.0/8

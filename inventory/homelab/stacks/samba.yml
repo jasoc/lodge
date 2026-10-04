@@ -1,0 +1,36 @@
+# To create a password:
+# docker run -ti --rm \
+#   --entrypoint create-hash.sh \
+#   ghcr.io/servercontainers/samba
+
+name: samba
+
+services:
+  samba:
+    image: ghcr.io/servercontainers/samba
+    restart: unless-stopped
+    container_name: samba
+    network_mode: host
+    environment:
+      MODEL: 'TimeCapsule'
+      # AVAHI_NAME: Orion net share
+      SAMBA_CONF_LOG_LEVEL: 3
+      ACCOUNT_parisius: "${SAMBA_PASSWORD_PARISIUS}"
+      UID_parisius: 1000
+      GROUPS_parisius: admins
+      GROUP_admins: 1001
+      SAMBA_VOLUME_CONFIG_vault: |
+        [vault]
+        path = /shares/vault;
+        valid users = @admins;
+        read only = no;
+        create mask = 0774;
+        directory mask = 0774;
+        force group = admins;
+        inherit permissions = yes;
+        guest ok = no;
+        read only = no;
+        browseable = yes;
+    volumes:
+      - /etc/avahi/services/:/external/avahi
+      - /vault:/shares/vault

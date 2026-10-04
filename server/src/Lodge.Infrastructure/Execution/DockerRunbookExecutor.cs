@@ -261,10 +261,12 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
         }
     }
 
-    private static List<string> BuildRunArgs(
+    private List<string> BuildRunArgs(
         RunbookExecutionRequest request, DockerExecutorConfig config, string image, out Dictionary<string, string> environment)
     {
-        environment = new Dictionary<string, string>(StringComparer.Ordinal)
+        // Static env from the catalog first; LODGE_* names are reserved (the loader
+        // rejects them there), so inputs can never be shadowed.
+        environment = new Dictionary<string, string>(config.Env ?? new Dictionary<string, string>(), StringComparer.Ordinal)
         {
             ["LODGE_ACTION_ID"] = request.ActionId.ToString(),
             ["LODGE_KIND_CODE"] = request.KindCode,
@@ -286,6 +288,11 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
             args.Add("-e");
             args.Add(name);
         }
+        foreach (var mount in config.Mounts ?? Array.Empty<DockerMount>())
+        {
+            args.Add("--mount");
+            args.Add(ResolveMount(mount));
+        }
 
         // `--entrypoint` only takes the executable; any further entrypoint elements are
         // ordinary leading argv, exactly how docker itself composes ENTRYPOINT + CMD.
@@ -300,6 +307,27 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
         args.Add(image);
         args.AddRange(command);
         return args;
+    }
+
+    /// <summary>
+    /// Turns a catalog mount alias into a <c>--mount</c> spec via <see
+    /// cref="DockerExecutorOptions.Mounts"/>. An alias the operator didn't configure fails
+    /// the run — the inventory can only reach what the server explicitly exposes.
+    /// </summary>
+    private string ResolveMount(DockerMount mount)
+    {
+        if (!_options.Mounts.TryGetValue(mount.Alias, out var source) || string.IsNullOrWhiteSpace(source))
+        {
+            throw new InvalidOperationException(
+                $"mount alias '{mount.Alias}' is not configured — add DockerExecutor:Mounts:{mount.Alias} " +
+                "(a host path, or volume:<name>) to the server configuration.");
+        }
+
+        const string volumePrefix = "volume:";
+        var spec = source.StartsWith(volumePrefix, StringComparison.Ordinal)
+            ? $"type=volume,source={source[volumePrefix.Length..]},target={mount.Target}"
+            : $"type=bind,source={source},target={mount.Target}";
+        return mount.ReadOnly ? spec + ",readonly" : spec;
     }
 
     private static string ParamEnvName(string key)

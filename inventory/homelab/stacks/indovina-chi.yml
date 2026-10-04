@@ -1,0 +1,42 @@
+name: indovina-chi
+
+services:
+  indovina-chi-frontend:
+    image: ghcr.io/jasoc/indovina-chi-frontend:0.0.11
+    container_name: indovina-chi-frontend
+    # ports:
+    #   - "5173:5173"
+    restart: unless-stopped
+    environment:
+      -   VITE_SOCKET_URL=indovina-chi-socket.parisius.dev:443
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.indovina-chi.name=Indovina Chi
+      - pangolin.proxy-resources.indovina-chi.full-domain=indovina-chi.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.indovina-chi.protocol=http
+      - pangolin.proxy-resources.indovina-chi.auth.sso-enabled=false
+      - pangolin.proxy-resources.indovina-chi.targets[0].method=http
+      - pangolin.proxy-resources.indovina-chi.targets[0].port=5173
+
+  indovina-chi-server:
+    image: ghcr.io/jasoc/indovina-chi-server:0.0.11
+    container_name: indovina-chi-server
+    # ports:
+    #   - "5173:5173"
+    volumes:
+        - ${SSD_NVME_VOLUMES_BASEDIR}/indovina-chi:/app/config
+    restart: unless-stopped
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.indovina-chi-server.name=Indovina Chi Server
+      - pangolin.proxy-resources.indovina-chi-server.full-domain=indovina-chi-server.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.indovina-chi-server.protocol=http
+      - pangolin.proxy-resources.indovina-chi-server.auth.sso-enabled=false
+      - pangolin.proxy-resources.indovina-chi-server.targets[0].method=http
+      - pangolin.proxy-resources.indovina-chi-server.targets[0].port=5173
+
+networks:
+  pangolin-private-proxy:
+    external: true

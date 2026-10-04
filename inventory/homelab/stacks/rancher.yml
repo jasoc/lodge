@@ -1,0 +1,28 @@
+name: Rancher
+
+services:
+  rancher:
+    image: rancher/rancher:v2.15-head
+    container_name: rancher
+    privileged: true
+    restart: unless-stopped
+    # ports:
+    #   - 80:80
+    #   - 443:443
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/rancher:/var/lib/rancher
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.rancher.name=Rancher
+      - pangolin.proxy-resources.rancher.full-domain=rancher.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.rancher.protocol=https
+      - pangolin.proxy-resources.rancher.auth.sso-enabled=false
+      - pangolin.proxy-resources.rancher.targets[0].method=https
+      - pangolin.proxy-resources.rancher.targets[0].port=443
+    command:
+      - --no-cacerts
+
+networks:
+  pangolin-private-proxy:
+    external: true

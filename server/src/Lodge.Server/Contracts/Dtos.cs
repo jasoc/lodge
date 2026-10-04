@@ -31,7 +31,8 @@ public sealed record ActionDto(
     IReadOnlyList<PendingPromptDto> PendingPrompts,
     DateTimeOffset CreatedAt,
     DateTimeOffset? CompletedAt,
-    string? ExecutionRef = null);
+    string? ExecutionRef = null,
+    DateTimeOffset? InvalidatedAt = null);
 
 /// <summary>
 /// A slice of the action's latest run log (see <c>GET …/actions/{id}/log?offset=</c>).

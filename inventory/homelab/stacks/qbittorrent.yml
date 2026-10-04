@@ -1,0 +1,37 @@
+name: qbittorrent
+
+services:
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:5.1.4-r2-ls440
+    container_name: qbittorrent
+    environment:
+      - PUID=1000
+      - PGID=1001
+      - UMASK=002
+      - TZ=Europe/Rome
+      - WEBUI_PORT=8080
+    volumes:
+      - ${HDD_VOLUMES_BASEDIR}/qbittorrent/config:/config
+      - ${HDD_VOLUMES_BASEDIR}/qbittorrent:/data/torrents
+      - ${ARRSTACK_BASE_PATH}/torrents:/downloads
+    # ports:
+    #   - "8080:8080"
+    healthcheck:
+      test:
+        ["CMD", "curl", "--fail", "http://127.0.0.1:8080", "https://google.com"]
+      interval: 1m
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.qbittorrent.name=QBittorrent
+      - pangolin.proxy-resources.qbittorrent.full-domain=torrent.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.qbittorrent.protocol=http
+      - pangolin.proxy-resources.qbittorrent.auth.sso-enabled=false
+      - pangolin.proxy-resources.qbittorrent.targets[0].method=http
+      - pangolin.proxy-resources.qbittorrent.targets[0].port=8080
+
+networks:
+  pangolin-private-proxy:
+    external: true

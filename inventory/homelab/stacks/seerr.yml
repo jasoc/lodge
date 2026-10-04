@@ -1,0 +1,37 @@
+name: seerr
+
+services:
+  seerr:
+    image: ghcr.io/seerr-team/seerr:sha-7920970
+    init: true
+    container_name: seerr
+    environment:
+      - PUID=1000
+      - PGID=1001
+      - LOG_LEVEL=debug
+      - TZ=${TZ}
+      - PORT=5055 #optional
+    # ports:
+    #   - 5055:5055
+    volumes:
+      - ${HDD_VOLUMES_BASEDIR}/seerr:/app/config
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:5055/api/v1/status || exit 1
+      start_period: 20s
+      timeout: 3s
+      interval: 15s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.seerr.name=Seerr
+      - pangolin.proxy-resources.seerr.full-domain=seerr.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.seerr.protocol=http
+      - pangolin.proxy-resources.seerr.auth.sso-enabled=false
+      - pangolin.proxy-resources.seerr.targets[0].method=http
+      - pangolin.proxy-resources.seerr.targets[0].port=5055
+
+networks:
+  pangolin-private-proxy:
+    external: true

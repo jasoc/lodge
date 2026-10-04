@@ -1,0 +1,17 @@
+name: nomad-node
+
+services:
+  newt-private:
+    image: fosrl/newt
+    container_name: newt-private
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PANGOLIN_ENDPOINT=https://${PANGOLIN_PRIVATE_CNAME}
+      - NEWT_ID=${PANGOLIN_NEWT_ID_NOMAD_NODE}
+      - NEWT_SECRET=${PANGOLIN_NEWT_SECRET_NOMAD_NODE}
+      - DOCKER_SOCKET=/var/run/docker.sock
+      - DOCKER_ENFORCE_NETWORK_VALIDATION=false
+    networks:
+      - project-nomad

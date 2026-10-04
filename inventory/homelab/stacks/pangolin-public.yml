@@ -1,0 +1,233 @@
+name: pangolin-public
+
+services:
+  pangolin-public:
+    image: fosrl/pangolin:ee-1.21.0
+    container_name: pangolin-public
+    restart: unless-stopped
+    hostname: pangolin
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/pangolin-public/config:/app/config
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/"]
+      interval: "3s"
+      timeout: "3s"
+      retries: 15
+    configs:
+      - source: config.yml
+        target: /app/config/config.yml
+    networks:
+      - proxy
+
+  gerbil-public:
+    image: fosrl/gerbil:1.4.3
+    container_name: gerbil-public
+    restart: unless-stopped
+    depends_on:
+      pangolin-public:
+        condition: service_healthy
+    command:
+      - --reachableAt=http://gerbil-public:3004
+      - --generateAndSaveKeyTo=/var/config/key
+      - --remoteConfig=http://pangolin-public:3001/api/v1/
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/pangolin-public/config:/var/config
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    ports:
+      # - 51820:51820/udp
+      # - 21820:21820/udp
+      - 1443:443
+      - 1080:80
+    configs:
+      - source: config.yml
+        target: /app/config/config.yml
+    networks:
+      - proxy
+
+  traefik-public:
+    image: traefik:v3.7.10
+    container_name: traefik-public
+    restart: unless-stopped
+    network_mode: service:gerbil-public
+    depends_on:
+      pangolin-public:
+        condition: service_healthy
+    command:
+      - --configFile=/etc/traefik/traefik_config.yml
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/pangolin-public/config/letsencrypt:/letsencrypt
+      - ${SSD_NVME_VOLUMES_BASEDIR}/pangolin-public/config/traefik/logs:/var/log/traefik
+    environment:
+      CLOUDFLARE_DNS_API_TOKEN: "${CLOUDFLARE_API_TOKEN}"
+    configs:
+      - source: traefik_config.yml
+        target: /etc/traefik/traefik_config.yml
+      - source: dynamic_config.yml
+        target: /etc/traefik/dynamic_config.yml
+
+  # newt-public:
+  #   image: fosrl/newt
+  #   container_name: newt-public
+  #   restart: unless-stopped
+  #   environment:
+  #     - PANGOLIN_ENDPOINT=https://${PANGOLIN_PUBLIC_CNAME}
+  #     - NEWT_ID=${PANGOLIN_NEWT_ID}
+  #     - NEWT_SECRET=${PANGOLIN_NEWT_SECRET}
+  #   networks:
+  #     - proxy
+
+networks:
+  proxy:
+    driver: bridge
+    name: pangolin-public-proxy
+
+configs:
+  dynamic_config.yml:
+    content: |
+      http:
+        middlewares:
+          badger:
+            plugin:
+              badger:
+                disableForwardAuth: true
+          redirect-to-https:
+            redirectScheme:
+              scheme: https
+
+        routers:
+          # HTTP to HTTPS redirect router
+          main-app-router-redirect:
+            rule: "Host(`${PANGOLIN_PUBLIC_CNAME}`)" # REPLACE WITH YOUR DOMAIN
+            service: next-service
+            entryPoints:
+              - web
+            middlewares:
+              - redirect-to-https
+              - badger
+
+          # Next.js router (handles everything except API and WebSocket paths)
+          next-router:
+            rule: "Host(`${PANGOLIN_PUBLIC_CNAME}`) && !PathPrefix(`/api/v1`)" # REPLACE WITH YOUR DOMAIN
+            service: next-service
+            entryPoints:
+              - websecure
+            middlewares:
+              - badger
+            tls:
+              certResolver: letsencrypt
+              domains:
+                - main: "${PUBLIC_DOMAIN}"
+                  sans:
+                    - "*.${PUBLIC_DOMAIN}"
+                    - "*.${PRIVATE_DOMAIN}"
+
+          # API router (handles /api/v1 paths)
+          api-router:
+            rule: "Host(`${PANGOLIN_PUBLIC_CNAME}`) && PathPrefix(`/api/v1`)" # REPLACE WITH YOUR DOMAIN
+            service: api-service
+            entryPoints:
+              - websecure
+            middlewares:
+              - badger
+            tls:
+              certResolver: letsencrypt
+
+          # WebSocket router
+          ws-router:
+            rule: "Host(`${PANGOLIN_PUBLIC_CNAME}`)" # REPLACE WITH YOUR DOMAIN
+            service: api-service
+            entryPoints:
+              - websecure
+            middlewares:
+              - badger
+            tls:
+              certResolver: letsencrypt
+
+        services:
+          next-service:
+            loadBalancer:
+              servers:
+                - url: "http://pangolin-public:3002" # Next.js server
+
+          api-service:
+            loadBalancer:
+              servers:
+                - url: "http://pangolin-public:3000" # API/WebSocket server
+  traefik_config.yml:
+    content: |
+      api:
+        insecure: true
+        dashboard: true
+
+      providers:
+        http:
+          endpoint: "http://pangolin-public:3001/api/v1/traefik-config"
+          pollInterval: "5s"
+        file:
+          filename: "/etc/traefik/dynamic_config.yml"
+
+      experimental:
+        plugins:
+          badger:
+            moduleName: "github.com/fosrl/badger"
+            version: "v1.3.0"
+
+      log:
+        level: "INFO"
+        format: "common"
+
+      certificatesResolvers:
+        letsencrypt:
+          acme:
+            dnsChallenge:
+              provider: "cloudflare"
+            email: ${PANGOLIN_ADMIN_EMAIL}
+            storage: "/letsencrypt/acme.json"
+            caServer: "https://acme-v02.api.letsencrypt.org/directory"
+
+      entryPoints:
+        web:
+          address: ":80"
+        websecure:
+          address: ":443"
+          transport:
+            respondingTimeouts:
+              readTimeout: "30m"
+          http:
+            tls:
+              certResolver: "letsencrypt"
+
+      serversTransport:
+        insecureSkipVerify: true
+
+      ping:
+          entryPoint: "web"
+  config.yml:
+    content: |
+      app:
+        dashboard_url: "https://${PANGOLIN_PUBLIC_CNAME}"
+
+      domains:
+        domain1:
+          base_domain: ${PANGOLIN_PUBLIC_CNAME}
+          cert_resolver: "letsencrypt"
+
+      server:
+        secret: "${PANGOLIN_SERVER_SECRET}"
+
+      gerbil:
+        base_endpoint: ${PANGOLIN_PUBLIC_CNAME}
+
+      flags:
+        require_email_verification: true
+        disable_signup_without_invite: true
+        disable_user_create_org: true
+
+      email:
+        smtp_host: ${PROTON_SMTP_HOST}
+        smtp_port: ${PROTON_SMTP_PORT}
+        smtp_user: ${PROTON_SMTP_USER}
+        smtp_pass: ${PROTON_SMTP_PASS}
+        no_reply: ${PROTON_SMTP_NO_REPLY}

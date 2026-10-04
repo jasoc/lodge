@@ -33,7 +33,14 @@ its own Postgres schema on startup. Only Postgres is a separate container.
   `inventory/{kind}/capabilities/{capability}.yaml`. It owns the signals it observes and
   the rules that map their values to actions.
 - **Signal** — inside a capability: a dotted path (`scalar`, `keyed_collection`, or
-  `scalar_list`) plus rules that match its current value and emit actions.
+  `scalar_list`) plus rules that match its current value and emit actions. A keyed
+  collection may be nested with one `*` segment (`proxmox.virtual_machines.*.containers`:
+  items keyed `vm/container`, a dependency on the parent signal waits for that item's own
+  parent, and a recreated parent re-requires its children), and may `exclude:` item fields
+  (a VM's `compose` list) from its bodies so editing them isn't a change to the parent. A
+  scalar list with `files: <folder>` names files of the inventory (paths or `*`/`**`
+  globs): each file is an item whose body is `{file, sha256, content}`, so editing the
+  file is a MODIFY and its content travels with the action.
 - **Action** — a concrete runbook invocation produced by a rule. Has a `runbook`, `label`,
   `policy`, resolved inputs, and any pending prompts.
 - **Policy** — `AUTO` (runs immediately at reconciliation), `MANUAL_REQUIRED` (waits for a
@@ -41,8 +48,10 @@ its own Postgres schema on startup. Only Postgres is a separate container.
   `MANUAL_REQUIRED`.
 - **Status** — `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `SUPERSEDED`.
 - **Input** — a runbook parameter: `from` (resolved from the match context: `kind`,
-  `instance`, `path`, `key`, `item`, `value`), `const` (fixed), or `prompt` (supplied by a
-  human at confirm time).
+  `instance`, `path`, `key`, `item`, `item.<field>`, `value`; for collections `collection`,
+  every current item as one JSON object; for nested ones `parent_key`, `parent`,
+  `parent.<field>`), `const` (fixed), `secret` (resolved by `ISecretProvider` at run time),
+  or `prompt` (supplied by a human at confirm time).
 - **Runbook** — an execution detail, not part of an action's identity: a shell command
   (`ShellCommandRunbookExecutor`), an HTTP webhook (`WebhookRunbookExecutor`) or a container
   (`DockerRunbookExecutor`), dispatched by `CompositeRunbookExecutor` on the action's

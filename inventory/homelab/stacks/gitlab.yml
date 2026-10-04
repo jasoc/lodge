@@ -1,0 +1,45 @@
+name: gitlab
+
+services:
+  gitlab-server:
+    image: gitlab/gitlab-ce:latest
+    container_name: gitlab-server
+    hostname: 'gitlab.${PRIVATE_DOMAIN}'
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://gitlab.${PRIVATE_DOMAIN}'
+        gitlab_rails['initial_root_password'] = "${ADMIN_PASSWORD}"
+    # ports:
+    #   - '80:80'
+    #   - '443:443'
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/gitlab/config:/etc/gitlab
+      - ${SSD_NVME_VOLUMES_BASEDIR}/gitlab/logs:/var/log/gitlab
+      - ${SSD_NVME_VOLUMES_BASEDIR}/gitlab/data:/var/opt/gitlab
+    restart: unless-stopped
+    networks:
+      - gitlab
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.gitlab.name=GitLab
+      - pangolin.proxy-resources.gitlab.full-domain=gitlab.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.gitlab.protocol=http
+      - pangolin.proxy-resources.gitlab.auth.sso-enabled=false
+      - pangolin.proxy-resources.gitlab.targets[0].method=http
+      - pangolin.proxy-resources.gitlab.targets[0].port=80
+
+  gitlab-runner:
+    image: 'gitlab/gitlab-runner:latest'
+    container_name: gitlab-runner
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HDD_VOLUMES_BASEDIR}/gitlab/runner:/etc/gitlab-runner
+      - /etc/pki/tls/certs:/usr/local/share/ca-certificates
+    restart: unless-stopped
+    networks:
+      - gitlab
+
+networks:
+  gitlab:
+    driver: bridge
+  pangolin-private-proxy:

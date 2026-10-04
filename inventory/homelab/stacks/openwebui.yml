@@ -1,0 +1,24 @@
+name: open-webui
+
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.11.0
+    container_name: open-webui
+    # ports:
+    #   - "8080:8080"
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/open-webui:/app/backend/data
+    restart: unless-stopped
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.openwebui.name=Open WebUI
+      - pangolin.proxy-resources.openwebui.full-domain=ai.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.openwebui.protocol=http
+      - pangolin.proxy-resources.openwebui.auth.sso-enabled=false
+      - pangolin.proxy-resources.openwebui.targets[0].method=http
+      - pangolin.proxy-resources.openwebui.targets[0].port=8080
+
+networks:
+  pangolin-private-proxy:
+    external: true

@@ -1,0 +1,23 @@
+name: open-speedtest
+
+services:
+  open-speedtest:
+    image: openspeedtest/latest:v2.0.6
+    container_name: open-speedtest
+    restart: unless-stopped
+    # ports:
+    #   - 3000:3000
+    #   - 3001:3001
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.speedtest.name=Open Speedtest
+      - pangolin.proxy-resources.speedtest.full-domain=speed.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.speedtest.protocol=http
+      - pangolin.proxy-resources.speedtest.auth.sso-enabled=false
+      - pangolin.proxy-resources.speedtest.targets[0].method=http
+      - pangolin.proxy-resources.speedtest.targets[0].port=3000
+
+networks:
+  pangolin-private-proxy:
+    external: true

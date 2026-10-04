@@ -151,6 +151,11 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
     {
         foreach (var signal in definition.Signals)
         {
+            if (signal.Files is not null)
+            {
+                signal.FileIndex = LoadFileIndex(kindCode, signal.Files, definition, errors);
+            }
+
             foreach (var action in signal.Rules.SelectMany(r => r.Actions))
             {
                 if (action.Docker?.Build is not { } build)
@@ -169,5 +174,34 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Every file under <c>inventory/{kind}/{folder}</c> (relative '/'-separated path →
+    /// text content) for a file-backed list signal. A missing folder is an error, not an
+    /// empty index, so a typo can't silently look like "remove every file".
+    /// </summary>
+    private IReadOnlyDictionary<string, string> LoadFileIndex(
+        string kindCode, string folder, CapabilityDefinition definition, List<string> errors)
+    {
+        var index = new Dictionary<string, string>(StringComparer.Ordinal);
+        var kindRoot = Path.GetFullPath(Path.Combine(_repoRoot, "inventory", kindCode));
+        var root = Path.GetFullPath(Path.Combine(kindRoot, folder));
+        if (!root.StartsWith(kindRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !Directory.Exists(root))
+        {
+            errors.Add($"{definition.SourceFile ?? definition.Code}: files folder 'inventory/{kindCode}/{folder}' does not exist.");
+            return index;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            var info = new FileInfo(path);
+            if (info.LinkTarget is not null || info.Name.StartsWith('.'))
+            {
+                continue; // no symlinks out of the inventory, no dotfiles
+            }
+            index[Path.GetRelativePath(root, path).Replace('\\', '/')] = File.ReadAllText(path);
+        }
+        return index;
     }
 }

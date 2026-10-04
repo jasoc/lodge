@@ -129,7 +129,8 @@ public static class ReadEndpoints
                 DeserializePrompts(a.PendingPromptsJson),
                 a.CreatedAt,
                 a.CompletedAt,
-                a.ExecutionRef)).ToList();
+                a.ExecutionRef,
+                a.InvalidatedAt)).ToList();
 
             return Results.Ok(dtos);
         });

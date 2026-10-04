@@ -20,4 +20,12 @@ public sealed class DockerExecutorOptions
     /// build; older ones are removed best-effort. 0 disables pruning.
     /// </summary>
     public int KeepImagesPerPlaybook { get; set; } = 3;
+
+    /// <summary>
+    /// What a catalog <c>mounts:</c> alias may refer to: alias → absolute host path (bind
+    /// mount; it's the host's daemon, so it's a path on the docker host), or
+    /// <c>volume:&lt;name&gt;</c> for a docker named volume (e.g. an NFS-backed one). The
+    /// only things an inventory-defined container can mount — nothing else is reachable.
+    /// </summary>
+    public Dictionary<string, string> Mounts { get; set; } = new(StringComparer.Ordinal);
 }

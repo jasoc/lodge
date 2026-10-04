@@ -28,7 +28,8 @@ public sealed class DockerRunbookExecutorTests : IDisposable
 
     public void Dispose() => Directory.Delete(_scratchDir, recursive: true);
 
-    private DockerRunbookExecutor NewExecutor(int runExit = 0, int buildExit = 0, string? logDir = null)
+    private DockerRunbookExecutor NewExecutor(int runExit = 0, int buildExit = 0, string? logDir = null,
+        Dictionary<string, string>? mounts = null)
     {
         var scriptPath = Path.Combine(_scratchDir, $"fake-docker-{Guid.NewGuid():N}.sh");
         var builtDir = Path.Combine(_scratchDir, "built");
@@ -64,7 +65,8 @@ public sealed class DockerRunbookExecutorTests : IDisposable
             Options.Create(new DockerExecutorOptions
             {
                 DockerBinaryPath = scriptPath,
-                LogDirectory = logDir ?? Path.Combine(_scratchDir, "logs")
+                LogDirectory = logDir ?? Path.Combine(_scratchDir, "logs"),
+                Mounts = mounts ?? new Dictionary<string, string>()
             }),
             new PlaybookContextResolver(Options.Create(new GitSnapshotOptions { RepoRoot = RepoRoot })));
     }
@@ -299,5 +301,40 @@ public sealed class DockerRunbookExecutorTests : IDisposable
     {
         var executor = NewExecutor();
         Assert.Null(await executor.ReadLogAsync(runId, 0, 1024));
+    }
+
+    [Fact]
+    public async Task Mount_aliases_resolve_through_server_config_and_static_env_is_passed_by_name()
+    {
+        var executor = NewExecutor(mounts: new Dictionary<string, string>
+        {
+            ["ssh_key"] = "/home/me/.ssh/id",
+            ["tfstate"] = "volume:homelab-tfstate"
+        });
+        var config = new DockerExecutorConfig("alpine:3.20", Array.Empty<string>(),
+            Mounts: new[] { new DockerMount("ssh_key", "/keys/id", true), new DockerMount("tfstate", "/state", false) },
+            Env: new Dictionary<string, string> { ["PROTON_PASS_KEY_PROVIDER"] = "fs" });
+
+        var status = await WaitUntilTerminalAsync(executor, (await executor.StartAsync(Request(config))).RunId);
+        Assert.Equal(RunbookRunState.Succeeded, status.State);
+
+        var argv = Calls().Where(l => l.StartsWith("ARGV[")).Select(l => l.Split('=', 2)[1]).ToList();
+        Assert.Contains("type=bind,source=/home/me/.ssh/id,target=/keys/id,readonly", argv);
+        Assert.Contains("type=volume,source=homelab-tfstate,target=/state", argv);
+        Assert.Contains("PROTON_PASS_KEY_PROVIDER", argv);
+    }
+
+    [Fact]
+    public async Task An_unconfigured_mount_alias_fails_the_run_without_starting_a_container()
+    {
+        var executor = NewExecutor();
+        var config = new DockerExecutorConfig("alpine:3.20", Array.Empty<string>(),
+            Mounts: new[] { new DockerMount("root_fs", "/host", false) });
+
+        var status = await WaitUntilTerminalAsync(executor, (await executor.StartAsync(Request(config))).RunId);
+
+        Assert.Equal(RunbookRunState.Failed, status.State);
+        Assert.Contains("mount alias 'root_fs' is not configured", status.Message);
+        Assert.DoesNotContain(Calls(), l => l.StartsWith("CALL run ", StringComparison.Ordinal));
     }
 }

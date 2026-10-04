@@ -1,0 +1,58 @@
+name: woodpecker
+
+services:
+  woodpecker-server:
+    image: woodpeckerci/woodpecker-server:v3
+    container_name: woodpecker-server
+    # ports:
+    #   - 8000:8000
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/woodpecker/server:/var/lib/woodpecker
+    environment:
+      - WOODPECKER_OPEN=true
+      - WOODPECKER_HOST=https://cicd.${PRIVATE_DOMAIN}
+      - WOODPECKER_GITHUB=true
+      - WOODPECKER_GITHUB_CLIENT=${WOODPECKER_GITHUB_CLIENT}
+      - WOODPECKER_GITHUB_SECRET=${WOODPECKER_GITHUB_SECRET}
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      - WOODPECKER_BACKEND_DOCKER_VOLUMES=/var/run/docker.sock:/var/run/docker.sock
+      - WOODPECKER_BACKEND=docker
+      - PROTON_PASS_PASSWORD=${PROTON_PASS_PASSWORD}
+      - PROTON_PASS_TOTP=${PROTON_PASS_TOTP}
+      - WOODPECKER_ADMIN=jasoc
+    restart: unless-stopped
+    networks:
+      - woodpecker
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.woodpecker.name=Woodpecker
+      - pangolin.proxy-resources.woodpecker.full-domain=cicd.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.woodpecker.protocol=http
+      - pangolin.proxy-resources.woodpecker.auth.sso-enabled=false
+      - pangolin.proxy-resources.woodpecker.targets[0].method=http
+      - pangolin.proxy-resources.woodpecker.targets[0].port=8000
+
+  woodpecker-agent:
+    image: woodpeckerci/woodpecker-agent:v3
+    container_name: woodpecker-agent
+    command: agent
+    restart: unless-stopped
+    depends_on:
+      - woodpecker-server
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/woodpecker/agent:/etc/woodpecker
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/parisius/.local/bin/pass-cli:/bin/pass-cli:ro
+    environment:
+      - WOODPECKER_SERVER=woodpecker-server:9000
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      - WOODPECKER_BACKEND_DOCKER_VOLUMES=/var/run/docker.sock:/var/run/docker.sock
+      - WOODPECKER_BACKEND=docker
+    privileged: true
+    networks:
+      - woodpecker
+
+networks:
+  woodpecker:
+    driver: bridge
+  pangolin-private-proxy:

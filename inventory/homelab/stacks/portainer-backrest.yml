@@ -1,0 +1,19 @@
+name: portainer
+
+services:
+  portainer:
+    image: portainer/portainer-ce:2.44.0
+    container_name: portainer-ce
+    ports:
+      - 9000:9000
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/portainer/data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    labels:
+      - pangolin.proxy-resources.portainer.name=Portainer
+      - pangolin.proxy-resources.portainer.full-domain=portainer-nomad.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.portainer.protocol=http
+      - pangolin.proxy-resources.portainer.auth.sso-enabled=false
+      - pangolin.proxy-resources.portainer.targets[0].method=http
+      - pangolin.proxy-resources.portainer.targets[0].port=9000

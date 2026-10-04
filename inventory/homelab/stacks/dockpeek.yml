@@ -1,0 +1,28 @@
+name: dockpeek
+
+services:
+  dockpeek:
+    image: dockpeek/dockpeek:latest
+    container_name: dockpeek
+    environment:
+      - SECRET_KEY=${DOCKPEEK_SECRET_KEY}
+      - USERNAME=${ADMIN_USERNAME}
+      - PASSWORD=${ADMIN_PASSWORD}
+    # ports:
+    #   - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.dockpeek.name=Dockpeek
+      - pangolin.proxy-resources.dockpeek.full-domain=docker.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.dockpeek.protocol=http
+      - pangolin.proxy-resources.dockpeek.auth.sso-enabled=false
+      - pangolin.proxy-resources.dockpeek.targets[0].method=http
+      - pangolin.proxy-resources.dockpeek.targets[0].port=8000
+
+networks:
+  pangolin-private-proxy:
+    external: true

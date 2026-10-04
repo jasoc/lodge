@@ -1,0 +1,29 @@
+name: arr-dashboard
+
+services:
+  arr-dashboard:
+    image: khak1s/arr-dashboard:latest
+    container_name: arr-dashboard
+    environment:
+      - PUID=1000
+      - PGID=1001
+      - TZ=${TZ}
+    volumes:
+      - ${SSD_NVME_VOLUMES_BASEDIR}/arr-dashboard:/config
+      - ${ARRSTACK_BASE_PATH}:/data
+    # ports:
+    #   - 3000:3000
+    restart: unless-stopped
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.arr-dashboard.name=ArrDashboard
+      - pangolin.proxy-resources.arr-dashboard.full-domain=arr-dashboard.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.arr-dashboard.protocol=http
+      - pangolin.proxy-resources.arr-dashboard.auth.sso-enabled=false
+      - pangolin.proxy-resources.arr-dashboard.targets[0].method=http
+      - pangolin.proxy-resources.arr-dashboard.targets[0].port=3000
+
+networks:
+  pangolin-private-proxy:
+    external: true

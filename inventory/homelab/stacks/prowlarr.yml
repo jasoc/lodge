@@ -1,0 +1,30 @@
+name: prowlarr
+
+services:
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:2.6.2-nightly
+    container_name: prowlarr
+    environment:
+      - PUID=1000
+      - PGID=1001
+      - UMASK=002
+      - TZ=${TZ}
+    volumes:
+      - ${HDD_VOLUMES_BASEDIR}/prowlarr:/config
+      - ${ARRSTACK_BASE_PATH}:/data
+    # ports:
+    #   - "9696:9696"
+    restart: unless-stopped
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.prowlarr.name=Prowlarr
+      - pangolin.proxy-resources.prowlarr.full-domain=prowlarr.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.prowlarr.protocol=http
+      - pangolin.proxy-resources.prowlarr.auth.sso-enabled=false
+      - pangolin.proxy-resources.prowlarr.targets[0].method=http
+      - pangolin.proxy-resources.prowlarr.targets[0].port=9696
+
+networks:
+  pangolin-private-proxy:
+    external: true

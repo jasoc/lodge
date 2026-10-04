@@ -23,6 +23,39 @@
     </div>
   </div>
 
+  @if (activeActions().length > 0) {
+    <section class="running-strip" aria-label="Running now">
+      <span class="running-strip-title">
+        <mat-icon fontSet="material-symbols-outlined" class="spin">progress_activity</mat-icon>
+        Running now
+      </span>
+      @for (action of activeActions(); track action.id) {
+        <button
+          type="button"
+          class="running-chip"
+          [class.running-chip-starting]="action.status !== 'RUNNING'"
+          [disabled]="!hasLog(action)"
+          [title]="hasLog(action) ? 'Open live logs' : 'Starting — logs appear once the run begins'"
+          (click)="openLog(action)"
+        >
+          <span class="running-chip-dot"></span>
+          <span class="running-chip-label">{{ action.label }}</span>
+          @if (action.item_key) {
+            <span class="running-chip-item">{{ action.item_key }}</span>
+          }
+          <span class="running-chip-meta">
+            @if (action.status === 'RUNNING') {
+              <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+              Logs
+            } @else {
+              starting…
+            }
+          </span>
+        </button>
+      }
+    </section>
+  }
+
   <m3-tabs>
     <m3-tab icon="bolt" label="Capabilities">
       <ng-container [ngTemplateOutlet]="capabilityCardsTpl"></ng-container>
@@ -87,197 +120,283 @@
   </m3-tabs>
 
   <ng-template #capabilityCardsTpl>
+    <div class="capability-toolbar">
+      <label class="capability-filter">
+        <mat-icon fontSet="material-symbols-outlined">search</mat-icon>
+        <input
+          type="search"
+          placeholder="Filter actions by name or item…"
+          [value]="filter()"
+          (input)="filter.set($any($event.target).value)"
+        />
+      </label>
+    </div>
+
     @if (capabilityCards().length === 0) {
-      <p>No actions yet.</p>
+      <p class="empty">{{ filter() ? 'No action matches the filter.' : 'No actions yet.' }}</p>
     }
+
     <div class="capability-grid">
       @for (card of capabilityCards(); track card.code) {
         <div class="capability-panel">
           <div class="capability-panel-header">
             <h3>{{ card.title }}</h3>
-            <a
-              class="capability-panel-link"
-              [routerLink]="['/kinds', kindCode, 'capabilities']"
-              [fragment]="card.code"
-            >
-              What is this?
-            </a>
+            <div class="capability-panel-counts">
+              @if (card.todo.length) {
+                <span class="count count-todo">{{ card.todo.length }} to do</span>
+              }
+              @if (card.running.length) {
+                <span class="count count-running">{{ card.running.length }} running</span>
+              }
+              <a
+                class="capability-panel-link"
+                [routerLink]="['/kinds', kindCode, 'capabilities']"
+                [fragment]="card.code"
+              >
+                What is this?
+              </a>
+            </div>
           </div>
 
-          @if (card.buttons.length > 0) {
-            <div class="control-tiles">
-              @for (action of card.buttons; track action.id) {
-                <div
-                  class="control-tile"
-                  [class.control-tile-done]="action.status === 'SUCCEEDED'"
-                  [class.control-tile-running]="action.status === 'RUNNING'"
-                  [class.control-tile-highlighted]="highlightedSignalPath() === action.signal_path"
-                >
-                  <div class="control-tile-top">
-                    <mat-icon class="control-tile-icon" fontSet="material-symbols-outlined">{{
-                      controlIcon(action)
-                    }}</mat-icon>
-                    <mat-chip [color]="statusColor(action.status)" highlighted>{{
-                      action.status
-                    }}</mat-chip>
-                  </div>
-                  <p class="control-tile-label">{{ action.label }}</p>
-                  @if (action.item_key) {
-                    <p class="control-tile-item">{{ action.item_key }}</p>
-                  }
-                  <mat-chip class="control-tile-policy">{{ action.policy }}</mat-chip>
-
-                  @if (canConfirm(action)) {
-                    <button
-                      mat-fab
-                      extended
-                      color="primary"
-                      class="control-tile-button"
-                      [disabled]="busyActionId() === action.id"
-                      (click)="startConfirm(action)"
-                    >
-                      <mat-icon fontSet="material-symbols-outlined">check</mat-icon>
-                      {{ action.status === 'FAILED' ? 'Retry' : 'Confirm' }}
-                    </button>
-                  } @else if (action.status === 'RUNNING') {
-                    <button mat-fab extended disabled class="control-tile-button">
-                      <mat-icon fontSet="material-symbols-outlined">autorenew</mat-icon>
-                      Running…
-                    </button>
-                  } @else if (canInvalidate(action)) {
-                    <button
-                      mat-stroked-button
-                      color="warn"
-                      class="control-tile-button"
-                      [disabled]="busyActionId() === action.id"
-                      (click)="invalidate(action)"
-                    >
-                      <mat-icon fontSet="material-symbols-outlined">undo</mat-icon>
-                      Done · Invalidate
-                    </button>
-                  } @else {
-                    <button mat-fab extended disabled class="control-tile-button">
-                      <mat-icon fontSet="material-symbols-outlined">block</mat-icon>
-                      {{ action.status }}
-                    </button>
-                  }
-
-                  @if (hasLog(action)) {
-                    <button mat-button class="control-tile-log" (click)="openLog(action)">
-                      <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
-                      Logs
-                    </button>
-                  }
-
-                  @if (promptingActionId() === action.id) {
-                    <div class="prompt-form">
-                      <app-dynamic-form
-                        [questions]="promptForm(action)"
-                        (valuesChange)="promptValues.set($event)"
-                      >
-                      </app-dynamic-form>
+          <!-- Needs you: big, unmissable, failures first. -->
+          @if (card.todo.length > 0) {
+            <ng-container
+              [ngTemplateOutlet]="sectionHeader"
+              [ngTemplateOutletContext]="{ card, section: 'todo', icon: 'pending_actions', title: 'Needs you', count: card.todo.length }"
+            ></ng-container>
+            @if (isSectionOpen(card, 'todo')) {
+              <div class="todo-list">
+                @for (action of visibleRows(card, 'todo', card.todo); track action.id) {
+                  <div
+                    class="todo-row"
+                    [class.todo-row-failed]="action.status === 'FAILED'"
+                    [class.row-highlighted]="highlightedSignalPath() === action.signal_path"
+                  >
+                    <div class="todo-row-text">
+                      <span class="todo-row-label">
+                        @if (action.status === 'FAILED') {
+                          <mat-icon fontSet="material-symbols-outlined" class="todo-row-failed-icon">error</mat-icon>
+                        }
+                        {{ action.label }}
+                      </span>
+                      @if (action.item_key) {
+                        <span class="mono">{{ action.item_key }}</span>
+                      }
+                      @if (action.status === 'FAILED') {
+                        <span class="todo-row-note">failed {{ ago(action.completed_at) }}</span>
+                      } @else if (action.policy === 'AUTO') {
+                        <span class="todo-row-note">automatic · waiting for input</span>
+                      }
+                    </div>
+                    <div class="todo-row-buttons">
+                      @if (hasLog(action)) {
+                        <button mat-icon-button aria-label="Logs" title="Logs" (click)="openLog(action)">
+                          <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+                        </button>
+                      }
                       <button
                         mat-flat-button
-                        color="primary"
-                        (click)="confirm(action, promptValues())"
+                        [color]="action.status === 'FAILED' ? 'warn' : 'primary'"
+                        [disabled]="busyActionId() === action.id"
+                        (click)="startConfirm(action)"
                       >
-                        Submit and run
+                        <mat-icon fontSet="material-symbols-outlined">{{
+                          action.status === 'FAILED' ? 'replay' : 'check'
+                        }}</mat-icon>
+                        {{ action.status === 'FAILED' ? 'Retry' : 'Confirm' }}
                       </button>
                     </div>
-                  }
-                </div>
-              }
-            </div>
-          }
-
-          @if (card.autoActions.length > 0) {
-            <button
-              mat-button
-              class="toggle-link"
-              (click)="showAutoActions.set(!showAutoActions())"
-            >
-              <mat-icon fontSet="material-symbols-outlined">{{
-                showAutoActions() ? 'expand_less' : 'expand_more'
-              }}</mat-icon>
-              {{ card.autoActions.length }} automatic action(s)
-            </button>
-            @if (showAutoActions()) {
-              <div class="capability-history">
-                @for (action of card.autoActions; track action.id) {
-                  <div class="action-row">
-                    <div class="action-row-main">
-                      <mat-chip [color]="statusColor(action.status)" highlighted>{{
-                        action.status
-                      }}</mat-chip>
-                      <mat-chip>AUTO</mat-chip>
-                      <span class="action-label">{{ action.label }}</span>
-                      @if (action.item_key) {
-                        <span class="action-item">{{ action.item_key }}</span>
-                      }
-                      <span class="action-time">{{ action.created_at | date: 'short' }}</span>
-                    </div>
-                    @if (hasLog(action)) {
-                      <div class="action-row-buttons">
-                        <button mat-button (click)="openLog(action)">
-                          <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
-                          Logs
-                        </button>
-                      </div>
+                    @if (promptingActionId() === action.id) {
+                      <ng-container [ngTemplateOutlet]="promptFormTpl" [ngTemplateOutletContext]="{ action }"></ng-container>
                     }
                   </div>
                 }
+                <ng-container
+                  [ngTemplateOutlet]="showAll"
+                  [ngTemplateOutletContext]="{ card, section: 'todo', rows: card.todo }"
+                ></ng-container>
+              </div>
+            }
+          } @else {
+            <p class="all-clear">
+              <mat-icon fontSet="material-symbols-outlined">task_alt</mat-icon>
+              Nothing waiting on you.
+            </p>
+          }
+
+          <!-- Checks & tests: re-runnable at will, a toolbox not a chore list. -->
+          @if (card.optional.length > 0) {
+            <ng-container
+              [ngTemplateOutlet]="sectionHeader"
+              [ngTemplateOutletContext]="{ card, section: 'optional', icon: 'science', title: 'Checks & tests', count: card.optional.length }"
+            ></ng-container>
+            @if (isSectionOpen(card, 'optional')) {
+              <div class="check-list">
+                @for (entry of visibleRows(card, 'optional', card.optional); track entry.key) {
+                  <div class="check-row" [class.row-highlighted]="highlightedSignalPath() === entry.signal_path">
+                    @if (entry.live?.status === 'RUNNING') {
+                      <button mat-stroked-button class="check-run" disabled>
+                        <mat-icon fontSet="material-symbols-outlined" class="spin">progress_activity</mat-icon>
+                        Running
+                      </button>
+                    } @else if (entry.live; as live) {
+                      <button
+                        mat-stroked-button
+                        class="check-run"
+                        [disabled]="busyActionId() === live.id"
+                        (click)="startConfirm(live)"
+                      >
+                        <mat-icon fontSet="material-symbols-outlined">play_arrow</mat-icon>
+                        Run
+                      </button>
+                    } @else {
+                      <button mat-stroked-button class="check-run" disabled title="Queued again on the next reconcile">
+                        <mat-icon fontSet="material-symbols-outlined">schedule</mat-icon>
+                        Soon
+                      </button>
+                    }
+                    <div class="check-text">
+                      <span class="check-label">{{ entry.label }}</span>
+                      @if (entry.item_key) {
+                        <span class="mono">{{ entry.item_key }}</span>
+                      }
+                    </div>
+                    @if (entry.last; as last) {
+                      <button
+                        type="button"
+                        class="check-result"
+                        [class.check-result-failed]="last.status === 'FAILED'"
+                        [disabled]="!hasLog(last)"
+                        [title]="'Last run ' + last.status.toLowerCase() + ' — open its logs'"
+                        (click)="openLog(last)"
+                      >
+                        <mat-icon fontSet="material-symbols-outlined">{{
+                          last.status === 'FAILED' ? 'cancel' : 'check_circle'
+                        }}</mat-icon>
+                        {{ ago(last.completed_at) }}
+                      </button>
+                    } @else {
+                      <span class="check-result check-result-never">never run</span>
+                    }
+                    @if (entry.live && promptingActionId() === entry.live.id) {
+                      <ng-container [ngTemplateOutlet]="promptFormTpl" [ngTemplateOutletContext]="{ action: entry.live }"></ng-container>
+                    }
+                  </div>
+                }
+                <ng-container
+                  [ngTemplateOutlet]="showAll"
+                  [ngTemplateOutletContext]="{ card, section: 'optional', rows: card.optional }"
+                ></ng-container>
               </div>
             }
           }
 
-          <button mat-button class="toggle-link" (click)="showHistory.set(!showHistory())">
-            <mat-icon fontSet="material-symbols-outlined">{{
-              showHistory() ? 'expand_less' : 'expand_more'
-            }}</mat-icon>
-            History ({{ card.history.length }})
-          </button>
-          @if (showHistory()) {
-            <div class="capability-history">
-              @for (action of card.history; track action.id) {
-                <div class="action-row">
-                  <div class="action-row-main">
-                    <mat-chip [color]="statusColor(action.status)" highlighted>{{
-                      action.status
-                    }}</mat-chip>
-                    <mat-chip>{{ action.policy }}</mat-chip>
-                    <span class="action-label">{{ action.label }}</span>
+          <!-- Applied: done, at most revocable. Closed by default. -->
+          @if (card.applied.length > 0) {
+            <ng-container
+              [ngTemplateOutlet]="sectionHeader"
+              [ngTemplateOutletContext]="{ card, section: 'applied', icon: 'check_circle', title: 'Applied', count: card.applied.length }"
+            ></ng-container>
+            @if (isSectionOpen(card, 'applied')) {
+              <div class="compact-list">
+                @for (action of visibleRows(card, 'applied', card.applied); track action.id) {
+                  <div class="compact-row" [class.row-highlighted]="highlightedSignalPath() === action.signal_path">
+                    <span class="compact-row-label">{{ action.label }}</span>
                     @if (action.item_key) {
-                      <span class="action-item">{{ action.item_key }}</span>
+                      <span class="mono">{{ action.item_key }}</span>
                     }
-                    <span class="action-time">{{ action.created_at | date: 'short' }}</span>
-                  </div>
-                  @if (hasLog(action) || canInvalidate(action)) {
-                    <div class="action-row-buttons">
-                      @if (hasLog(action)) {
-                        <button mat-button (click)="openLog(action)">
-                          <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
-                          Logs
-                        </button>
-                      }
-                      @if (canInvalidate(action)) {
+                    @if (action.synthetic) {
+                      <span class="tag" title="Adopted via past_history — never run by Lodge">adopted</span>
+                    } @else if (action.policy === 'AUTO') {
+                      <span class="tag">auto</span>
+                    }
+                    <span class="compact-row-time">{{ ago(action.completed_at ?? action.created_at) }}</span>
+                    @if (hasLog(action)) {
+                      <button mat-icon-button aria-label="Logs" title="Logs" (click)="openLog(action)">
+                        <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+                      </button>
+                    }
+                    @if (canInvalidate(action)) {
                       <button
-                        mat-stroked-button
-                        color="warn"
+                        mat-icon-button
+                        class="revoke"
+                        aria-label="Revoke"
+                        title="Revoke — treat as never done, so it's required again on the next reconcile"
                         [disabled]="busyActionId() === action.id"
                         (click)="invalidate(action)"
                       >
                         <mat-icon fontSet="material-symbols-outlined">undo</mat-icon>
-                        Invalidate
                       </button>
-                      }
-                    </div>
+                    }
+                  </div>
+                }
+                <ng-container
+                  [ngTemplateOutlet]="showAll"
+                  [ngTemplateOutletContext]="{ card, section: 'applied', rows: card.applied }"
+                ></ng-container>
+              </div>
+            }
+          }
+
+          <!-- History: every row, for the curious. -->
+          <ng-container
+            [ngTemplateOutlet]="sectionHeader"
+            [ngTemplateOutletContext]="{ card, section: 'history', icon: 'history', title: 'History', count: card.history.length }"
+          ></ng-container>
+          @if (isSectionOpen(card, 'history')) {
+            <div class="compact-list">
+              @for (action of visibleRows(card, 'history', card.history); track action.id) {
+                <div class="compact-row">
+                  <mat-chip [color]="statusColor(action.status)" highlighted>{{ action.status }}</mat-chip>
+                  <span class="compact-row-label">{{ action.label }}</span>
+                  @if (action.item_key) {
+                    <span class="mono">{{ action.item_key }}</span>
+                  }
+                  @if (action.invalidated_at) {
+                    <span class="tag">revoked</span>
+                  }
+                  <span class="compact-row-time">{{ action.created_at | date: 'short' }}</span>
+                  @if (hasLog(action)) {
+                    <button mat-icon-button aria-label="Logs" title="Logs" (click)="openLog(action)">
+                      <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+                    </button>
                   }
                 </div>
               }
+              <ng-container
+                [ngTemplateOutlet]="showAll"
+                [ngTemplateOutletContext]="{ card, section: 'history', rows: card.history }"
+              ></ng-container>
             </div>
           }
         </div>
       }
+    </div>
+  </ng-template>
+
+  <ng-template #sectionHeader let-card="card" let-section="section" let-icon="icon" let-title="title" let-count="count">
+    <button type="button" class="section-header" (click)="toggleSection(card, section)">
+      <mat-icon fontSet="material-symbols-outlined" class="section-header-icon">{{ icon }}</mat-icon>
+      <span class="section-header-title">{{ title }}</span>
+      <span class="section-header-count">{{ count }}</span>
+      <mat-icon fontSet="material-symbols-outlined" class="section-header-chevron">{{
+        isSectionOpen(card, section) ? 'expand_less' : 'expand_more'
+      }}</mat-icon>
+    </button>
+  </ng-template>
+
+  <ng-template #showAll let-card="card" let-section="section" let-rows="rows">
+    @if (hiddenCount(card, section, rows) > 0) {
+      <button mat-button class="show-all" (click)="expandSection(card, section)">
+        Show {{ hiddenCount(card, section, rows) }} more
+      </button>
+    }
+  </ng-template>
+
+  <ng-template #promptFormTpl let-action="action">
+    <div class="prompt-form">
+      <app-dynamic-form [questions]="promptForm(action)" (valuesChange)="promptValues.set($event)"></app-dynamic-form>
+      <button mat-flat-button color="primary" (click)="confirm(action, promptValues())">Submit and run</button>
     </div>
   </ng-template>
 }

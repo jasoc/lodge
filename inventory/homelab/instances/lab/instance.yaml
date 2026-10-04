@@ -1,34 +1,41 @@
-# The homelab's VMs. Each key is one VM (its hostname); the fields are what you'd hand a
-# hypervisor. Adding a VM creates it, removing it asks for confirmation before destroying.
-virtual_machines:
-  dns-01:
-    cpu_cores: 1
-    memory_mb: 1024
-    disk_gb: 16
-    os: "alpine-3.20"
-    network:
-      bridge: "vmbr0"
-      ip_address: "192.168.10.10/24"
-      gateway: "192.168.10.1"
-    start_on_boot: true
+# The homelab, mirroring the homelab repo's terraform/ + docker/ + ansible profiles.
+#
+# !! Everything here except docker-tools-node ALSO exists for real, managed by the homelab
+# !! repo's own state on /vault. In Lodge's test state, applying it would create duplicates
+# !! (a second VM on the same IP) or fail (an image/record that already exists). Creation
+# !! is always MANUAL: don't confirm those, or set `import_id` on the item to adopt the
+# !! existing resource instead (only once Lodge's state is the one in charge — two states
+# !! managing the same resource will fight).
+display_name: "Homelab"
 
-  docker-01:
-    cpu_cores: 4
-    memory_mb: 8192
-    disk_gb: 128
-    os: "debian-12"
-    network:
-      bridge: "vmbr0"
-      ip_address: "192.168.10.20/24"
-      gateway: "192.168.10.1"
-    start_on_boot: true
+proxmox:
+  # images:
+  #   almalinux-10-2-20260817:
+  #     node: proxmox
+  #     datastore: vault
+  #     url: "https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-10.2-20260817.0.x86_64.qcow2"
+  #     # import_id: "proxmox/vault:import/AlmaLinux-10-GenericCloud-10.2-20260817.0.x86_64.qcow2"
 
-  sandbox-01:
-    cpu_cores: 2
-    memory_mb: 4096
-    disk_gb: 32
-    os: "ubuntu-24.04"
-    network:
-      bridge: "vmbr1"
-      ip_address: "dhcp"
-    start_on_boot: false
+  # Each VM: what Terraform hands Proxmox, the Ansible profile that configures it, and the
+  # compose files (by name, from the flat inventory/homelab/stacks/; globs allowed) that run on it.
+  virtual_machines:
+    docker-arrstack-node:
+      node: proxmox
+      cores: 4
+      cpu_type: x86-64-v3
+      memory_mb: 4096
+      disk_gb: 128
+      image: "vault:import/AlmaLinux-10-GenericCloud-10.2-20260817.0.x86_64.qcow2"
+      ip: 192.168.178.114/24
+      gateway: 192.168.178.1
+      ansible_profile: docker-node
+      # import_id: "proxmox/100"
+      compose:
+        - woodpecker.yml
+
+cloudflare:
+  zones:
+    parisius-dev:
+      zone_id: "e54a9aaab84f6ca8777e5a3e6ea01579"
+      records:
+        cname-test: { type: CNAME, name: test.parisius.dev, content: jasoc.github.io, ttl: 1, proxied: true }

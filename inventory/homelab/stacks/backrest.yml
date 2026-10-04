@@ -1,0 +1,42 @@
+name: backrest
+
+services:
+  backrest:
+    image: garethgeorge/backrest:v1.14.1
+    container_name: backrest
+    hostname: backrest
+    volumes:
+      - ${MASS_HDD_PATH}/backups/backrest/container_volumes/data:/data
+      - ${MASS_HDD_PATH}/backups/backrest/container_volumes/config:/config
+      - ${MASS_HDD_PATH}/backups/backrest/container_volumes/cache:/cache
+      - ${MASS_HDD_PATH}/backups/backrest/container_volumes/tmp:/tmp
+      - ${MASS_HDD_PATH}/backups/backrest/repo_hddvault:/repos/hddvault
+      - ~/.config/rclone:/root/.config/rclone
+
+      - ${MASS_HDD_PATH}:/userdata/hddvault
+      - ${SSD_NVME_VOLUMES_BASEDIR}:/userdata/ssd_nvme_volumes
+
+    environment:
+      - PUID=1000
+      - PGID=1001
+      - BACKREST_DATA=/data
+      - BACKREST_CONFIG=/config/config.json
+      - XDG_CACHE_HOME=/cache
+      - TZ=${TZ}
+      - RESTIC_PASSWORD=${RESTIC_PASSWORD}
+    restart: unless-stopped
+    # ports:
+    #   - 9898:9898
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.backrest.name=Backrest
+      - pangolin.proxy-resources.backrest.full-domain=backup.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.backrest.protocol=http
+      - pangolin.proxy-resources.backrest.auth.sso-enabled=false
+      - pangolin.proxy-resources.backrest.targets[0].method=http
+      - pangolin.proxy-resources.backrest.targets[0].port=9898
+
+networks:
+  pangolin-private-proxy:
+    external: true

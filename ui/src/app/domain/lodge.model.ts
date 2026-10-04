@@ -45,6 +45,8 @@ export interface ActionModel {
   completed_at: string | null;
   /** Id of the latest run; null until the action has run. */
   execution_ref: string | null;
+  /** Set when a human revoked this success; the identity counts as never done again. */
+  invalidated_at: string | null;
 }
 
 /** A slice of an action's latest run log — poll again from `next_offset` while `running`. */

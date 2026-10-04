@@ -650,4 +650,65 @@ public class CapabilityCatalogLoaderTests
             """)));
         Assert.Contains("'context'", ex.Message);
     }
+
+    // --- nested signals, exclude, mounts, env -----------------------------------------
+
+    [Theory]
+    [InlineData("*.containers")]
+    [InlineData("proxmox.vms.*")]
+    [InlineData("proxmox.*.vms.*.containers")]
+    public void LoadCapability_rejects_misplaced_wildcards(string path)
+    {
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability($$"""
+            capability: c
+            signals:
+              - path: "{{path}}"
+                kind: keyed_collection
+            """));
+        Assert.Contains("'*' segment", ex.Message);
+    }
+
+    [Fact]
+    public void LoadCapability_parses_nested_paths_exclude_mounts_and_env()
+    {
+        var capability = CapabilityCatalogLoader.LoadCapability("""
+            capability: c
+            signals:
+              - path: proxmox.vms.*.containers
+                kind: keyed_collection
+                exclude: [secrets]
+                rules:
+                  - on: add
+                    actions:
+                      - key: deploy
+                        runbook: ops/deploy
+                        executor: docker
+                        docker:
+                          image: "alpine:3.20"
+                          mounts: ["ssh_key:/keys/id:ro", "tfstate:/state"]
+                          env: { PROTON_PASS_KEY_PROVIDER: fs }
+            """);
+        var signal = capability.Signals[0];
+        Assert.True(signal.IsNested);
+        Assert.Equal("proxmox.vms", signal.ParentPath);
+        Assert.Equal("containers", signal.ChildPath);
+        Assert.Equal(new[] { "secrets" }, signal.Exclude);
+
+        var docker = signal.Rules[0].Actions[0].Docker!;
+        Assert.Equal(new[] { new DockerMount("ssh_key", "/keys/id", true), new DockerMount("tfstate", "/state", false) }, docker.Mounts);
+        Assert.Equal("fs", docker.Env!["PROTON_PASS_KEY_PROVIDER"]);
+    }
+
+    [Theory]
+    [InlineData("mounts: [\"/etc:/etc\"]", "alias:/container/path")]
+    [InlineData("mounts: [\"ssh_key:relative\"]", "alias:/container/path")]
+    [InlineData("env: { LODGE_PARAM_X: y }", "LODGE_")]
+    public void LoadCapability_rejects_bad_mounts_and_reserved_env(string line, string expected)
+    {
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(DockerYaml($$"""
+                          image: "alpine:3.20"
+                          {{line}}
+            """)));
+        Assert.Contains(expected, ex.Message);
+    }
 }

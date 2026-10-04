@@ -46,7 +46,6 @@ public sealed class ReconciliationRunner
     private readonly IInventorySource _inventory;
     private readonly ICapabilityCatalogProvider _catalogs;
     private readonly ActionExecutionService _execution;
-    private readonly IRunbookExecutor _executor;
     private readonly GitOptions _gitOptions;
     private readonly ILogger<ReconciliationRunner> _logger;
 
@@ -55,7 +54,6 @@ public sealed class ReconciliationRunner
         IInventorySource inventory,
         ICapabilityCatalogProvider catalogs,
         ActionExecutionService execution,
-        IRunbookExecutor executor,
         IOptions<GitOptions> gitOptions,
         ILogger<ReconciliationRunner> logger)
     {
@@ -63,7 +61,6 @@ public sealed class ReconciliationRunner
         _inventory = inventory;
         _catalogs = catalogs;
         _execution = execution;
-        _executor = executor;
         _gitOptions = gitOptions.Value;
         _logger = logger;
     }
@@ -480,24 +477,9 @@ public sealed class ReconciliationRunner
         var changed = false;
         foreach (var row in running.Where(r => !justCreatedIds.Contains(r.Id)))
         {
-            var status = await _executor.GetStatusAsync(row.ExecutionRef!, cancellationToken);
-            var mapped = status.State switch
-            {
-                RunbookRunState.Succeeded => ActionStatus.SUCCEEDED,
-                RunbookRunState.Failed => ActionStatus.FAILED,
-                _ => ActionStatus.RUNNING
-            };
-            if (mapped == row.Status)
-            {
-                continue;
-            }
-
-            row.Status = mapped;
-            row.UpdatedAt = DateTimeOffset.UtcNow;
-            row.CompletedAt = DateTimeOffset.UtcNow;
-            AddAudit(instance.Id, kindCode, "action.execution.completed", "system",
-                new { row.Id, runId = row.ExecutionRef, state = status.State.ToString(), status.Message });
-            changed = true;
+            var before = row.Status;
+            await _execution.ApplyExecutorStatusAsync(row, kindCode, cancellationToken);
+            changed |= row.Status != before;
         }
 
         if (changed)

@@ -1,0 +1,32 @@
+name: radarr
+
+services:
+  radarr:
+    image: lscr.io/linuxserver/radarr:6.4.2-nightly
+    container_name: radarr
+    environment:
+      - PUID=1000
+      - PGID=1001
+      - UMASK=002
+      - TZ=Europe/Rome
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${HDD_VOLUMES_BASEDIR}/radarr/config:/config
+      - ${ARRSTACK_BASE_PATH}:/data
+      - ${ARRSTACK_BASE_PATH}/torrents:/torrents
+    # ports:
+    #   - "7878:7878"
+    restart: unless-stopped
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.radarr.name=Radarr
+      - pangolin.proxy-resources.radarr.full-domain=radarr.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.radarr.protocol=http
+      - pangolin.proxy-resources.radarr.auth.sso-enabled=false
+      - pangolin.proxy-resources.radarr.targets[0].method=http
+      - pangolin.proxy-resources.radarr.targets[0].port=7878
+
+networks:
+  pangolin-private-proxy:
+    external: true

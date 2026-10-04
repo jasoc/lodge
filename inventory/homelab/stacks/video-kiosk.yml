@@ -1,0 +1,24 @@
+name: video-kiosk
+
+services:
+  video-kiosk:
+    image: ghcr.io/jasoc/video-kiosk:1.0
+    container_name: video-kiosk
+    # ports:
+    #   - "8080:8080"
+    volumes:
+        - ${VIDEO_KIOSK_VIDEOS_DIR}:/app/videos
+    restart: unless-stopped
+    networks:
+      - pangolin-private-proxy
+    labels:
+      - pangolin.proxy-resources.video-kiosk.name=Video Kiosk
+      - pangolin.proxy-resources.video-kiosk.full-domain=video-kiosk.${PRIVATE_DOMAIN}
+      - pangolin.proxy-resources.video-kiosk.protocol=http
+      - pangolin.proxy-resources.video-kiosk.auth.sso-enabled=false
+      - pangolin.proxy-resources.video-kiosk.targets[0].method=http
+      - pangolin.proxy-resources.video-kiosk.targets[0].port=8080
+
+networks:
+  pangolin-private-proxy:
+    external: true

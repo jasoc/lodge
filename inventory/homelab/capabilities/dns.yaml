@@ -1,0 +1,67 @@
+# Cloudflare DNS records, one per key under cloudflare.zones.<zone>.records (the zone
+# holds its zone_id). Same generic Terraform runner, module `cloudflare-dns-record`, one
+# state per record. An existing record can be adopted with `import_id: <zone_id>/<record_id>`
+# on the item — creating a record that already exists fails on Cloudflare's side.
+capability: dns
+title: "DNS Records"
+description: "Cloudflare DNS records, applied one by one with Terraform."
+
+signals:
+  - path: cloudflare.zones.*.records
+    kind: keyed_collection
+    rules:
+      - on: add
+        actions:
+          - key: create_record
+            runbook: homelab/terraform-apply
+            label: "Create DNS record (Terraform)"
+            policy: MANUAL_REQUIRED
+            executor: docker
+            docker:
+              build: { context: playbooks/terraform }
+              command: ["apply"]
+              mounts: ["tfstate:/state"]
+            inputs:
+              module: { const: cloudflare-dns-record }
+              unit: { from: path }
+              zone_id: { from: parent.zone_id }
+              inputs: { from: item }
+              import_id: { from: item.import_id }
+              pass_pat: { secret: PROTON_PASS_PAT }
+
+      - on: modify
+        actions:
+          - key: update_record
+            runbook: homelab/terraform-apply-changes
+            label: "Update DNS record (Terraform)"
+            policy: MANUAL_REQUIRED
+            executor: docker
+            docker:
+              build: { context: playbooks/terraform }
+              command: ["apply"]
+              mounts: ["tfstate:/state"]
+            inputs:
+              module: { const: cloudflare-dns-record }
+              unit: { from: path }
+              zone_id: { from: parent.zone_id }
+              inputs: { from: item }
+              import_id: { from: item.import_id }
+              pass_pat: { secret: PROTON_PASS_PAT }
+
+      - on: delete
+        actions:
+          - key: delete_record
+            runbook: homelab/terraform-destroy
+            label: "Delete DNS record (Terraform)"
+            policy: MANUAL_REQUIRED
+            executor: docker
+            docker:
+              build: { context: playbooks/terraform }
+              command: ["destroy"]
+              mounts: ["tfstate:/state"]
+            inputs:
+              module: { const: cloudflare-dns-record }
+              unit: { from: path }
+              zone_id: { from: parent.zone_id }
+              inputs: { from: item }
+              pass_pat: { secret: PROTON_PASS_PAT }

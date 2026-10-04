@@ -1,0 +1,195 @@
+@use 'tokens' as tokens;
+
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: tokens.$lodge-space-4;
+  max-width: 960px;
+}
+
+.spin {
+  animation: queue-spin 1.2s linear infinite;
+}
+
+.queue-section-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: tokens.$lodge-space-2;
+  margin: 0 0 tokens.$lodge-space-2;
+  font-size: 1rem;
+
+  mat-icon {
+    color: var(--lodge-main-ui-text-color-light);
+  }
+}
+
+.queue-section-count {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--lodge-background-shader-stronger);
+}
+
+.queue-section-hint {
+  font-size: 0.8rem;
+  font-weight: normal;
+  color: var(--lodge-main-ui-text-color-light);
+}
+
+.queue-empty {
+  display: flex;
+  align-items: center;
+  gap: tokens.$lodge-space-2;
+  margin: 0;
+  color: var(--lodge-main-ui-text-color-light);
+}
+
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: tokens.$lodge-space-2;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.queue-row {
+  --accent: var(--mat-sys-primary, var(--lodge-main-ui-text-color));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: tokens.$lodge-space-2;
+  // Deeper dependencies step right, so a chain reads as a staircase.
+  margin-left: calc(var(--depth, 0) * 20px);
+  padding: tokens.$lodge-space-2 tokens.$lodge-space-3;
+  border-radius: 12px;
+  background: var(--lodge-background-shader);
+  border-left: 4px solid var(--accent);
+
+  &[data-state='failed'] {
+    --accent: var(--mat-sys-error, #c62828);
+  }
+
+  &[data-state='running'],
+  &[data-state='starting'] {
+    --accent: var(--mat-sys-tertiary, var(--lodge-main-ui-text-color));
+  }
+
+  &[data-state='blocked'] {
+    --accent: var(--lodge-main-ui-text-color-light);
+    border-left-style: dashed;
+    opacity: 0.75;
+  }
+
+  &-optional {
+    --accent: var(--lodge-main-ui-text-color-light);
+    background: transparent;
+    border: 1px dashed var(--lodge-background-shader-stronger);
+    border-left: 4px dashed var(--accent);
+  }
+
+  // The one to press now: bigger, lifted, unmissable.
+  &-next {
+    padding: tokens.$lodge-space-3;
+    background: var(--mat-sys-primary-container, var(--lodge-background-shader-stronger));
+    color: var(--mat-sys-on-primary-container, inherit);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
+
+    .queue-row-label {
+      font-size: 1.05rem;
+    }
+
+    .queue-run {
+      height: 44px;
+      padding: 0 24px;
+      font-size: 1rem;
+    }
+  }
+
+  &-index {
+    flex: none;
+    min-width: 1.6em;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--lodge-main-ui-text-color-light);
+    text-align: right;
+  }
+
+  &-icon {
+    flex: none;
+    color: var(--accent);
+  }
+
+  &-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 200px;
+  }
+
+  &-label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: tokens.$lodge-space-2;
+    font-weight: 600;
+  }
+
+  &-item {
+    font-family: monospace;
+    font-weight: normal;
+    font-size: 0.85rem;
+    color: var(--lodge-main-ui-text-color-light);
+  }
+
+  &-lock {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 0.75rem;
+    font-weight: normal;
+    color: var(--lodge-main-ui-text-color-light);
+
+    mat-icon {
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+    }
+  }
+
+  &-note {
+    font-size: 0.8rem;
+    color: var(--lodge-main-ui-text-color-light);
+  }
+
+  &-buttons {
+    display: flex;
+    align-items: center;
+    gap: tokens.$lodge-space-1;
+    margin-left: auto;
+  }
+}
+
+.queue-last {
+  color: #4caf50;
+
+  &-failed {
+    color: var(--mat-sys-error, #c62828);
+  }
+}
+
+.queue-prompt {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: tokens.$lodge-space-2;
+}
+
+@keyframes queue-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

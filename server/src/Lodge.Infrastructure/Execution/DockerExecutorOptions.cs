@@ -1,6 +1,10 @@
 namespace Lodge.Infrastructure.Execution;
 
-/// <summary>Configuration for <see cref="DockerRunbookExecutor"/>.</summary>
+/// <summary>
+/// Configuration for the Docker runtime of <see cref="ContainerRunbookExecutor"/> (<see
+/// cref="DockerImageBuilder"/>, <see cref="DockerContainerRunner"/>) — plus the run log
+/// directory, which the executor itself uses whatever the runtime.
+/// </summary>
 public sealed class DockerExecutorOptions
 {
     public const string SectionName = "DockerExecutor";
@@ -22,10 +26,10 @@ public sealed class DockerExecutorOptions
     public int KeepImagesPerPlaybook { get; set; } = 3;
 
     /// <summary>
-    /// What a catalog <c>mounts:</c> alias may refer to: alias → absolute host path (bind
-    /// mount; it's the host's daemon, so it's a path on the docker host), or
-    /// <c>volume:&lt;name&gt;</c> for a docker named volume (e.g. an NFS-backed one). The
-    /// only things an inventory-defined container can mount — nothing else is reachable.
+    /// The docker network every action container joins (<c>docker run --network</c>);
+    /// null keeps docker's default bridge. Set it to reach services on that network by
+    /// name without publishing them on the host — e.g. the Postgres holding Terraform
+    /// state (dev: <c>lodge_default</c>, the network of docker-compose.yml).
     /// </summary>
-    public Dictionary<string, string> Mounts { get; set; } = new(StringComparer.Ordinal);
+    public string? Network { get; set; }
 }

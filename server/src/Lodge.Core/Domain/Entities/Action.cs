@@ -57,13 +57,20 @@ public class Action
     public string? PendingPromptsJson { get; set; }
 
     /// <summary>Historical record of which executor this row ran under. The live catalog decides current behavior.</summary>
-    public ExecutorKind ExecutorKind { get; set; } = ExecutorKind.Docker;
+    public ExecutorKind ExecutorKind { get; set; } = ExecutorKind.Container;
 
-    /// <summary>JSON-encoded executor-specific config (<c>DockerExecutorConfig</c> or <c>HttpExecutorConfig</c>, following <see cref="ExecutorKind"/>).</summary>
+    /// <summary>JSON-encoded executor-specific config (<c>ContainerExecutorConfig</c> or <c>HttpExecutorConfig</c>, following <see cref="ExecutorKind"/>).</summary>
     public string? ExecutorConfigJson { get; set; }
 
     /// <summary>JSON-encoded list of secret references (name -&gt; ref) still to be resolved to plaintext at execution time — never resolved here, never persisted resolved.</summary>
     public string? SecretInputsJson { get; set; }
+
+    /// <summary>
+    /// JSON list of the identities (<c>SignalPath</c>/<c>ItemKey</c>/<c>ActionKey</c>) of the
+    /// actions this one depends on, as resolved when it was emitted — the edges of the
+    /// action graph; null when it depends on nothing.
+    /// </summary>
+    public string? DependsOnJson { get; set; }
 
     /// <summary>Opaque handle of the runbook run started for this action, if any.</summary>
     public string? ExecutionRef { get; set; }

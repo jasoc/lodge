@@ -54,21 +54,32 @@ its own Postgres schema on startup. Only Postgres is a separate container.
 - **Policy** — `AUTO` (runs immediately at reconciliation), `MANUAL_REQUIRED` (waits for a
   human to confirm), or `OPTIONAL` (available but never required). Unspecified defaults to
   `MANUAL_REQUIRED`.
-- **Status** — `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `SUPERSEDED`.
+- **Status** — `BLOCKED`, `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `SUPERSEDED`. An
+  action whose `depends_on` targets haven't succeeded yet is still emitted, `BLOCKED`, in
+  the same cycle as the change that calls for it — so the whole chain a change sets off is
+  visible at once (the instance page's Graph tab) — and becomes `QUEUED` (or starts, if
+  AUTO) on the first cycle that finds its dependencies satisfied.
 - **Input** — an action parameter: `from` (resolved from the match context: `kind`,
   `instance`, `path`, `key`, `item`, `item.<field>`, `value`; for collections `collection`,
   every current item as one JSON object; for nested ones `parent_key`, `parent`,
   `parent.<field>`), `const` (fixed), `secret` (resolved by `ISecretProvider` at run time),
   or `prompt` (supplied by a human at confirm time).
-- **Executor** — what runs an action, declared explicitly (`executor: docker|http`) and
-  dispatched by `CompositeRunbookExecutor`. `docker` runs a ready-made `image` or a `build`
-  folder of the inventory (`inventory/{kind}/playbooks/...`), built on the local daemon and
-  cached by content fingerprint; parameters arrive as `LODGE_PARAM_*` env vars. `http`
+- **Executor** — what runs an action, declared explicitly (`executor: container|http`) and
+  dispatched by `CompositeRunbookExecutor`. `container` runs a ready-made `image` or a `build` folder of
+  the inventory (`inventory/{kind}/playbooks/...`, plus optional `additional_contexts`
+  shared between playbooks), built and cached by content fingerprint; parameters arrive as
+  `LODGE_PARAM_*` env vars. The catalog never names a runtime: `ContainerRunbookExecutor`
+  keeps approval, caching and run state, and delegates to an `IImageBuilder` +
+  `IContainerRunner` pair (Docker today: `DockerImageBuilder`, `DockerContainerRunner`). `http`
   sends one request described by its `http:` block (`method`, `url`, `headers`, `query`,
   `body`, `timeout_seconds`, `expect_status`) with `{{ name }}` parameter references
   substituted at run time; its log shows the request and response with secrets masked.
   The executor config is part of the action's snapshot, so editing it (or a playbook
   folder) re-queues pending actions for fresh confirmation.
+- **Kind defaults** — `inventory/{kind}/kind.yaml` may declare `defaults.inputs`, appended
+  to every action of the kind (capabilities and instance overrides) that doesn't name that
+  input itself; `name: ~` on an action drops a default. Typically the one secret every
+  playbook needs, declared once and still listed on each action.
 - **Users & groups** — `users`/`user_groups` tables, mirrored from the identity provider
   only: each OIDC login upserts the user and replaces their groups with the token's group
   claim, names 1:1. Lodge never edits them (the Users & groups page is a read-only view).
@@ -119,7 +130,8 @@ inventory/{kind}/instances/{instance}/overrides.yaml  instance-scoped capability
 inventory/{kind}/capabilities/*.yaml           capability definitions (signals → rules → actions)
 schemas/common/instance.base.schema.json       shared JSON Schema every kind composes
 schemas/kinds/{kind}.instance.schema.json      per-kind schema
-inventory/{kind}/playbooks/                    container playbooks for `executor: docker` actions
+inventory/{kind}/kind.yaml                     optional: display name, defaults for every action
+inventory/{kind}/playbooks/                    container playbooks for `executor: container` actions
 server/src/Lodge.Core/          domain entities, the pure reconciler, capability catalog, seam interfaces
 server/src/Lodge.Infrastructure/ EF Core, git inventory sources, reconciliation loop, execution, auth, secrets
 server/src/Lodge.Server/        single ASP.NET Core host — minimal-API endpoints + serves the built SPA (wwwroot)
@@ -151,8 +163,9 @@ live without a restart.
 
 ### Add an action
 Give a rule an action with a `key` and an executor — no server config either way:
-- a container: `executor: docker` plus a `docker:` block with `image:` or
-  `build: { context: playbooks/<name> }`;
+- a container: `executor: container` plus a `container:` block with `image:` or
+  `build: { context: playbooks/<name> }` (add `additional_contexts: { base: playbooks/_base }`
+  to share a folder between playbooks — `COPY --from=base` in their Dockerfiles);
 - an API call: `executor: http` plus an `http:` block, e.g.
   `{ method: POST, url: "https://n8n.lan/webhook/{{ instance }}", headers: { Authorization: "Bearer {{ token }}" }, body: { vm: "{{ item }}" } }`
   with `token: { secret: N8N_TOKEN }` and `item: { from: item }` among its inputs.

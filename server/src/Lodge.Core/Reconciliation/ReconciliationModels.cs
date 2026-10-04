@@ -46,7 +46,9 @@ public sealed record LiveActionRow(
 /// marks an identity that has never succeeded but is explicitly covered by a
 /// <c>past_history</c> entry in instance YAML — it is adopted as SUCCEEDED/synthetic instead
 /// of firing a real run against something that's already known to have happened outside
-/// Lodge's governance.
+/// Lodge's governance. <see cref="DependsOn"/> are its <c>depends_on</c> targets resolved
+/// to identities (the same item's, or its parent item's); <see cref="BlockedBy"/> the
+/// subset not satisfied yet — non-empty means the action is emitted BLOCKED.
 /// </summary>
 public sealed record RequiredAction(
     ActionIdentity Identity,
@@ -60,13 +62,19 @@ public sealed record RequiredAction(
     IReadOnlyList<PendingPrompt> PendingPrompts,
     IReadOnlyList<SecretInputRef> SecretInputs,
     ExecutorKind ExecutorKind,
-    DockerExecutorConfig? DockerConfig,
+    ContainerExecutorConfig? ContainerConfig,
     HttpExecutorConfig? HttpConfig,
     bool Satisfied,
     bool AdoptOnFaith = false)
 {
+    public IReadOnlyList<ActionIdentity> DependsOn { get; init; } = Array.Empty<ActionIdentity>();
+
+    public IReadOnlyList<ActionIdentity> BlockedBy { get; init; } = Array.Empty<ActionIdentity>();
+
+    public bool Blocked => BlockedBy.Count > 0;
+
     /// <summary>The executor config snapshot in its canonical, persisted encoding.</summary>
-    public string? ExecutorConfigJson => Catalog.ExecutorConfigJson.Serialize(DockerConfig, HttpConfig);
+    public string? ExecutorConfigJson => Catalog.ExecutorConfigJson.Serialize(ContainerConfig, HttpConfig);
 
     public Guid? LiveRowId { get; set; }
 
@@ -129,8 +137,9 @@ public sealed record ReconciliationInput(
 
 /// <summary>
 /// The reconciler's verdict for one instance: the UI view plus the row mutations the
-/// caller must apply (create QUEUED rows, adopt synthetic SUCCEEDED rows, supersede
-/// stale rows, start AUTO rows).
+/// caller must apply (create QUEUED/BLOCKED rows, adopt synthetic SUCCEEDED rows,
+/// supersede stale rows, block or unblock live rows as their dependencies change, start
+/// AUTO rows — including ones unblocked this cycle).
 /// </summary>
 public sealed record ReconciliationResult(
     IReadOnlyList<CapabilityStatusView> Capabilities,
@@ -138,4 +147,11 @@ public sealed record ReconciliationResult(
     IReadOnlyList<RequiredAction> ToAdopt,
     IReadOnlyList<Guid> ToSupersede,
     IReadOnlyList<RequiredAction> ToAutoStart,
-    IReadOnlyList<string> ValidationErrors);
+    IReadOnlyList<string> ValidationErrors)
+{
+    /// <summary>Live QUEUED rows whose dependencies stopped being satisfied: back to BLOCKED.</summary>
+    public IReadOnlyList<Guid> ToBlock { get; init; } = Array.Empty<Guid>();
+
+    /// <summary>Live BLOCKED rows whose dependencies are now all satisfied: to QUEUED (AUTO ones are also in <see cref="ToAutoStart"/>).</summary>
+    public IReadOnlyList<Guid> ToUnblock { get; init; } = Array.Empty<Guid>();
+}

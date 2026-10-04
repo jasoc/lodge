@@ -39,7 +39,7 @@ export interface ActionModel {
   trigger: string;
   label: string;
   policy: 'AUTO' | 'MANUAL_REQUIRED' | 'OPTIONAL';
-  status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'SUPERSEDED';
+  status: 'BLOCKED' | 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'SUPERSEDED';
   synthetic: boolean;
   pending_prompts: PendingPromptModel[];
   created_at: string;
@@ -48,6 +48,15 @@ export interface ActionModel {
   execution_ref: string | null;
   /** Set when a human revoked this success; the identity counts as never done again. */
   invalidated_at: string | null;
+  /** The actions this one waits for (its `depends_on`, resolved per item): the graph's edges. */
+  depends_on?: ActionIdentityModel[];
+}
+
+/** One action's identity — what `depends_on` points at. */
+export interface ActionIdentityModel {
+  signal_path: string;
+  item_key: string | null;
+  action_key: string;
 }
 
 /** A slice of an action's latest run log — poll again from `next_offset` while `running`. */

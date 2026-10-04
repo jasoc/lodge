@@ -1,7 +1,7 @@
 @use '@angular/material' as mat;
 
 @forward './lodge-dark';
-@forward './lodge-light';
+@forward './lodge-light-green';
 @forward './lodge-light-red';
 @forward './lodge-dark-blue';
 @forward './m3-theme';
@@ -14,15 +14,4 @@
 
 @mixin color-themed($density) {
   color: mat.get-theme-color(t.$dark-theme, primary, $density);
-}
-
-// Light Theme
-[data-theme='lodge-light'] {
-  @mixin background-themed($density) {
-    background: mat.get-theme-color(t.$light-theme, primary, $density);
-  }
-
-  @mixin color-themed($density) {
-    color: mat.get-theme-color(t.$light-theme, primary, $density);
-  }
 }

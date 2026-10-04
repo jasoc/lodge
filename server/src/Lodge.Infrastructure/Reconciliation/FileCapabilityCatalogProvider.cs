@@ -13,7 +13,8 @@ namespace Lodge.Infrastructure.Reconciliation;
 /// well-known filename, since that same instance folder also holds the instance's inventory
 /// data files (instance.yaml, features.yaml, ...), which are not capability rules and are
 /// read by <see cref="IInventorySource"/> instead. Parsed files are cached until
-/// <see cref="Invalidate"/> (called once per cycle). Every <c>docker.build</c> action is
+/// <see cref="Invalidate"/> (called once per cycle). The kind's <c>kind.yaml</c>
+/// <c>defaults</c> are merged into every action of both. Every <c>container.build</c> action is
 /// stamped here with its playbook folder's content fingerprint, so the reconciler sees a
 /// changed playbook as a changed executor config — the same way it sees changed desired
 /// state — and an approval never silently carries over to different playbook code.
@@ -87,6 +88,12 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
         var definitions = new List<CapabilityDefinition>();
         var errors = new List<string>();
 
+        var (defaults, defaultsError) = await LoadKindDefaultsAsync(kindCode, cancellationToken);
+        if (defaultsError is not null)
+        {
+            errors.Add(defaultsError);
+        }
+
         if (Directory.Exists(directory))
         {
             foreach (var file in Directory.EnumerateFiles(directory, "*.yaml").OrderBy(f => f, StringComparer.Ordinal))
@@ -95,7 +102,7 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
                 try
                 {
                     var yaml = await File.ReadAllTextAsync(file, cancellationToken);
-                    var definition = CapabilityCatalogLoader.LoadCapability(yaml, Path.GetFileName(file));
+                    var definition = CapabilityCatalogLoader.LoadCapability(yaml, Path.GetFileName(file), defaults);
                     StampPlaybookFingerprints(kindCode, definition, errors);
                     definitions.Add(definition);
                 }
@@ -123,10 +130,12 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
 
         if (File.Exists(filePath))
         {
+            // A broken kind.yaml is already reported with the generic catalog.
+            var (defaults, _) = await LoadKindDefaultsAsync(kindCode, cancellationToken);
             try
             {
                 var yaml = await File.ReadAllTextAsync(filePath, cancellationToken);
-                var definition = CapabilityCatalogLoader.LoadCapability(yaml, Path.GetFileName(filePath));
+                var definition = CapabilityCatalogLoader.LoadCapability(yaml, Path.GetFileName(filePath), defaults);
                 StampPlaybookFingerprints(kindCode, definition, errors);
                 definitions.Add(definition);
             }
@@ -139,6 +148,30 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
         var loaded = new LoadedDefinitions(definitions, errors);
         _cache[cacheKey] = loaded;
         return loaded;
+    }
+
+    /// <summary>
+    /// The <c>defaults</c> of <c>inventory/{kind}/kind.yaml</c>. A missing manifest means
+    /// no defaults; a broken one is an error and also no defaults — its actions then lack
+    /// those inputs and fail on their own, loudly, rather than the whole catalog going dark.
+    /// </summary>
+    private async Task<(KindDefaults Defaults, string? Error)> LoadKindDefaultsAsync(string kindCode, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(_repoRoot, "inventory", kindCode, KindManifest.FileName);
+        if (!File.Exists(path))
+        {
+            return (KindDefaults.None, null);
+        }
+
+        try
+        {
+            var yaml = await File.ReadAllTextAsync(path, cancellationToken);
+            return (CapabilityCatalogLoader.LoadKindDefaults(yaml, KindManifest.FileName), null);
+        }
+        catch (CatalogFormatException ex)
+        {
+            return (KindDefaults.None, ex.Message);
+        }
     }
 
     /// <summary>
@@ -158,7 +191,7 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
 
             foreach (var action in signal.Rules.SelectMany(r => r.Actions))
             {
-                if (action.Docker?.Build is not { } build)
+                if (action.Container?.Build is not { } build)
                 {
                     continue;
                 }
@@ -166,7 +199,7 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
                 try
                 {
                     var fingerprint = _playbooks.ComputeFingerprint(kindCode, build);
-                    action.Docker = action.Docker with { Build = build with { Fingerprint = fingerprint } };
+                    action.Container = action.Container with { Build = build with { Fingerprint = fingerprint } };
                 }
                 catch (Exception ex) when (ex is PlaybookContextException or IOException or UnauthorizedAccessException)
                 {

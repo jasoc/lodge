@@ -88,6 +88,11 @@ public sealed class ActionExecutionService
         // success, one row per execution.
         var awaitingConfirmation = action.Status is ActionStatus.QUEUED or ActionStatus.FAILED;
 
+        if (action.Status == ActionStatus.BLOCKED)
+        {
+            return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
+                "Action is waiting for its dependencies to succeed; it becomes confirmable once they have.");
+        }
         if (!awaitingConfirmation)
         {
             return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
@@ -253,7 +258,8 @@ public sealed class ActionExecutionService
         var hasLive = await _db.Actions.AnyAsync(a =>
             a.InstanceId == done.InstanceId && a.SignalPath == done.SignalPath && a.ItemKey == done.ItemKey &&
             a.ActionKey == done.ActionKey &&
-            (a.Status == ActionStatus.QUEUED || a.Status == ActionStatus.RUNNING || a.Status == ActionStatus.FAILED),
+            (a.Status == ActionStatus.QUEUED || a.Status == ActionStatus.BLOCKED ||
+             a.Status == ActionStatus.RUNNING || a.Status == ActionStatus.FAILED),
             cancellationToken);
         if (hasLive)
         {
@@ -280,6 +286,7 @@ public sealed class ActionExecutionService
             ExecutorKind = done.ExecutorKind,
             ExecutorConfigJson = done.ExecutorConfigJson,
             SecretInputsJson = done.SecretInputsJson,
+            DependsOnJson = done.DependsOnJson,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -323,7 +330,7 @@ public sealed class ActionExecutionService
         return new RunbookExecutionRequest(
             kindCode, instanceCode, $"{action.CapabilityCode}/{action.ActionKey}", action.Id, parameters,
             action.ExecutorKind,
-            action.ExecutorKind == ExecutorKind.Docker ? ExecutorConfigJson.DeserializeDocker(action.ExecutorConfigJson) : null,
+            action.ExecutorKind == ExecutorKind.Container ? ExecutorConfigJson.DeserializeContainer(action.ExecutorConfigJson) : null,
             action.ExecutorKind == ExecutorKind.Http ? ExecutorConfigJson.DeserializeHttp(action.ExecutorConfigJson) : null,
             secretNames);
     }

@@ -35,8 +35,8 @@ signals:
           - key: apply_vm
             label: "Create VM (Terraform)"
             policy: MANUAL_REQUIRED          # wait for a human
-            executor: docker
-            docker: { build: { context: playbooks/terraform }, command: ["apply"] }
+            executor: container
+            container: { build: { context: playbooks/terraform }, command: ["apply"] }
       - on: delete
         actions:
           - key: destroy_vm

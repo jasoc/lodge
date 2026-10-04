@@ -7,7 +7,7 @@ public sealed record ProcessRunResult(int ExitCode, string Stdout, string Stderr
 
 /// <summary>
 /// Narrow seam around <see cref="Process"/>, scoped to <see cref="PassCliSecretProvider"/>
-/// only (not shared with <c>ShellCommandRunbookExecutor</c>/<c>DockerRunbookExecutor</c>,
+/// only (not shared with <c>ShellCommandRunbookExecutor</c>/<c>ContainerRunbookExecutor</c>,
 /// which fire-and-forget a long-running process rather than run one to completion) —
 /// lets tests substitute a fake without a real <c>pass-cli</c> binary in CI.
 /// </summary>

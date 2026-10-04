@@ -39,9 +39,9 @@ body {
   // containers, so they follow the theme's accent too.
   @include mat.system-level-colors(theme.$dark-theme);
 
-  [data-theme='lodge-light'] {
-    @include mat.all-component-colors(theme.$light-theme);
-    @include mat.system-level-colors(theme.$light-theme);
+  [data-theme='lodge-light-green'] {
+    @include mat.all-component-colors(theme.$light-green-theme);
+    @include mat.system-level-colors(theme.$light-green-theme);
   }
 
   [data-theme='lodge-light-red'] {
@@ -66,27 +66,40 @@ body {
 // shorthand, which resets font-variation-settings to normal on each of them — hence the
 // !important on this one property. Icon fonts are left alone (they use the same mechanism
 // for FILL/weight), and so is monospace code.
+//
+// Hovered text switches to the -hover axes (only GRAD differs, so the line doesn't reflow).
+// The hover rule sets the property itself, not the custom property: every descendant sets
+// its own value, so only the text directly inside the hovered element changes, not the
+// whole subtree (otherwise hovering a card — or body — would lift everything inside it).
 :root {
-  // --lodge-font-variation:
-  //   'wdth' 100, 'opsz' 50, 'GRAD' 0, 'slnt' 0, 'XTRA' 500, 'YTLC' 500, 'YOPQ' 80, 'YTAS' 750,
-  //   'YTDE' -230, 'XOPQ' 92;
+/* Stato Default: Roboto Flex puro e standard */
+--lodge-font-variation: 
+  'wght' 400, 'wdth' 100, 'opsz' 14, 'GRAD' 0, 'slnt' 0, 
+  'XTRA' 468, 'YTLC' 514, 'YOPQ' 79, 'YTAS' 750, 'YTDE' -203, 'XOPQ' 84;
+
+/* Stato Hover: Più scuro e intenso, ma con geometrie orizzontali e verticali identiche al pixel */
+--lodge-font-variation-hover: 
+  'wght' 400, 'wdth' 100, 'opsz' 14, 'GRAD' 120, 'slnt' 0, 
+  'XTRA' 468, 'YTLC' 514, 'YOPQ' 79, 'YTAS' 750, 'YTDE' -203, 'XOPQ' 84;
 }
+
+$lodge-font-excluded: 'mat-icon, .mat-icon, .material-symbols-outlined, .material-symbols-rounded, .material-symbols-sharp, code, pre';
 
 html,
 body,
-body
-  :where(
-    :not(
-      mat-icon,
-      .mat-icon,
-      .material-symbols-outlined,
-      .material-symbols-rounded,
-      .material-symbols-sharp,
-      code,
-      pre
-    )
-  ) {
+body :where(:not(#{$lodge-font-excluded})) {
   font-variation-settings: var(--lodge-font-variation) !important;
+  transition: font-variation-settings 150ms ease;
+}
+
+body :where(:not(#{$lodge-font-excluded})):hover {
+  font-variation-settings: var(--lodge-font-variation-hover) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body :where(:not(#{$lodge-font-excluded})) {
+    transition: none;
+  }
 }
 
 // Icons would otherwise inherit those axes (opsz 50 thins them out); zero specificity, so

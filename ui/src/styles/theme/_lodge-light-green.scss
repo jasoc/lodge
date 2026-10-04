@@ -1,0 +1,15 @@
+@use '../tokens' as *;
+
+// Light, green accent: crisp near-white surfaces, deep vivid green primary.
+[data-theme='lodge-light-green'] {
+  --lodge-background-color: #f9fcf8;
+
+  --lodge-main-ui-text-color: #{$lodge-dark-primary-text};
+  --lodge-main-ui-text-color-light: #4a5249;
+
+  --lodge-background-shader: #0020081a;
+  --lodge-background-shader-lighter: #0020080d;
+  --lodge-background-shader-stronger: #00200840;
+
+  --lodge-accent-color-300: #0b7a36;
+}

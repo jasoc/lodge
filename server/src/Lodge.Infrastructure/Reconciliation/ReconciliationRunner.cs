@@ -386,11 +386,20 @@ public sealed class ReconciliationRunner
         foreach (var create in result.ToCreate)
         {
             var row = NewActionRow(instance.Id, create);
-            row.Status = ActionStatus.QUEUED;
+            row.Status = create.Blocked ? ActionStatus.BLOCKED : ActionStatus.QUEUED;
             _db.Actions.Add(row);
             createdByIdentity[create.Identity] = row;
             AddAudit(instance.Id, kindCode, "action.generated", "system",
-                new { row.Id, row.ActionKey, row.SignalPath, row.ItemKey, policy = create.Policy.ToString() });
+                new { row.Id, row.ActionKey, row.SignalPath, row.ItemKey, policy = create.Policy.ToString(), status = row.Status.ToString() });
+        }
+
+        // Live rows that haven't run yet follow their dependencies: unblocked ones become
+        // QUEUED before the AUTO step below, so an unblocked AUTO row starts this cycle.
+        await SetLiveStatusAsync(instance, kindCode, result.ToBlock, ActionStatus.BLOCKED, "action.blocked", cancellationToken);
+        await SetLiveStatusAsync(instance, kindCode, result.ToUnblock, ActionStatus.QUEUED, "action.unblocked", cancellationToken);
+        if (result.ToUnblock.Count > 0)
+        {
+            messages.Add($"{kindCode}/{instance.InstanceCode}: unblocked {result.ToUnblock.Count} action(s)");
         }
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -449,7 +458,7 @@ public sealed class ReconciliationRunner
                 a.Trigger, a.DesiredValueJson, a.CompletedAt ?? a.CreatedAt, a.Synthetic))
             .ToList();
         var live = rows
-            .Where(a => a.Status is ActionStatus.QUEUED or ActionStatus.RUNNING or ActionStatus.FAILED)
+            .Where(a => a.Status is ActionStatus.QUEUED or ActionStatus.BLOCKED or ActionStatus.RUNNING or ActionStatus.FAILED)
             .Select(a => new LiveActionRow(
                 a.Id, new ActionIdentity(a.SignalPath, a.ItemKey, a.ActionKey),
                 a.Trigger, a.Status, a.DesiredValueJson, a.ExecutorConfigJson, a.Requires))
@@ -490,6 +499,24 @@ public sealed class ReconciliationRunner
 
     // --- Helpers -------------------------------------------------------------------------
 
+    private async Task SetLiveStatusAsync(
+        Instance instance, string kindCode, IReadOnlyList<Guid> ids, ActionStatus status, string eventType, CancellationToken cancellationToken)
+    {
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var rows = await _db.Actions.Where(a => ids.Contains(a.Id)).ToListAsync(cancellationToken);
+        foreach (var row in rows)
+        {
+            row.Status = status;
+            row.UpdatedAt = now;
+            AddAudit(instance.Id, kindCode, eventType, "system", new { row.Id, row.ActionKey, row.SignalPath, row.ItemKey });
+        }
+    }
+
     private static ActionEntity NewActionRow(Guid instanceId, RequiredAction required)
     {
         var now = DateTimeOffset.UtcNow;
@@ -511,6 +538,7 @@ public sealed class ReconciliationRunner
             ExecutorKind = required.ExecutorKind,
             ExecutorConfigJson = required.ExecutorConfigJson,
             SecretInputsJson = JsonSerializer.Serialize(required.SecretInputs),
+            DependsOnJson = required.DependsOn.Count == 0 ? null : JsonSerializer.Serialize(required.DependsOn),
             CreatedAt = now,
             UpdatedAt = now
         };

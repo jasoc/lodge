@@ -1,0 +1,217 @@
+@let q = runQueue();
+
+@if (q.active.length > 0) {
+  <section class="queue-section">
+    <h3 class="queue-section-title">
+      <mat-icon fontSet="material-symbols-outlined" class="spin">progress_activity</mat-icon>
+      Running now
+      <span class="queue-section-count">{{ q.active.length }}</span>
+    </h3>
+    <ol class="queue-list">
+      @for (entry of q.active; track entry.key) {
+        <li class="queue-row" [attr.data-state]="entry.state">
+          <ng-container *ngTemplateOutlet="rowText; context: { entry }"></ng-container>
+          <div class="queue-row-buttons">
+            @if (entry.action.execution_ref) {
+              <button mat-stroked-button (click)="openLog.emit(entry.action)">
+                <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+                Logs
+              </button>
+            } @else {
+              <span class="queue-row-note">starting…</span>
+            }
+          </div>
+        </li>
+      }
+    </ol>
+  </section>
+}
+
+<section class="queue-section">
+  <h3 class="queue-section-title">
+    <mat-icon fontSet="material-symbols-outlined">format_list_numbered</mat-icon>
+    Up next
+    <span class="queue-section-count">{{ q.queue.length }}</span>
+    <span class="queue-section-hint">in dependency order — each run unblocks what follows</span>
+  </h3>
+  @if (q.queue.length === 0) {
+    <p class="queue-empty">
+      <mat-icon fontSet="material-symbols-outlined">task_alt</mat-icon>
+      Nothing left to run — every change has been carried out.
+    </p>
+  } @else {
+    <ol class="queue-list">
+      @for (entry of q.queue; track entry.key; let i = $index) {
+        <li
+          class="queue-row"
+          [attr.data-state]="entry.state"
+          [class.queue-row-next]="entry.action.id === nextId()"
+          [style.--depth]="entry.depth > 4 ? 4 : entry.depth"
+        >
+          <span class="queue-row-index">{{ i + 1 }}</span>
+          <ng-container *ngTemplateOutlet="rowText; context: { entry }"></ng-container>
+          <div class="queue-row-buttons">
+            @if (entry.action.execution_ref) {
+              <button
+                mat-icon-button
+                aria-label="Logs"
+                title="Logs of the last run"
+                (click)="openLog.emit(entry.action)"
+              >
+                <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+              </button>
+            }
+            @if (isPressable(entry)) {
+              <button
+                mat-flat-button
+                class="queue-run"
+                [color]="entry.state === 'failed' ? 'warn' : 'primary'"
+                [disabled]="busyActionId() === entry.action.id || !!lockedReason()(entry.action)"
+                [title]="lockedReason()(entry.action) ?? ''"
+                (click)="press(entry)"
+              >
+                <mat-icon fontSet="material-symbols-outlined">{{ runIcon(entry) }}</mat-icon>
+                {{ runLabel(entry) }}
+              </button>
+            } @else {
+              <button
+                mat-stroked-button
+                class="queue-run"
+                disabled
+                [title]="'Waiting for ' + (entry.waitingFor.join(', ') || 'its dependencies')"
+              >
+                <mat-icon fontSet="material-symbols-outlined">hourglass_empty</mat-icon>
+                Blocked
+              </button>
+            }
+          </div>
+          @if (promptingActionId() === entry.action.id) {
+            <ng-container *ngTemplateOutlet="promptFormTpl; context: { action: entry.action }">
+            </ng-container>
+          }
+        </li>
+      }
+    </ol>
+  }
+</section>
+
+@if (q.onDemand.length > 0) {
+  <section class="queue-section">
+    <h3 class="queue-section-title">
+      <mat-icon fontSet="material-symbols-outlined">science</mat-icon>
+      On demand
+      <span class="queue-section-count">{{ q.onDemand.length }}</span>
+      <span class="queue-section-hint"
+        >optional checks — run them whenever, nothing waits on them</span
+      >
+    </h3>
+    <ol class="queue-list">
+      @for (entry of q.onDemand; track entry.key) {
+        <li class="queue-row queue-row-optional" [attr.data-state]="entry.state">
+          <ng-container *ngTemplateOutlet="rowText; context: { entry }"></ng-container>
+          <div class="queue-row-buttons">
+            @if (entry.lastRun; as last) {
+              <button
+                mat-button
+                class="queue-last"
+                [class.queue-last-failed]="last.status === 'FAILED'"
+                [disabled]="!last.execution_ref"
+                [title]="'Last run ' + last.status.toLowerCase() + ' — open its logs'"
+                (click)="openLog.emit(last)"
+              >
+                <mat-icon fontSet="material-symbols-outlined">{{
+                  last.status === 'FAILED' ? 'cancel' : 'check_circle'
+                }}</mat-icon>
+                {{ ago(last.completed_at) }}
+              </button>
+            } @else {
+              <span class="queue-row-note">never run</span>
+            }
+            <button
+              mat-stroked-button
+              class="queue-run"
+              [disabled]="
+                !isPressable(entry) ||
+                busyActionId() === entry.action.id ||
+                !!lockedReason()(entry.action)
+              "
+              [title]="
+                lockedReason()(entry.action) ??
+                (entry.state === 'blocked'
+                  ? 'Waiting for ' + (entry.waitingFor.join(', ') || 'its dependencies')
+                  : '')
+              "
+              (click)="press(entry)"
+            >
+              <mat-icon fontSet="material-symbols-outlined">{{ runIcon(entry) }}</mat-icon>
+              Run
+            </button>
+          </div>
+          @if (promptingActionId() === entry.action.id) {
+            <ng-container *ngTemplateOutlet="promptFormTpl; context: { action: entry.action }">
+            </ng-container>
+          }
+        </li>
+      }
+    </ol>
+  </section>
+}
+
+<ng-template #rowText let-entry="entry">
+  <mat-icon
+    fontSet="material-symbols-outlined"
+    class="queue-row-icon"
+    [class.spin]="entry.state === 'running'"
+    >{{ stateIcon(entry) }}</mat-icon
+  >
+  <div class="queue-row-text">
+    <span class="queue-row-label">
+      {{ entry.action.label }}
+      @if (entry.action.item_key) {
+        <span class="queue-row-item">{{ entry.action.item_key }}</span>
+      }
+      @if (entry.action.requires) {
+        <span
+          class="queue-row-lock"
+          [title]="'Only members of ' + entry.action.requires + ' can run this'"
+        >
+          <mat-icon fontSet="material-symbols-outlined">lock</mat-icon>{{ entry.action.requires }}
+        </span>
+      }
+    </span>
+    <span class="queue-row-note">
+      {{ capabilityTitle()(entry.action.capability_code) }}
+      @switch (entry.state) {
+        @case ('running') {
+          · running
+        }
+        @case ('starting') {
+          · starts on its own
+        }
+        @case ('failed') {
+          · failed {{ ago(entry.action.completed_at) }}
+        }
+        @case ('input') {
+          · needs input
+        }
+        @case ('blocked') {
+          · waiting for {{ entry.waitingFor.join(', ') || 'its dependencies' }} · then
+          {{ entry.action.policy === 'AUTO' ? 'runs on its own' : 'needs you' }}
+        }
+      }
+      @if (entry.unblocks > 0) {
+        · <strong>unblocks {{ entry.unblocks }}</strong>
+      }
+    </span>
+  </div>
+</ng-template>
+
+<ng-template #promptFormTpl let-action="action">
+  <div class="queue-prompt">
+    <app-dynamic-form
+      [questions]="promptForm(action)"
+      (valuesChange)="promptValues.set($event)"
+    ></app-dynamic-form>
+    <button mat-flat-button color="primary" (click)="submitPrompts(action)">Submit and run</button>
+  </div>
+</ng-template>

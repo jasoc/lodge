@@ -1,6 +1,8 @@
 # Ansible for the homelab VMs (ported from the homelab repo's ansible/). Debian-based
 # python: pass-cli is linked against glibc.
-FROM python:3.12-slim-bookworm
+# Base images are pinned by digest: a rebuild (new host, pruned cache, another runtime)
+# then produces the image that was approved, and bumping one is a reviewed change.
+FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3
 
 ARG ANSIBLE_CORE_VERSION=2.18.6
 ENV PIP_ROOT_USER_ACTION=ignore \
@@ -12,18 +14,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && pip install "ansible-core==${ANSIBLE_CORE_VERSION}"
 
-# pass-cli, pinned and checksum-verified (from https://proton.me/download/pass-cli/versions.json):
-# bumping it is a deliberate change to this playbook, so it re-queues pending actions.
-ARG PASS_CLI_VERSION=2.4.2
-ARG PASS_CLI_SHA256=4089bdf5981140ac5bee65d2d79bf98767537f54d33197b79e5f86c630714842
-RUN curl -fsSLo /usr/local/bin/pass-cli \
-        "https://proton.me/download/pass-cli/${PASS_CLI_VERSION}/pass-cli-linux-x86_64" \
-    && echo "${PASS_CLI_SHA256}  /usr/local/bin/pass-cli" | sha256sum -c - \
-    && chmod 0755 /usr/local/bin/pass-cli
+# pass-cli, pinned once for every playbook in the shared `base` context (playbooks/_base).
+RUN --mount=from=base,target=/base /base/install-pass-cli.sh
 
 WORKDIR /ansible
 COPY ansible.cfg ./
 COPY roles/ roles/
 COPY playbooks/ playbooks/
-COPY --chmod=0755 lodge-lib.sh run.sh /usr/local/lib/lodge/
+COPY --from=base --chmod=0755 lodge-lib.sh /usr/local/lib/lodge/
+COPY --chmod=0755 run.sh /usr/local/lib/lodge/
 ENTRYPOINT ["/usr/local/lib/lodge/run.sh"]

@@ -86,7 +86,8 @@ there's no OIDC redirect URI to keep in sync in this profile.
 The shipped `inventory/homelab/` is an example: one `lab` instance listing VMs, with a
 `virtual_machines` capability that creates each VM (AUTO) and destroys a removed one (after
 confirmation) via a Terraform playbook. Every `inventory/<kind>/` folder becomes a kind on
-the next reconciliation cycle (an optional `kind.yaml` gives it a display name). Model your
+the next reconciliation cycle (an optional `kind.yaml` gives it a display name, and
+`defaults.inputs` every action of the kind gets — e.g. the one secret all its playbooks need). Model your
 own `kind` (the *type* of thing you're governing — e.g. `host` for bare-metal boxes,
 `service` for the containers running on them) with one `instance` per concrete thing:
 
@@ -110,9 +111,9 @@ Assistant, a CI trigger), use `executor: http`: its `http:` block is the whole r
 (`method`, `url`, `headers`, `query`, `body`), with `{{ name }}` replaced by the action's
 inputs at run time — secrets included, and masked in the run log.
 
-For tooling Lodge's image doesn't ship (ansible, terraform, ...), use `executor: docker`.
+For tooling Lodge's image doesn't ship (ansible, terraform, ...), use `executor: container`.
 The action can run a ready-made `image:` or a playbook folder with a Dockerfile under
-`inventory/<kind>/playbooks/`. Lodge builds that folder on the host's docker daemon
+`inventory/<kind>/playbooks/` (folders several playbooks share go in `additional_contexts`). Lodge builds that folder on the host's docker daemon
 (`docker-compose.prod.yml` mounts `/var/run/docker.sock`) and caches the image by content hash.
 The container receives the same `LODGE_PARAM_*` variables, plus `LODGE_PARAMS_JSON`.
 Mounting the socket gives root-equivalent access to the host: anyone who can merge to the

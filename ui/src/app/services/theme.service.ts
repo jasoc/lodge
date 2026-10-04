@@ -6,7 +6,7 @@ import { NavigationEnd, Router } from '@angular/router';
  * (Lodge's own tokens) and styles.scss (Material colors). */
 export const THEMES = [
   { id: 'lodge-dark', label: 'Dark · amber' },
-  { id: 'lodge-light', label: 'Light · amber' },
+  { id: 'lodge-light-green', label: 'Light · green' },
   { id: 'lodge-dark-blue', label: 'Dark · blue' },
   { id: 'lodge-light-red', label: 'Light · red' },
 ] as const;
@@ -26,7 +26,11 @@ export class ThemeService {
   constructor() {
     if (isPlatformBrowser(this.platformId)) {
       // A theme that no longer exists (the retired grey one) falls back to the default.
-      const localValue = localStorage.getItem('theme');
+      // The amber light theme became the green one.
+      let localValue = localStorage.getItem('theme');
+      if (localValue === 'lodge-light') {
+        localValue = 'lodge-light-green';
+      }
       if (localValue != null && THEMES.some((t) => t.id === localValue)) {
         this.currentThemeStr.set(localValue);
       }

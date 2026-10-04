@@ -22,8 +22,9 @@ Everything is in `instances/lab/instance.yaml`:
 and passes its inputs, usually the whole inventory item. Fields the module doesn't
 declare are dropped.
 
-Each run generates a root that contains only that module. Its state is named after the
-item's path, for example `/state/proxmox.virtual_machines.docker-tools-node.tfstate`.
+Each run generates a root that contains only that module. Its state is a workspace of the
+Postgres backend (`root.tf`: `backend "pg"`) named after the item's path, for example
+`proxmox.virtual_machines.docker-tools-node`, created on first use and deleted on destroy.
 
 - **Apply and destroy are always exact.** They only ever touch that one item, with no
   `-target` needed.
@@ -35,6 +36,19 @@ item's path, for example `/state/proxmox.virtual_machines.docker-tools-node.tfst
   shows the id format.
 - **`validate` action:** `run.sh validate` generates and validates a root without secrets
   or state.
+
+## Playbook images
+
+`playbooks/terraform`, `playbooks/ansible` and `playbooks/compose` each build one image.
+What they all need lives once in `playbooks/_base` (`lodge-lib.sh`, `install-pass-cli.sh`
+with the pinned pass-cli version), passed to each build as the `base` additional context.
+Their Dockerfiles use it with `COPY --from=base` and `RUN --mount=from=base`.
+
+- A playbook's fingerprint covers its own folder plus `_base`. Editing one playbook
+  re-queues only its own actions; editing `_base` re-queues all of them.
+- Base images are pinned by digest, so a rebuild on a new host produces the image that was
+  approved. Bump a digest with `docker buildx imagetools inspect <image>`.
+- Build one by hand: `docker buildx build --build-context base=playbooks/_base playbooks/terraform`.
 
 ## Stacks
 
@@ -52,12 +66,26 @@ master-node carries the node as a suffix (`portainer-nomad.yml`, `backrest-backr
 
 ## Setup
 
-Lodge provides only two things, both in the server's `.env`:
+Lodge provides two things, in the server's `.env`:
 
 ```sh
-DockerExecutor__Mounts__tfstate=/path/to/state/folder   # or volume:<docker volume>
-PROTON_PASS_PAT=pst_...::...                            # Proton Pass personal access token
+PROTON_PASS_PAT=pst_...::...   # Proton Pass personal access token
+# Terraform state: a URL Go's lib/pq understands (not an Npgsql "Host=...;" string),
+# double-quoted — the scripts `source` .env, and an unquoted ';' would cut the value.
+TF_PG_CONN_STR="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres16-lodge-dev:5432/tfstate?sslmode=disable"
+DockerExecutor__Network=lodge_default   # so playbook containers reach that Postgres by name
 ```
+
+`kind.yaml` hands both to every action as the `pass_pat` and `tf_pg_conn_str` inputs
+(`defaults.inputs`), so the capabilities don't repeat them.
+
+- **The Terraform state database.** A `tfstate` database on Lodge's own Postgres server,
+  next to Lodge's database: `tf-run.sh` creates it on first use if it's missing (the user
+  needs CREATEDB), and the `pg` backend keeps one row per workspace in its
+  `terraform_remote_state` schema. The playbook containers reach it on the docker network
+  named by `DockerExecutor__Network` (in dev `lodge_default`, host `postgres16-lodge-dev`,
+  port 5432 — the container's, not the one published on the host). A password with `@`,
+  `:`, `/` or `#` must be URL-encoded in the connection string.
 
 - **The token's access.** A new token can see no vault. Grant it the Homelab vault:
 
@@ -67,5 +95,5 @@ PROTON_PASS_PAT=pst_...::...                            # Proton Pass personal a
 
 - **What each run fetches from Proton Pass.** Every run logs `pass-cli` (built into the
   images) in with the token, then fetches everything else from `Homelab/environments`:
-  the provider credentials, `SSH_PUBLIC_KEY`, `SSH_PRIVATE_KEY_B64` (`base64 -w0 <key>`),
-  and every `${VAR}` used in the compose files.
+  the provider credentials, `SSH_PUBLIC_KEY`, `SSH_PRIVATE_KEY_B64`
+  (`base64 -w0 <key>`), and every `${VAR}` used in the compose files.

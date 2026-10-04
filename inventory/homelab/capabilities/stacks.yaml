@@ -7,7 +7,7 @@
 #            with the last deployed content, so it works even once the file is gone
 # Removing a whole VM doesn't remove its stacks one by one (the VM's destroy takes them
 # along); a recreated VM gets every stack deployed again.
-# Secrets: see virtual_machines.yaml — only the Proton Pass token comes from Lodge.
+# Secrets: see virtual_machines.yaml — only the Proton Pass token comes from Lodge (kind.yaml).
 capability: stacks
 title: "Compose Stacks"
 description: "Docker compose files deployed onto each VM over ssh."
@@ -23,45 +23,42 @@ signals:
             label: "Deploy stack"
             policy: MANUAL_REQUIRED
             depends_on: [ "proxmox.virtual_machines.configure_vm" ]
-            executor: docker
-            docker:
-              build: { context: playbooks/compose }
+            executor: container
+            container:
+              build: { context: playbooks/compose, additional_contexts: { base: playbooks/_base } }
               command: ["deploy"]
             inputs:
               file: { from: item.file }
               content: { from: item.content }
               vm_name: { from: parent_key }
               host: { from: parent.ip }
-              pass_pat: { secret: PROTON_PASS_PAT }
 
       - on: modify
         actions:
           - key: update_stack
             label: "Update stack"
             policy: MANUAL_REQUIRED
-            executor: docker
-            docker:
-              build: { context: playbooks/compose }
+            executor: container
+            container:
+              build: { context: playbooks/compose, additional_contexts: { base: playbooks/_base } }
               command: ["deploy"]
             inputs:
               file: { from: item.file }
               content: { from: item.content }
               vm_name: { from: parent_key }
               host: { from: parent.ip }
-              pass_pat: { secret: PROTON_PASS_PAT }
 
       - on: delete
         actions:
           - key: remove_stack
             label: "Remove stack"
             policy: MANUAL_REQUIRED
-            executor: docker
-            docker:
-              build: { context: playbooks/compose }
+            executor: container
+            container:
+              build: { context: playbooks/compose, additional_contexts: { base: playbooks/_base } }
               command: ["remove"]
             inputs:
               file: { from: item.file }
               content: { from: item.content }
               vm_name: { from: parent_key }
               host: { from: parent.ip }
-              pass_pat: { secret: PROTON_PASS_PAT }

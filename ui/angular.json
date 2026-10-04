@@ -28,6 +28,18 @@
               {
                 "glob": "**/*",
                 "input": "public"
+              },
+              {
+                "glob": "**/*",
+                "input": "node_modules/monaco-editor/min/vs",
+                "output": "assets/monaco/vs",
+                "ignore": [
+                  "assets/ts.worker-*",
+                  "assets/css.worker-*",
+                  "assets/html.worker-*",
+                  "assets/json.worker-*",
+                  "language/*/*.worker.js"
+                ]
               }
             ],
             "styles": [

@@ -233,5 +233,5 @@ seam (the executors, the GitHub inventory source) needs to change.
   confirm button does.
 - `IRunbookExecutor` is still the only thing allowed to touch the outside world —
   `executor: http` reaches Octopus Deploy, an internal ops API or anything else that speaks
-  HTTP, `executor: docker` runs anything that fits in a container, without touching the
+  HTTP, `executor: container` runs anything that fits in a container, without touching the
   reconciliation engine at all.

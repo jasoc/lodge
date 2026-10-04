@@ -1,6 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Lodge.Core.Abstractions;
@@ -10,13 +8,14 @@ using Microsoft.Extensions.Options;
 namespace Lodge.Infrastructure.Execution;
 
 /// <summary>
-/// Runs an action inside a container via the docker CLI against the local daemon (the
-/// host's socket mounted into Lodge's container, or whatever <c>DOCKER_HOST</c> points
-/// at) — for tooling Lodge's own minimal server container doesn't bundle (ansible,
-/// terraform, ...). What runs comes from the catalog-declared <see
-/// cref="DockerExecutorConfig"/>: either a ready-made image, or a playbook folder of the
+/// Runs an action inside a container — for tooling Lodge's own minimal server container
+/// doesn't bundle (ansible, terraform, ...). What runs comes from the catalog-declared <see
+/// cref="ContainerExecutorConfig"/>: either a ready-made image, or a playbook folder of the
 /// inventory that is built once and cached under a content-addressed tag
-/// (<c>lodge-playbook/&lt;kind&gt;/&lt;context&gt;:&lt;fingerprint&gt;</c>).
+/// (<c>lodge-playbook/&lt;kind&gt;/&lt;context&gt;:&lt;fingerprint&gt;</c>). Where it runs is
+/// the injected runtime — an <see cref="IImageBuilder"/> and an <see
+/// cref="IContainerRunner"/> (Docker today); everything else, approval included, lives here
+/// and doesn't change with the runtime.
 ///
 /// Parameter contract (identical for both variants, runtime only — never build args):
 /// <list type="bullet">
@@ -26,8 +25,8 @@ namespace Lodge.Infrastructure.Execution;
 /// <item><c>LODGE_ACTION_ID</c>, <c>LODGE_KIND_CODE</c>, <c>LODGE_INSTANCE_CODE</c>,
 /// <c>LODGE_ACTION_REF</c>.</item>
 /// </list>
-/// Values travel as <c>-e NAME</c> (name only) with the value in the docker CLI's own
-/// environment, so resolved secrets never appear in any process argv.
+/// The runner must keep every value out of any process argv (Docker: <c>-e NAME</c> with
+/// the value in the CLI's own environment), since resolved secrets are among them.
 ///
 /// A <c>build</c> action carries the fingerprint it was emitted (and approved) with; the
 /// folder is re-fingerprinted right before building, and a mismatch fails the run
@@ -39,29 +38,35 @@ namespace Lodge.Infrastructure.Execution;
 /// after a restart in a *degraded but honest* way — outcome reported as unknown rather
 /// than guessed.
 /// </summary>
-public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
+public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
 {
     private readonly DockerExecutorOptions _options;
     private readonly PlaybookContextResolver _playbooks;
+    private readonly IImageBuilder _builder;
+    private readonly IContainerRunner _runner;
     private readonly ConcurrentDictionary<string, RunState> _runs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _buildLocks = new(StringComparer.Ordinal);
 
-    public DockerRunbookExecutor(IOptions<DockerExecutorOptions> options, PlaybookContextResolver playbooks)
+    public ContainerRunbookExecutor(
+        IOptions<DockerExecutorOptions> options, PlaybookContextResolver playbooks, IImageBuilder builder, IContainerRunner runner)
     {
         _options = options.Value;
         _playbooks = playbooks;
+        _builder = builder;
+        _runner = runner;
         Directory.CreateDirectory(_options.LogDirectory);
     }
 
     public Task<RunbookRunHandle> StartAsync(RunbookExecutionRequest request, CancellationToken cancellationToken = default)
     {
-        if (request.DockerConfig is null)
+        if (request.ContainerConfig is null)
         {
             throw new InvalidOperationException(
-                $"Action '{request.ActionRef}' is routed to the Docker executor but carries no DockerExecutorConfig — " +
-                "this is a catalog/persistence bug, not a user error (the loader guarantees a docker config for 'executor: docker').");
+                $"Action '{request.ActionRef}' is routed to the container executor but carries no ContainerExecutorConfig — " +
+                "this is a catalog/persistence bug, not a user error (the loader guarantees a container config for 'executor: container').");
         }
 
+        // "docker-" predates other runtimes; kept so earlier runs' logs stay readable.
         var runId = $"docker-{Guid.NewGuid():N}";
         var state = new RunState(
             request.ActionRef,
@@ -71,7 +76,7 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
         WriteSidecar(state, outcome: null, completedAt: null);
 
         _runs[runId] = state;
-        state.Completion = Task.Run(() => RunPipelineAsync(request, request.DockerConfig, state));
+        state.Completion = Task.Run(() => RunPipelineAsync(request, request.ContainerConfig, state));
 
         return Task.FromResult(new RunbookRunHandle(runId, RunbookRunState.Running));
     }
@@ -98,7 +103,7 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
     public Task<RunbookLogChunk?> ReadLogAsync(string runId, long offset, int maxBytes, CancellationToken cancellationToken = default)
         => RunLogFile.ReadAsync(_options.LogDirectory, "docker-", runId, offset, maxBytes, cancellationToken);
 
-    private async Task<RunOutcome> RunPipelineAsync(RunbookExecutionRequest request, DockerExecutorConfig config, RunState state)
+    private async Task<RunOutcome> RunPipelineAsync(RunbookExecutionRequest request, ContainerExecutorConfig config, RunState state)
     {
         RunOutcome outcome;
         try
@@ -117,7 +122,7 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
             }
 
             state.Phase = "running";
-            var exitCode = await RunDockerAsync(BuildRunArgs(request, config, image!, out var environment), environment, state.LogPath);
+            var exitCode = await _runner.RunAsync(RunSpec(request, config, image!), state.LogPath);
             outcome = exitCode == 0
                 ? new RunOutcome(true, 0, $"Action '{state.ActionRef}' completed (exit 0). Log: {state.LogPath}")
                 : new RunOutcome(false, exitCode, $"Action '{state.ActionRef}' failed (exit {exitCode}). Log: {state.LogPath}");
@@ -144,7 +149,7 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
     /// have that tag yet. Builds of the same tag are serialized so two actions sharing a
     /// playbook never build it twice concurrently.
     /// </summary>
-    private async Task<(string? Image, RunOutcome? Failure)> EnsurePlaybookImageAsync(string kindCode, DockerBuildConfig build, RunState state)
+    private async Task<(string? Image, RunOutcome? Failure)> EnsurePlaybookImageAsync(string kindCode, ContainerBuildConfig build, RunState state)
     {
         var where = $"playbook 'inventory/{kindCode}/{build.Context}'";
         if (build.Fingerprint is null)
@@ -177,7 +182,7 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
         await gate.WaitAsync();
         try
         {
-            if (await RunDockerAsync(new[] { "image", "inspect", "--format", "{{.Id}}", image }, null, logPath: null) == 0)
+            if (await _builder.ExistsAsync(image))
             {
                 AppendLog(state.LogPath, $"[lodge] using cached image {image}");
                 return (image, null);
@@ -185,35 +190,23 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
 
             AppendLog(state.LogPath, $"[lodge] building {image} from inventory/{kindCode}/{build.Context}");
             var contextDir = _playbooks.ResolveContextDirectory(kindCode, build);
-            var args = new List<string>
-            {
-                "build",
-                "--tag", image,
-                "--label", "lodge.managed=true",
-                "--label", $"lodge.playbook={kindCode}/{build.Context}",
-                "--label", $"lodge.fingerprint={build.Fingerprint}",
-                "--file", _playbooks.ResolveDockerfile(contextDir, build)
-            };
-            if (build.Target is not null)
-            {
-                args.Add("--target");
-                args.Add(build.Target);
-            }
-            foreach (var (name, value) in build.Args ?? new Dictionary<string, string>())
-            {
-                args.Add("--build-arg");
-                args.Add($"{name}={value}");
-            }
-            args.Add(contextDir);
+            var spec = new ImageBuildSpec(
+                image,
+                $"{kindCode}/{build.Context}",
+                build.Fingerprint,
+                contextDir,
+                _playbooks.ResolveDockerfile(contextDir, build),
+                build.Target,
+                build.Args,
+                _playbooks.ResolveAdditionalContexts(kindCode, build));
 
-            var exitCode = await RunDockerAsync(args, null, state.LogPath);
+            var exitCode = await _builder.BuildAsync(spec, state.LogPath);
             if (exitCode != 0)
             {
                 return (null, new RunOutcome(false, exitCode,
                     $"Action '{state.ActionRef}': building {image} failed (exit {exitCode}). Log: {state.LogPath}"));
             }
 
-            await PruneOldImagesAsync(kindCode, build.Context, keep: image, state.LogPath);
             return (image, null);
         }
         finally
@@ -228,45 +221,11 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
         return new RunOutcome(false, null, $"Action '{state.ActionRef}' refused: {message}");
     }
 
-    /// <summary>Best-effort: keeps the newest <see cref="DockerExecutorOptions.KeepImagesPerPlaybook"/> images of one playbook, never the one just built.</summary>
-    private async Task PruneOldImagesAsync(string kindCode, string context, string keep, string logPath)
-    {
-        if (_options.KeepImagesPerPlaybook <= 0)
-        {
-            return;
-        }
-
-        var listing = new StringBuilder();
-        var exit = await RunDockerAsync(
-            new[] { "image", "ls", "--filter", $"label=lodge.playbook={kindCode}/{context}", "--format", "{{.Repository}}:{{.Tag}}" },
-            null, logPath: null, capture: listing);
-        if (exit != 0)
-        {
-            return;
-        }
-
-        // `docker image ls` lists newest first.
-        var stale = listing.ToString()
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(tag => tag != keep && !tag.EndsWith(":<none>", StringComparison.Ordinal))
-            .Skip(Math.Max(0, _options.KeepImagesPerPlaybook - 1))
-            .ToList();
-        foreach (var tag in stale)
-        {
-            // An image still used by a running container just fails to delete — fine.
-            if (await RunDockerAsync(new[] { "image", "rm", tag }, null, logPath: null) == 0)
-            {
-                AppendLog(logPath, $"[lodge] pruned old playbook image {tag}");
-            }
-        }
-    }
-
-    private List<string> BuildRunArgs(
-        RunbookExecutionRequest request, DockerExecutorConfig config, string image, out Dictionary<string, string> environment)
+    private static ContainerRunSpec RunSpec(RunbookExecutionRequest request, ContainerExecutorConfig config, string image)
     {
         // Static env from the catalog first; LODGE_* names are reserved (the loader
         // rejects them there), so inputs can never be shadowed.
-        environment = new Dictionary<string, string>(config.Env ?? new Dictionary<string, string>(), StringComparer.Ordinal)
+        var environment = new Dictionary<string, string>(config.Env ?? new Dictionary<string, string>(), StringComparer.Ordinal)
         {
             ["LODGE_ACTION_ID"] = request.ActionId.ToString(),
             ["LODGE_KIND_CODE"] = request.KindCode,
@@ -282,52 +241,14 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
         }
         environment["LODGE_PARAMS_JSON"] = paramsJson.ToJsonString();
 
-        var args = new List<string> { "run", "--rm", "--label", "lodge.managed=true", "--label", $"lodge.action_id={request.ActionId}" };
-        foreach (var name in environment.Keys)
+        var labels = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            args.Add("-e");
-            args.Add(name);
-        }
-        foreach (var mount in config.Mounts ?? Array.Empty<DockerMount>())
-        {
-            args.Add("--mount");
-            args.Add(ResolveMount(mount));
-        }
+            ["lodge.managed"] = "true",
+            ["lodge.action_id"] = request.ActionId.ToString()
+        };
 
-        // `--entrypoint` only takes the executable; any further entrypoint elements are
-        // ordinary leading argv, exactly how docker itself composes ENTRYPOINT + CMD.
-        var command = config.Command;
-        if (config.Entrypoint is { Count: > 0 } entrypoint)
-        {
-            args.Add("--entrypoint");
-            args.Add(entrypoint[0]);
-            command = entrypoint.Skip(1).Concat(config.Command).ToList();
-        }
-
-        args.Add(image);
-        args.AddRange(command);
-        return args;
-    }
-
-    /// <summary>
-    /// Turns a catalog mount alias into a <c>--mount</c> spec via <see
-    /// cref="DockerExecutorOptions.Mounts"/>. An alias the operator didn't configure fails
-    /// the run — the inventory can only reach what the server explicitly exposes.
-    /// </summary>
-    private string ResolveMount(DockerMount mount)
-    {
-        if (!_options.Mounts.TryGetValue(mount.Alias, out var source) || string.IsNullOrWhiteSpace(source))
-        {
-            throw new InvalidOperationException(
-                $"mount alias '{mount.Alias}' is not configured — add DockerExecutor:Mounts:{mount.Alias} " +
-                "(a host path, or volume:<name>) to the server configuration.");
-        }
-
-        const string volumePrefix = "volume:";
-        var spec = source.StartsWith(volumePrefix, StringComparison.Ordinal)
-            ? $"type=volume,source={source[volumePrefix.Length..]},target={mount.Target}"
-            : $"type=bind,source={source},target={mount.Target}";
-        return mount.ReadOnly ? spec + ",readonly" : spec;
+        return new ContainerRunSpec(
+            image, environment, config.Entrypoint, config.Command, labels);
     }
 
     private static string ParamEnvName(string key)
@@ -355,66 +276,6 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
         }
 
         return JsonValue.Create(value);
-    }
-
-    /// <summary>
-    /// Runs the docker CLI to completion. With a <paramref name="logPath"/>, both streams
-    /// are appended to it (serialized so lines never interleave mid-write); otherwise they
-    /// are discarded, or collected into <paramref name="capture"/> (stdout only).
-    /// </summary>
-    private async Task<int> RunDockerAsync(
-        IEnumerable<string> args, IReadOnlyDictionary<string, string>? environment, string? logPath, StringBuilder? capture = null)
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = _options.DockerBinaryPath,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-        foreach (var arg in args)
-        {
-            startInfo.ArgumentList.Add(arg);
-        }
-        foreach (var (name, value) in environment ?? new Dictionary<string, string>())
-        {
-            startInfo.Environment[name] = value;
-        }
-
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException($"Failed to start '{_options.DockerBinaryPath}'.");
-
-        var logLock = new object();
-        var stdout = capture is not null
-            ? CaptureAsync(process.StandardOutput, capture)
-            : PipeAsync(process.StandardOutput.BaseStream, logPath, logLock);
-        var stderr = PipeAsync(process.StandardError.BaseStream, logPath, logLock);
-
-        await process.WaitForExitAsync();
-        await Task.WhenAll(stdout, stderr);
-        return process.ExitCode;
-    }
-
-    private static async Task CaptureAsync(StreamReader reader, StringBuilder capture)
-        => capture.Append(await reader.ReadToEndAsync());
-
-    private static async Task PipeAsync(Stream source, string? logPath, object logLock)
-    {
-        var buffer = new byte[4096];
-        int read;
-        while ((read = await source.ReadAsync(buffer)) > 0)
-        {
-            if (logPath is null)
-            {
-                continue;
-            }
-            lock (logLock)
-            {
-                using var fs = new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-                fs.Write(buffer, 0, read);
-            }
-        }
     }
 
     private static void AppendLog(string logPath, string line)

@@ -5,18 +5,18 @@
 #   plan_vm (OPTIONAL, any time): what Terraform would change for this VM right now
 #
 # Terraform: the generic runner (playbooks/terraform) applies the `proxmox-vm` module as
-# its own root with its own state, named after the item's path
-# (/state/proxmox.virtual_machines.<vm>.tfstate) — one unit per VM, nothing shared, so a
-# plain apply/destroy is always exactly this VM. The whole item goes in as `inputs`; fields
+# its own root with its own state — a Postgres workspace named after the item's path
+# (proxmox.virtual_machines.<vm>) — one unit per VM, nothing shared, so a plain
+# apply/destroy is always exactly this VM. The whole item goes in as `inputs`; fields
 # the module doesn't declare (ansible_profile, backed_up, ...) are dropped. An existing VM
 # can be adopted instead of created with `import_id: <node>/<vm_id>` on the item.
 #
 # A VM's `compose` list is excluded from its body: those files are their own capability
 # (stacks.yaml), and editing the list never counts as a change to the VM.
 #
-# Secrets: pass_pat is the Proton Pass personal access token (Homelab vault), resolved by
-# Lodge from PROTON_PASS_PAT — the only credential Lodge hands over; every run fetches the
-# rest (provider tokens, ssh key) from Proton Pass itself.
+# Secrets: every action gets pass_pat, the Proton Pass token, from kind.yaml's defaults —
+# the only credential Lodge hands over; every run fetches the rest (provider tokens, ssh
+# key, state backend) from Proton Pass itself.
 capability: virtual_machines
 title: "Virtual Machines"
 description: "Proxmox VMs: created and destroyed with Terraform, configured with Ansible."
@@ -31,67 +31,60 @@ signals:
           - key: apply_vm
             label: "Create VM (Terraform)"
             policy: MANUAL_REQUIRED
-            executor: docker
-            docker:
-              build: { context: playbooks/terraform }
+            executor: container
+            container:
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["apply"]
-              mounts: ["tfstate:/state"]
             inputs:
               module: { const: proxmox-vm }
               unit: { from: path }
               name: { from: key }
               inputs: { from: item }
               import_id: { from: item.import_id }
-              pass_pat: { secret: PROTON_PASS_PAT }
 
           - key: configure_vm
             label: "Configure VM (Ansible profile)"
             policy: AUTO
             depends_on: [ "proxmox.virtual_machines.apply_vm" ]
-            executor: docker
-            docker:
-              build: { context: playbooks/ansible }
+            executor: container
+            container:
+              build: { context: playbooks/ansible, additional_contexts: { base: playbooks/_base } }
             inputs:
               vm_name: { from: key }
               vm: { from: item }
               vms: { from: collection }
               profile: { from: item.ansible_profile }
               host: { from: item.ip }
-              pass_pat: { secret: PROTON_PASS_PAT }
 
           - key: plan_vm
             label: "Plan VM (Terraform, read-only)"
             policy: OPTIONAL
-            executor: docker
-            docker:
-              build: { context: playbooks/terraform }
+            executor: container
+            container:
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["plan"]
-              mounts: ["tfstate:/state"]
             inputs:
               module: { const: proxmox-vm }
               unit: { from: path }
               name: { from: key }
               inputs: { from: item }
               import_id: { from: item.import_id }
-              pass_pat: { secret: PROTON_PASS_PAT }
 
       - on: modify
         actions:
           - key: apply_vm_changes
             label: "Apply VM changes (Terraform)"
             policy: MANUAL_REQUIRED
-            executor: docker
-            docker:
-              build: { context: playbooks/terraform }
+            executor: container
+            container:
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["apply"]
-              mounts: ["tfstate:/state"]
             inputs:
               module: { const: proxmox-vm }
               unit: { from: path }
               name: { from: key }
               inputs: { from: item }
               import_id: { from: item.import_id }
-              pass_pat: { secret: PROTON_PASS_PAT }
 
       - on: delete
         actions:
@@ -99,14 +92,12 @@ signals:
             label: "Destroy VM (Terraform)"
             policy: MANUAL_REQUIRED
             requires: admins
-            executor: docker
-            docker:
-              build: { context: playbooks/terraform }
+            executor: container
+            container:
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["destroy"]
-              mounts: ["tfstate:/state"]
             inputs:
               module: { const: proxmox-vm }
               unit: { from: path }
               name: { from: key }
               inputs: { from: item }
-              pass_pat: { secret: PROTON_PASS_PAT }

@@ -93,6 +93,7 @@ public class LodgeDbContext : DbContext
             e.Property(x => x.ExecutorKind).HasColumnName("executor_kind").HasConversion<string>().HasMaxLength(32);
             e.Property(x => x.ExecutorConfigJson).HasColumnName("executor_config_json");
             e.Property(x => x.SecretInputsJson).HasColumnName("secret_inputs_json");
+            e.Property(x => x.DependsOnJson).HasColumnName("depends_on_json");
             e.Property(x => x.ExecutionRef).HasColumnName("execution_ref").HasMaxLength(256);
             e.Property(x => x.Synthetic).HasColumnName("synthetic");
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
@@ -106,7 +107,7 @@ public class LodgeDbContext : DbContext
             e.HasIndex(x => new { x.InstanceId, x.SignalPath, x.ActionKey, x.CreatedAt })
                 .HasDatabaseName("ix_actions_history");
             // One live row per identity — mirrored as a partial unique index in
-            // migrations/004-actions.sql + migrations/009-actions-action-key.sql
+            // migrations/004-actions.sql
             // (EF never creates it; documented here only).
         });
 

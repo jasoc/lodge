@@ -13,7 +13,7 @@ export interface ActionTemplateModel {
   label: string;
   policy: 'AUTO' | 'MANUAL_REQUIRED' | 'OPTIONAL';
   requires: string | null;
-  executor: 'docker' | 'http';
+  executor: 'container' | 'http';
   inputs: RuleInputModel[];
   depends_on: string[];
 }

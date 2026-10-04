@@ -12,6 +12,7 @@ export type {
   InstanceDetailModel,
   PendingPromptModel,
   ActionModel,
+  ActionIdentityModel,
   ActionLogModel,
   ActionExecutionResultModel,
   AuditEventModel,

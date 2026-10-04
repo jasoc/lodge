@@ -57,7 +57,7 @@ services:
       - ${LODGE_INVENTORY_DIR:-./inventory}:/repo/inventory:ro
       - ${LODGE_SCHEMAS_DIR:-./schemas}:/repo/schemas:ro
       - lodge-data:/repo/data
-      # The host's docker daemon, for `executor: docker` actions: Lodge pulls/builds
+      # The host's docker daemon, for `executor: container` actions: Lodge pulls/builds
       # playbook images and runs them as sibling containers. Root-equivalent on the host —
       # anyone who can merge to the inventory can run arbitrary containers here. To narrow
       # that, put a socket proxy in front and set DOCKER_HOST on this service instead.

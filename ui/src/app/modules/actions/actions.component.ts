@@ -20,7 +20,7 @@ import { GlobalActionModel } from '../../domain';
 import { autoRefresh } from '../../services/auto-refresh';
 import { LodgeService } from '../../services/lodge.service';
 
-const STATUSES = ['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'SUPERSEDED'] as const;
+const STATUSES = ['BLOCKED', 'QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'SUPERSEDED'] as const;
 const POLICIES = ['AUTO', 'MANUAL_REQUIRED', 'OPTIONAL'] as const;
 
 /** Every action across every kind/instance, with status/policy/kind filters over the same

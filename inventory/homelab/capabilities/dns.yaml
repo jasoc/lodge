@@ -15,50 +15,44 @@ signals:
           - key: create_record
             label: "Create DNS record (Terraform)"
             policy: MANUAL_REQUIRED
-            executor: docker
-            docker:
-              build: { context: playbooks/terraform }
+            executor: container
+            container:
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["apply"]
-              mounts: ["tfstate:/state"]
             inputs:
               module: { const: cloudflare-dns-record }
               unit: { from: path }
               zone_id: { from: parent.zone_id }
               inputs: { from: item }
               import_id: { from: item.import_id }
-              pass_pat: { secret: PROTON_PASS_PAT }
 
       - on: modify
         actions:
           - key: update_record
             label: "Update DNS record (Terraform)"
             policy: MANUAL_REQUIRED
-            executor: docker
-            docker:
-              build: { context: playbooks/terraform }
+            executor: container
+            container:
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["apply"]
-              mounts: ["tfstate:/state"]
             inputs:
               module: { const: cloudflare-dns-record }
               unit: { from: path }
               zone_id: { from: parent.zone_id }
               inputs: { from: item }
               import_id: { from: item.import_id }
-              pass_pat: { secret: PROTON_PASS_PAT }
 
       - on: delete
         actions:
           - key: delete_record
             label: "Delete DNS record (Terraform)"
             policy: MANUAL_REQUIRED
-            executor: docker
-            docker:
-              build: { context: playbooks/terraform }
+            executor: container
+            container:
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["destroy"]
-              mounts: ["tfstate:/state"]
             inputs:
               module: { const: cloudflare-dns-record }
               unit: { from: path }
               zone_id: { from: parent.zone_id }
               inputs: { from: item }
-              pass_pat: { secret: PROTON_PASS_PAT }

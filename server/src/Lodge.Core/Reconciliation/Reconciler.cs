@@ -62,6 +62,8 @@ public static class Reconciler
         var toCreate = new List<RequiredAction>();
         var toAdopt = new List<RequiredAction>();
         var toAutoStart = new List<RequiredAction>();
+        var toBlock = new List<Guid>();
+        var toUnblock = new List<Guid>();
 
         var liveByIdentity = new Dictionary<ActionIdentity, LiveActionRow>();
         foreach (var live in input.LiveRows)
@@ -78,6 +80,16 @@ public static class Reconciler
         {
             if (liveByIdentity.Remove(required.Identity, out var live))
             {
+                // Waited BLOCKED for a dependency and now covered by past_history: adopt
+                // it as already done, exactly like one emitted unblocked would have been.
+                if (live.Status == ActionStatus.BLOCKED && !required.Blocked &&
+                    required.AdoptOnFaith && required.Policy != ActionPolicy.OPTIONAL)
+                {
+                    toSupersede.Add(live.Id);
+                    toAdopt.Add(required);
+                    continue;
+                }
+
                 // The executor config is part of the snapshot: a row approved against one
                 // image/playbook fingerprint must never run a different one, so a changed
                 // playbook folder re-queues the action for a fresh confirmation.
@@ -93,7 +105,21 @@ public static class Reconciler
                     // went stale; the next cycle reconciles whatever it lands as.
                     required.LiveRowId = live.Id;
                     required.LiveStatus = live.Status;
-                    if (live.Status == ActionStatus.QUEUED && IsAutoStartable(required))
+
+                    // A row that hasn't run yet follows its dependencies both ways;
+                    // RUNNING/FAILED rows already ran and are left as they are.
+                    if (live.Status == ActionStatus.QUEUED && required.Blocked)
+                    {
+                        toBlock.Add(live.Id);
+                        required.LiveStatus = ActionStatus.BLOCKED;
+                    }
+                    else if (live.Status == ActionStatus.BLOCKED && !required.Blocked)
+                    {
+                        toUnblock.Add(live.Id);
+                        required.LiveStatus = ActionStatus.QUEUED;
+                    }
+
+                    if (required.LiveStatus == ActionStatus.QUEUED && IsAutoStartable(required))
                     {
                         toAutoStart.Add(required);
                     }
@@ -103,7 +129,7 @@ public static class Reconciler
                 toSupersede.Add(live.Id);
             }
 
-            if (required.AdoptOnFaith && required.Policy != ActionPolicy.OPTIONAL)
+            if (required.AdoptOnFaith && required.Policy != ActionPolicy.OPTIONAL && !required.Blocked)
             {
                 toAdopt.Add(required);
                 continue;
@@ -127,11 +153,15 @@ public static class Reconciler
 
         var views = capabilities.Select(c => c.ToView()).ToList();
 
-        return new ReconciliationResult(views, toCreate, toAdopt, toSupersede, toAutoStart, errors);
+        return new ReconciliationResult(views, toCreate, toAdopt, toSupersede, toAutoStart, errors)
+        {
+            ToBlock = toBlock,
+            ToUnblock = toUnblock
+        };
     }
 
     private static bool IsAutoStartable(RequiredAction required)
-        => required.Policy == ActionPolicy.AUTO && !required.Satisfied && required.PendingPrompts.Count == 0;
+        => required.Policy == ActionPolicy.AUTO && !required.Satisfied && !required.Blocked && required.PendingPrompts.Count == 0;
 
     // ---------------------------------------------------------------------------------
 
@@ -304,14 +334,19 @@ public static class Reconciler
         }
 
         /// <summary>
-        /// An action with unmet depends_on targets is fully absent this cycle (not shown
-        /// disabled) — it reappears on its own once every target has a SucceededRecord.
-        /// A collection-signal target with no item key of its own resolves against the
-        /// current item when it shares the depending action's signal; otherwise it
+        /// The action's depends_on targets as identities, and the ones not satisfied yet
+        /// (no SucceededRecord of the current incarnation). An action with unsatisfied
+        /// targets is still emitted — BLOCKED — so the whole chain a change sets off is
+        /// visible in the cycle that detects it. A collection-signal target with no item
+        /// key of its own resolves against the current item when it shares the depending
+        /// action's signal, against the parent item for a nested signal, and otherwise
         /// addresses the target's scalar identity.
         /// </summary>
-        private bool DependenciesSatisfied(ActionTemplate template, ActionIdentity identity)
+        private (List<ActionIdentity> DependsOn, List<ActionIdentity> BlockedBy) ResolveDependencies(
+            ActionTemplate template, ActionIdentity identity)
         {
+            var dependsOn = new List<ActionIdentity>();
+            var blockedBy = new List<ActionIdentity>();
             foreach (var raw in template.DependsOn)
             {
                 if (!ActionAddressParser.TryParse(raw, _input.Catalog, out var address, out _))
@@ -321,21 +356,20 @@ public static class Reconciler
 
                 var targetItemKey = TargetItemKey(address.SignalPath!, identity);
                 var targetIdentity = new ActionIdentity(address.SignalPath!, targetItemKey, address.ActionKey);
-                if (!_lastSuccess.TryGetValue(targetIdentity, out var success))
-                {
-                    return false;
-                }
+                dependsOn.Add(targetIdentity);
 
                 // A success from before the item was last deleted belongs to a previous
                 // incarnation (a destroyed-then-recreated VM): it doesn't count.
-                if (targetItemKey is not null &&
-                    _lastDelete.TryGetValue((address.SignalPath!, targetItemKey), out var deletedAt) &&
-                    deletedAt > success.CompletedAt)
+                var satisfied = _lastSuccess.TryGetValue(targetIdentity, out var success) &&
+                    !(targetItemKey is not null &&
+                      _lastDelete.TryGetValue((address.SignalPath!, targetItemKey), out var deletedAt) &&
+                      deletedAt > success.CompletedAt);
+                if (!satisfied)
                 {
-                    return false;
+                    blockedBy.Add(targetIdentity);
                 }
             }
-            return true;
+            return (dependsOn, blockedBy);
         }
 
         /// <summary>
@@ -540,8 +574,9 @@ public static class Reconciler
         /// <summary>
         /// Emits the action into the signal view and, when it needs a live row (any
         /// unsatisfied non-OPTIONAL drift, or any matched OPTIONAL, which stays
-        /// re-invocable), into the need-live set. Skips emission entirely when a
-        /// depends_on target is unsatisfied, and marks <see cref="RequiredAction.AdoptOnFaith"/>
+        /// re-invocable), into the need-live set. An action with an unsatisfied depends_on
+        /// target is emitted all the same, BLOCKED (see <see cref="ResolveDependencies"/>);
+        /// marks <see cref="RequiredAction.AdoptOnFaith"/>
         /// when the identity has never succeeded but is covered by past_history.
         /// </summary>
         private void Emit(
@@ -554,10 +589,7 @@ public static class Reconciler
             IReadOnlyDictionary<string, string?> context,
             bool satisfied)
         {
-            if (!DependenciesSatisfied(template, identity))
-            {
-                return;
-            }
+            var (dependsOn, blockedBy) = ResolveDependencies(template, identity);
 
             var resolved = new Dictionary<string, string?>(StringComparer.Ordinal);
             var prompts = new List<PendingPrompt>();
@@ -586,9 +618,11 @@ public static class Reconciler
 
             var required = new RequiredAction(
                 identity, trigger, capability.Code, template.Label, template.Requires, template.Policy,
-                desiredValueJson, resolved, prompts, secretInputs, template.ExecutorKind, template.Docker,
+                desiredValueJson, resolved, prompts, secretInputs, template.ExecutorKind, template.Container,
                 template.Http, satisfied, adoptOnFaith)
             {
+                DependsOn = dependsOn,
+                BlockedBy = blockedBy,
                 SucceededActionId = satisfied && _lastSuccess.TryGetValue(identity, out var succeededRow) ? succeededRow.Id : null
             };
 

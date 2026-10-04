@@ -4,7 +4,9 @@
 #
 # Applies ONE module of /tf/modules as its own root module, with its own state — one Lodge
 # unit (one inventory item) per state, so a whole-state apply/destroy is always exactly
-# that unit, never anything else. The root is generated per run:
+# that unit, never anything else. States live in Postgres (root.tf: backend "pg", one
+# workspace per unit, named after it); tf-run.sh does the terraform part. The root is
+# generated per run:
 #
 #   root.tf + versions.tf         backend + every pinned provider
 #   providers/<p>.tf              the provider blocks whose source the module uses
@@ -18,7 +20,6 @@
 # Arguments the module doesn't declare are dropped (e.g. a VM's ansible_profile), so a
 # capability can hand over a whole inventory item. A module variable with a "# pass: VAR"
 # marker is fed from Proton Pass (TF_VAR_<var>), like provider credentials are.
-# Mounts: tfstate -> /state.
 set -eu
 . /usr/local/lib/lodge/lodge-lib.sh
 
@@ -30,8 +31,7 @@ params="${LODGE_PARAMS_JSON:-}"
 
 module_dir="/tf/modules/${module}"
 [ -d "$module_dir" ] || { echo "unknown module '$module' — available: $(ls /tf/modules | tr '\n' ' ')" >&2; exit 1; }
-[ -d /state ] || [ "$action" = validate ] || { echo "/state is not mounted (mount alias tfstate)" >&2; exit 1; }
-state_file="/state/$(printf '%s' "$unit" | tr -c 'A-Za-z0-9._-' '_').tfstate"
+workspace=$(printf '%s' "$unit" | tr -c 'A-Za-z0-9._-' '_')
 
 # --- generate the root -----------------------------------------------------------------
 root=/work/root
@@ -74,7 +74,7 @@ if [ -n "$import_id" ] && [ "$action" != destroy ]; then
     printf 'import {\n  to = module.unit.%s\n  id = %s\n}\n' "$to" "$(jq -n --arg id "$import_id" '$id')" > "$root/import.tf"
 fi
 
-echo "== $action unit '$unit' (module $module, state $state_file)"
+echo "== $action unit '$unit' (module $module, workspace $workspace)"
 cat "$root/unit.tf.json"; echo
 [ -f "$root/import.tf" ] && cat "$root/import.tf"
 
@@ -93,28 +93,15 @@ if [ "$uses_proxmox" = 1 ]; then
     ssh-add -q /root/.ssh/id_lodge
 fi
 
+case "$action" in
+    apply|destroy|plan) ;;
+    *) echo "unknown action '$action' (expected apply, destroy, plan or validate)" >&2; exit 2 ;;
+esac
+
 cd "$root"
 export TF_IN_AUTOMATION=1
-terraform init -input=false -no-color -backend-config="path=${state_file}"
-
 env_file=$(mktemp)
 LODGE_TF_VARS=1 lodge_pass_env_file "$env_file" $(lodge_pass_markers "$root"/*.tf "$root/modules/$module"/*.tf)
 
-common="-input=false -no-color -lock-timeout=5m"
-case "$action" in
-    apply)
-        lodge_with_secrets "$env_file" terraform apply -auto-approve $common
-        ;;
-    destroy)
-        lodge_with_secrets "$env_file" terraform destroy -auto-approve $common
-        # Nothing left to track: drop the (now empty) state, keep the .backup just in case.
-        rm -f "$state_file"
-        ;;
-    plan)
-        lodge_with_secrets "$env_file" terraform plan $common
-        ;;
-    *)
-        echo "unknown action '$action' (expected apply, destroy or plan)" >&2
-        exit 2
-        ;;
-esac
+# Everything from `init` on needs the backend's connection string: one pass-cli run.
+lodge_with_secrets "$env_file" /usr/local/lib/lodge/tf-run.sh "$action" "$workspace"

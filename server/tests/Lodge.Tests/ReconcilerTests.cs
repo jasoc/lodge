@@ -338,26 +338,142 @@ public class ReconcilerTests
     // --- depends_on ------------------------------------------------------------------------
 
     [Fact]
-    public void Action_with_unmet_dependency_is_fully_absent_and_reappears_once_satisfied()
+    public void Action_with_unmet_dependency_is_emitted_blocked_and_unblocks_once_satisfied()
     {
         var catalog = VmCatalogWithDependency();
         var history = new[]
         {
             Succeeded(Id("virtual_machines", "vm1", "some_other_key"), SignalTrigger.ADD, "{\"size\":\"small\"}", T(1), false)
         };
+        const string yaml = "virtual_machines:\n  vm1:\n    size: large";
 
-        var blocked = Reconciler.Reconcile(Input(catalog, "virtual_machines:\n  vm1:\n    size: large", history));
-        var signal = Assert.Single(blocked.Capabilities).Signals[0];
-        Assert.DoesNotContain(signal.Actions, a => a.Identity.ActionKey == "update_vm");
-        Assert.DoesNotContain(blocked.ToCreate, a => a.Identity.ActionKey == "update_vm");
+        var blocked = Reconciler.Reconcile(Input(catalog, yaml, history));
+        var update = blocked.ToCreate.Single(a => a.Identity.ActionKey == "update_vm");
+        Assert.False(blocked.ToCreate.Single(a => a.Identity.ActionKey == "provision_vm").Blocked);
+        Assert.True(update.Blocked);
+        Assert.Equal(new[] { Id("virtual_machines", "vm1", "provision_vm") }, update.BlockedBy);
+        Assert.Equal(update.BlockedBy, update.DependsOn);
+        Assert.Contains(Assert.Single(blocked.Capabilities).Signals[0].Actions, a => a.Identity == update.Identity && a.Blocked);
+        Assert.Empty(blocked.ToAutoStart);
 
         var historyWithDependency = history
             .Append(Succeeded(Id("virtual_machines", "vm1", "provision_vm"), SignalTrigger.ADD, "{\"size\":\"small\"}", T(1), false))
             .ToList();
+        var live = new[]
+        {
+            new LiveActionRow(Guid.NewGuid(), update.Identity, SignalTrigger.MODIFY, ActionStatus.BLOCKED, update.DesiredValueJson, update.ExecutorConfigJson)
+        };
 
-        var unblocked = Reconciler.Reconcile(Input(catalog, "virtual_machines:\n  vm1:\n    size: large", historyWithDependency));
-        var update = Assert.Single(unblocked.ToCreate);
-        Assert.Equal(Id("virtual_machines", "vm1", "update_vm"), update.Identity);
+        var unblocked = Reconciler.Reconcile(Input(catalog, yaml, historyWithDependency, live));
+        Assert.Empty(unblocked.ToCreate);
+        Assert.Empty(unblocked.ToSupersede);
+        Assert.Equal(new[] { live[0].Id }, unblocked.ToUnblock);
+        Assert.Empty(unblocked.ToAutoStart); // MANUAL_REQUIRED: unblocked, now waiting for a human
+    }
+
+    private static CapabilityCatalog ChainCatalog()
+    {
+        var capability = CapabilityCatalogLoader.LoadCapability("""
+            capability: chain
+            signals:
+              - path: vms
+                kind: keyed_collection
+                rules:
+                  - on: add
+                    actions:
+                      - key: a
+                        executor: http
+                        http: { url: "https://ops.test/a" }
+                      - key: b
+                        policy: AUTO
+                        executor: http
+                        http: { url: "https://ops.test/b" }
+                        depends_on: [ "vms.a" ]
+                      - key: c
+                        policy: AUTO
+                        executor: http
+                        http: { url: "https://ops.test/c" }
+                        depends_on: [ "vms.b" ]
+            """);
+        return CapabilityCatalogLoader.Merge("acme", new[] { capability }, Array.Empty<CapabilityDefinition>());
+    }
+
+    private const string ChainYaml = "vms:\n  vm1:\n    size: 1";
+
+    private static LiveActionRow LiveOf(RequiredAction required, ActionStatus status)
+        => new(Guid.NewGuid(), required.Identity, required.Trigger, status, required.DesiredValueJson, required.ExecutorConfigJson, required.Requires);
+
+    [Fact]
+    public void A_whole_chain_is_emitted_in_one_cycle_each_link_blocked_by_its_direct_dependency()
+    {
+        var result = Reconciler.Reconcile(Input(ChainCatalog(), ChainYaml));
+
+        var byKey = result.ToCreate.ToDictionary(a => a.Identity.ActionKey);
+        Assert.Equal(new[] { "a", "b", "c" }, byKey.Keys.Order());
+        Assert.False(byKey["a"].Blocked);
+        Assert.Equal(new[] { Id("vms", "vm1", "a") }, byKey["b"].BlockedBy);
+        Assert.Equal(new[] { Id("vms", "vm1", "b") }, byKey["c"].BlockedBy);
+        Assert.Empty(result.ToAutoStart); // a is MANUAL; b and c are AUTO but blocked
+        Assert.Equal(CapabilityState.Pending, Assert.Single(result.Capabilities).State);
+    }
+
+    [Fact]
+    public void An_unblocked_auto_action_starts_in_the_same_cycle_and_the_next_link_stays_blocked()
+    {
+        var first = Reconciler.Reconcile(Input(ChainCatalog(), ChainYaml)).ToCreate.ToDictionary(a => a.Identity.ActionKey);
+        var history = new[] { Succeeded(first["a"].Identity, SignalTrigger.ADD, first["a"].DesiredValueJson, T(1), false) };
+        var live = new[] { LiveOf(first["b"], ActionStatus.BLOCKED), LiveOf(first["c"], ActionStatus.BLOCKED) };
+
+        var result = Reconciler.Reconcile(Input(ChainCatalog(), ChainYaml, history, live));
+
+        Assert.Equal(new[] { live[0].Id }, result.ToUnblock);
+        Assert.Equal("b", Assert.Single(result.ToAutoStart).Identity.ActionKey);
+        Assert.Empty(result.ToCreate);
+        Assert.Empty(result.ToSupersede);
+    }
+
+    [Fact]
+    public void A_queued_action_whose_dependency_is_revoked_goes_back_to_blocked()
+    {
+        var first = Reconciler.Reconcile(Input(ChainCatalog(), ChainYaml)).ToCreate.ToDictionary(a => a.Identity.ActionKey);
+        // b was unblocked by a's success, which has since been invalidated (absent from history).
+        var live = new[] { LiveOf(first["b"], ActionStatus.QUEUED) };
+
+        var result = Reconciler.Reconcile(Input(ChainCatalog(), ChainYaml, live: live));
+
+        Assert.Equal(new[] { live[0].Id }, result.ToBlock);
+        Assert.DoesNotContain(result.ToAutoStart, a => a.Identity.ActionKey == "b");
+    }
+
+    [Fact]
+    public void A_blocked_action_whose_snapshot_changed_is_superseded_and_recreated_blocked()
+    {
+        var first = Reconciler.Reconcile(Input(ChainCatalog(), ChainYaml)).ToCreate.ToDictionary(a => a.Identity.ActionKey);
+        var live = new[] { LiveOf(first["b"], ActionStatus.BLOCKED) };
+
+        var result = Reconciler.Reconcile(Input(ChainCatalog(), "vms:\n  vm1:\n    size: 2", live: live));
+
+        Assert.Contains(live[0].Id, result.ToSupersede);
+        Assert.True(result.ToCreate.Single(a => a.Identity.ActionKey == "b").Blocked);
+    }
+
+    [Fact]
+    public void A_blocked_action_covered_by_past_history_is_adopted_once_unblocked_not_run()
+    {
+        var yaml = ChainYaml + "\npast_history:\n  - action: \"vms[vm1].*\"\n    description: \"built by hand\"";
+        var first = Reconciler.Reconcile(Input(ChainCatalog(), yaml));
+        Assert.Equal("a", Assert.Single(first.ToAdopt).Identity.ActionKey);
+        var b = first.ToCreate.Single(x => x.Identity.ActionKey == "b");
+        Assert.True(b.Blocked);
+
+        var history = new[] { Succeeded(first.ToAdopt[0].Identity, SignalTrigger.ADD, first.ToAdopt[0].DesiredValueJson, T(1), true) };
+        var live = new[] { LiveOf(b, ActionStatus.BLOCKED) };
+        var second = Reconciler.Reconcile(Input(ChainCatalog(), yaml, history, live));
+
+        Assert.Contains(live[0].Id, second.ToSupersede);
+        Assert.Contains(second.ToAdopt, x => x.Identity.ActionKey == "b");
+        Assert.Empty(second.ToUnblock);
+        Assert.DoesNotContain(second.ToAutoStart, x => x.Identity.ActionKey == "b");
     }
 
     // --- Live policy (never frozen on rows) ---------------------------------------------
@@ -781,8 +897,8 @@ public class ReconcilerTests
                     actions:
                       - key: run_ansible_profile
                         policy: MANUAL_REQUIRED
-                        executor: docker
-                        docker:
+                        executor: container
+                        container:
                           image: "homelab/toolbox:latest"
                           command: ["ansible-profile"]
                         inputs:
@@ -802,10 +918,10 @@ public class ReconcilerTests
             """));
 
         var action = Assert.Single(result.ToCreate);
-        Assert.Equal(ExecutorKind.Docker, action.ExecutorKind);
-        Assert.NotNull(action.DockerConfig);
-        Assert.Equal("homelab/toolbox:latest", action.DockerConfig!.Image);
-        Assert.Equal(new[] { "ansible-profile" }, action.DockerConfig.Command);
+        Assert.Equal(ExecutorKind.Container, action.ExecutorKind);
+        Assert.NotNull(action.ContainerConfig);
+        Assert.Equal("homelab/toolbox:latest", action.ContainerConfig!.Image);
+        Assert.Equal(new[] { "ansible-profile" }, action.ContainerConfig.Command);
 
         // The pure Reconciler never resolves a secret — it only carries the reference.
         var secret = Assert.Single(action.SecretInputs);
@@ -825,7 +941,7 @@ public class ReconcilerTests
         {
             Assert.Equal(ExecutorKind.Http, a.ExecutorKind);
             Assert.NotNull(a.HttpConfig);
-            Assert.Null(a.DockerConfig);
+            Assert.Null(a.ContainerConfig);
             Assert.Empty(a.SecretInputs);
         });
     }
@@ -843,15 +959,15 @@ public class ReconcilerTests
                   - on: add
                     actions:
                       - key: probe
-                        executor: docker
-                        docker:
+                        executor: container
+                        container:
                           build:
                             context: playbooks/probe
             """) }, Array.Empty<CapabilityDefinition>());
 
         // What FileCapabilityCatalogProvider does at load time.
         var action = catalog.Capabilities[0].Signals[0].Rules[0].Actions[0];
-        action.Docker = action.Docker! with { Build = action.Docker.Build! with { Fingerprint = fingerprint } };
+        action.Container = action.Container! with { Build = action.Container.Build! with { Fingerprint = fingerprint } };
         return catalog;
     }
 
@@ -860,7 +976,7 @@ public class ReconcilerTests
     {
         var first = Assert.Single(Reconciler.Reconcile(Input(PlaybookCatalog("aaa"), "checks:\n  web: {}")).ToCreate);
         var row = new LiveActionRow(Guid.NewGuid(), first.Identity, SignalTrigger.ADD, ActionStatus.QUEUED,
-            first.DesiredValueJson, ExecutorConfigJson.Serialize(first.DockerConfig));
+            first.DesiredValueJson, ExecutorConfigJson.Serialize(first.ContainerConfig));
 
         var again = Reconciler.Reconcile(Input(PlaybookCatalog("aaa"), "checks:\n  web: {}", live: new[] { row }));
 
@@ -875,13 +991,13 @@ public class ReconcilerTests
     {
         var first = Assert.Single(Reconciler.Reconcile(Input(PlaybookCatalog("aaa"), "checks:\n  web: {}")).ToCreate);
         var row = new LiveActionRow(Guid.NewGuid(), first.Identity, SignalTrigger.ADD, Enum.Parse<ActionStatus>(status),
-            first.DesiredValueJson, ExecutorConfigJson.Serialize(first.DockerConfig));
+            first.DesiredValueJson, ExecutorConfigJson.Serialize(first.ContainerConfig));
 
         var changed = Reconciler.Reconcile(Input(PlaybookCatalog("bbb"), "checks:\n  web: {}", live: new[] { row }));
 
         Assert.Equal(row.Id, Assert.Single(changed.ToSupersede));
         var fresh = Assert.Single(changed.ToCreate);
-        Assert.Equal("bbb", fresh.DockerConfig!.Build!.Fingerprint);
+        Assert.Equal("bbb", fresh.ContainerConfig!.Build!.Fingerprint);
     }
 
     [Fact]
@@ -889,7 +1005,7 @@ public class ReconcilerTests
     {
         var first = Assert.Single(Reconciler.Reconcile(Input(PlaybookCatalog("aaa"), "checks:\n  web: {}")).ToCreate);
         var row = new LiveActionRow(Guid.NewGuid(), first.Identity, SignalTrigger.ADD, ActionStatus.RUNNING,
-            first.DesiredValueJson, ExecutorConfigJson.Serialize(first.DockerConfig));
+            first.DesiredValueJson, ExecutorConfigJson.Serialize(first.ContainerConfig));
 
         var changed = Reconciler.Reconcile(Input(PlaybookCatalog("bbb"), "checks:\n  web: {}", live: new[] { row }));
 
@@ -974,6 +1090,10 @@ public class ReconcilerTests
                 db: { image: "postgres:16" }
         """;
 
+    private static string? VmBody()
+        => Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers)).ToCreate
+            .Single(a => a.Identity.ActionKey == "apply_vm").DesiredValueJson;
+
     private static SucceededRecord Done(string path, string key, string action, SignalTrigger trigger, string? body, int minute)
         => Succeeded(Id(path, key, action), trigger, body, T(minute), false);
 
@@ -982,8 +1102,14 @@ public class ReconcilerTests
     {
         var first = Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers));
 
-        var apply = Assert.Single(first.ToCreate);
-        Assert.Equal("apply_vm", apply.Identity.ActionKey);
+        var apply = first.ToCreate.Single(a => a.Identity.ActionKey == "apply_vm");
+        Assert.False(apply.Blocked);
+        Assert.Equal(new[] { Id("proxmox.vms", "vm1", "apply_vm") },
+            first.ToCreate.Single(a => a.Identity.ActionKey == "configure_vm").BlockedBy);
+        // Each container waits for the configure of its own VM — the whole chain, in one cycle.
+        Assert.All(first.ToCreate.Where(a => a.Identity.ActionKey == "deploy"),
+            d => Assert.Equal(new[] { Id("proxmox.vms", "vm1", "configure_vm") }, d.BlockedBy));
+        Assert.Equal(2, first.ToCreate.Count(a => a.Identity.ActionKey == "deploy"));
         Assert.DoesNotContain("containers", apply.DesiredValueJson);
         Assert.DoesNotContain("containers", apply.ResolvedInputs["vms"]);
         Assert.Contains("\"vm1\"", apply.ResolvedInputs["vms"]);
@@ -992,7 +1118,7 @@ public class ReconcilerTests
     [Fact]
     public void Once_the_vm_is_configured_each_container_gets_its_own_deploy_with_parent_inputs()
     {
-        var vmBody = Assert.Single(Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers)).ToCreate).DesiredValueJson;
+        var vmBody = VmBody();
         var history = new[]
         {
             Done("proxmox.vms", "vm1", "apply_vm", SignalTrigger.ADD, vmBody, 1),
@@ -1012,7 +1138,7 @@ public class ReconcilerTests
     [Fact]
     public void Editing_a_container_updates_that_container_only_and_removing_one_removes_it()
     {
-        var vmBody = Assert.Single(Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers)).ToCreate).DesiredValueJson;
+        var vmBody = VmBody();
         var history = new[]
         {
             Done("proxmox.vms", "vm1", "apply_vm", SignalTrigger.ADD, vmBody, 1),
@@ -1032,7 +1158,7 @@ public class ReconcilerTests
     [Fact]
     public void A_recreated_vm_needs_its_containers_deployed_again_and_a_vanished_vm_skips_container_removal()
     {
-        var vmBody = Assert.Single(Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers)).ToCreate).DesiredValueJson;
+        var vmBody = VmBody();
         var deployed = new[]
         {
             Done("proxmox.vms", "vm1", "apply_vm", SignalTrigger.ADD, vmBody, 1),
@@ -1050,7 +1176,9 @@ public class ReconcilerTests
         var recreated = deployed.Append(Done("proxmox.vms", "vm1", "destroy_vm", SignalTrigger.DELETE, "null", 4))
             .Append(Done("proxmox.vms", "vm1", "apply_vm", SignalTrigger.ADD, vmBody, 5)).ToList();
         var waiting = Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers, recreated));
-        Assert.Equal(new[] { "configure_vm" }, waiting.ToCreate.Select(a => a.Identity.ActionKey));
+        Assert.Equal(new[] { "configure_vm" }, waiting.ToCreate.Where(a => !a.Blocked).Select(a => a.Identity.ActionKey));
+        Assert.Equal(new[] { "deploy:vm1/db", "deploy:vm1/web" },
+            waiting.ToCreate.Where(a => a.Blocked).Select(a => $"{a.Identity.ActionKey}:{a.Identity.ItemKey}").Order());
 
         recreated.Add(Done("proxmox.vms", "vm1", "configure_vm", SignalTrigger.ADD, vmBody, 6));
         var redeploy = Reconciler.Reconcile(Input(VmWithContainersCatalog(), OneVmTwoContainers, recreated));

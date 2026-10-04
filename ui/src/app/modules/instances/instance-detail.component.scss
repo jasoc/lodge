@@ -56,8 +56,14 @@
     color: var(--lodge-main-ui-text-color-light);
   }
 
-  .row-highlighted {
-    box-shadow: 0 0 0 2px var(--lodge-accent-color-300, var(--lodge-main-ui-text-color));
+  .actions-error {
+    display: flex;
+    align-items: center;
+    gap: tokens.$lodge-space-2;
+    padding: tokens.$lodge-space-2 tokens.$lodge-space-3;
+    border-radius: 12px;
+    background: var(--mat-sys-error-container, var(--lodge-background-shader-stronger));
+    color: var(--mat-sys-on-error-container, inherit);
   }
 
   // Page-wide, above the tabs: whatever is in flight right now, one click from its logs.
@@ -249,6 +255,11 @@
         background: var(--mat-sys-primary-container, var(--lodge-background-shader-stronger));
         color: var(--mat-sys-on-primary-container, inherit);
       }
+
+      &-waiting {
+        background: var(--lodge-background-shader-stronger);
+        color: var(--lodge-main-ui-text-color-light);
+      }
     }
   }
 
@@ -326,6 +337,12 @@
       border-left-color: var(--mat-sys-error, #c62828);
     }
 
+    &-waiting {
+      border-left-style: dashed;
+      border-left-color: var(--lodge-main-ui-text-color-light);
+      opacity: 0.85;
+    }
+
     &-failed-icon {
       font-size: 18px;
       width: 18px;
@@ -354,6 +371,40 @@
       display: flex;
       align-items: center;
       gap: tokens.$lodge-space-1;
+    }
+  }
+
+  // Running: what's in flight in this capability, with its live log one click away.
+  .running-list {
+    display: flex;
+    flex-direction: column;
+    gap: tokens.$lodge-space-2;
+    margin-bottom: tokens.$lodge-space-2;
+  }
+
+  .running-row {
+    display: flex;
+    align-items: center;
+    gap: tokens.$lodge-space-2;
+    padding: tokens.$lodge-space-2 tokens.$lodge-space-3;
+    border-radius: 12px;
+    background: var(--mat-sys-primary-container, var(--lodge-background-shader-stronger));
+    color: var(--mat-sys-on-primary-container, inherit);
+
+    &-starting {
+      opacity: 0.8;
+    }
+
+    &-icon {
+      flex: none;
+    }
+
+    &-item {
+      margin-left: tokens.$lodge-space-1;
+      font-family: monospace;
+      font-weight: normal;
+      font-size: 0.85rem;
+      opacity: 0.8;
     }
   }
 
@@ -614,108 +665,5 @@
     flex-direction: column;
     gap: tokens.$lodge-space-2;
     padding-top: tokens.$lodge-space-2;
-  }
-
-  .yaml-view {
-    background: var(--lodge-background-shader-lighter);
-    border-radius: 8px;
-    padding: 0.75rem;
-    overflow-x: auto;
-    font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
-  }
-
-  // A real pan/zoom canvas (drag to pan, wheel to zoom) — not a second copy of the YAML,
-  // one node per top-level inventory key with its nested paths flattened underneath.
-  // Clicking a path that matches a capability's declared signal highlights that signal's
-  // control tile below, fusing the two views into one.
-  .canvas-view {
-    display: flex;
-    flex-direction: column;
-    gap: tokens.$lodge-space-4;
-  }
-
-  .inventory-canvas {
-    position: relative;
-    height: 420px;
-    overflow: hidden;
-    border-radius: 16px;
-    background: var(--lodge-background-shader-lighter);
-    cursor: grab;
-    touch-action: none;
-
-    &:active {
-      cursor: grabbing;
-    }
-
-    &-reset {
-      position: absolute;
-      top: tokens.$lodge-space-2;
-      right: tokens.$lodge-space-2;
-      z-index: 1;
-      background: var(--lodge-background-color);
-    }
-
-    &-surface {
-      position: absolute;
-      top: tokens.$lodge-space-5;
-      left: tokens.$lodge-space-5;
-      display: flex;
-      flex-wrap: wrap;
-      gap: tokens.$lodge-space-4;
-      width: max-content;
-      transform-origin: top left;
-      transition: transform 80ms linear;
-    }
-  }
-
-  .inventory-node {
-    width: 220px;
-    border-radius: 14px;
-    padding: tokens.$lodge-space-3;
-    background: var(--lodge-background-shader);
-    box-shadow: 0 0 0 1px var(--lodge-background-shader-stronger);
-    user-select: none;
-
-    &-title {
-      margin: 0 0 tokens.$lodge-space-2;
-      font-weight: 600;
-      text-transform: uppercase;
-      font-size: 0.75rem;
-      letter-spacing: 0.05em;
-      color: var(--lodge-main-ui-text-color-light);
-    }
-  }
-
-  .inventory-signal {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: tokens.$lodge-space-1 tokens.$lodge-space-2;
-    border-radius: 8px;
-    margin-bottom: 2px;
-
-    code {
-      font-size: 0.75rem;
-      color: var(--lodge-main-ui-text-color-light);
-    }
-
-    span {
-      font-size: 0.85rem;
-      font-weight: 500;
-      overflow-wrap: anywhere;
-    }
-
-    &-active {
-      cursor: pointer;
-
-      &:hover {
-        background: var(--lodge-background-shader-stronger);
-      }
-    }
-
-    &-highlighted {
-      background: var(--lodge-background-shader-stronger);
-      box-shadow: 0 0 0 1px var(--lodge-accent-color-300, var(--lodge-main-ui-text-color));
-    }
   }
 }

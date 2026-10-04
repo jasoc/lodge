@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Lodge.Core.Domain.Enums;
 
 namespace Lodge.Core.Catalog;
@@ -52,29 +53,20 @@ public sealed record PendingPrompt(string Name, string Prompt, bool Required);
 public sealed record SecretInputRef(string Name, string SecretRef);
 
 /// <summary>
-/// Config for <see cref="ExecutorKind.Docker"/>: what a Docker-executed action runs —
+/// Config for <see cref="ExecutorKind.Container"/>: what a container action runs —
 /// either a ready-made <see cref="Image"/> or a <see cref="Build"/> context folder inside
 /// the inventory (exactly one of the two), plus an optional entrypoint override and fixed
 /// command argv. Parameter values never get templated into <see cref="Entrypoint"/>/<see
 /// cref="Command"/> — they flow in purely as <c>LODGE_PARAM_*</c> environment variables
-/// (plus the whole map as <c>LODGE_PARAMS_JSON</c>).
+/// (plus the whole map as <c>LODGE_PARAMS_JSON</c>). Nothing here names a runtime: the
+/// server decides where the container runs.
 /// </summary>
-public sealed record DockerExecutorConfig(
+public sealed record ContainerExecutorConfig(
     string? Image,
     IReadOnlyList<string> Command,
     IReadOnlyList<string>? Entrypoint = null,
-    DockerBuildConfig? Build = null,
-    IReadOnlyList<DockerMount>? Mounts = null,
+    ContainerBuildConfig? Build = null,
     IReadOnlyDictionary<string, string>? Env = null);
-
-/// <summary>
-/// One mount of a docker action, written <c>alias:/container/path[:ro]</c> in YAML. The
-/// alias — never a host path — names an entry of the server's
-/// <c>DockerExecutor:Mounts</c> config (a host path, or <c>volume:&lt;name&gt;</c> for a
-/// docker named volume such as an NFS one). The inventory stays portable, and it can only
-/// reach what the operator chose to expose.
-/// </summary>
-public sealed record DockerMount(string Alias, string Target, bool ReadOnly);
 
 /// <summary>
 /// A playbook image built from a folder of the inventory itself rather than pulled.
@@ -84,13 +76,29 @@ public sealed record DockerMount(string Alias, string Target, bool ReadOnly);
 /// into image history. <see cref="Fingerprint"/> is a content hash of the context (plus
 /// dockerfile/target/args) stamped by the catalog provider when the catalog is loaded:
 /// it is both the image cache key and what an approved action is pinned to.
+/// <see cref="AdditionalContexts"/> (name → folder, relative to <c>inventory/{kind}/</c>)
+/// are extra named build contexts — <c>COPY --from=&lt;name&gt;</c> in the Dockerfile — so
+/// several playbooks can share one folder; each counts toward the fingerprint. Left out
+/// of the JSON when null, so a build without them keeps its exact pre-existing encoding.
 /// </summary>
-public sealed record DockerBuildConfig(
+public sealed record ContainerBuildConfig(
     string Context,
     string? Dockerfile = null,
     string? Target = null,
     IReadOnlyDictionary<string, string>? Args = null,
-    string? Fingerprint = null);
+    string? Fingerprint = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyDictionary<string, string>? AdditionalContexts = null);
+
+/// <summary>
+/// What a kind's <c>kind.yaml</c> declares for all of its actions: <see cref="Inputs"/>
+/// are appended to every action that doesn't name that input itself — typically the one
+/// secret every playbook of the kind needs, declared once and still visible on each action.
+/// </summary>
+public sealed record KindDefaults(IReadOnlyList<RuleInput> Inputs)
+{
+    public static readonly KindDefaults None = new(Array.Empty<RuleInput>());
+}
 
 /// <summary>
 /// Config for <see cref="ExecutorKind.Http"/>: one HTTP request per run. Every string —
@@ -121,13 +129,13 @@ public sealed record HttpExecutorConfig(
 /// </summary>
 public static class ExecutorConfigJson
 {
-    public static string? Serialize(DockerExecutorConfig? docker, HttpExecutorConfig? http = null)
+    public static string? Serialize(ContainerExecutorConfig? docker, HttpExecutorConfig? http = null)
         => docker is not null ? JsonSerializer.Serialize(docker)
          : http is not null ? JsonSerializer.Serialize(http)
          : null;
 
-    public static DockerExecutorConfig? DeserializeDocker(string? json)
-        => string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<DockerExecutorConfig>(json);
+    public static ContainerExecutorConfig? DeserializeContainer(string? json)
+        => string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<ContainerExecutorConfig>(json);
 
     public static HttpExecutorConfig? DeserializeHttp(string? json)
         => string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<HttpExecutorConfig>(json);
@@ -170,10 +178,10 @@ public sealed class ActionTemplate
     public string? Requires { get; set; }
 
     /// <summary>Which executor runs this action — declared explicitly, never inferred.</summary>
-    public ExecutorKind ExecutorKind { get; set; } = ExecutorKind.Docker;
+    public ExecutorKind ExecutorKind { get; set; } = ExecutorKind.Container;
 
-    /// <summary>Non-null only when <see cref="ExecutorKind"/> is <see cref="ExecutorKind.Docker"/>.</summary>
-    public DockerExecutorConfig? Docker { get; set; }
+    /// <summary>Non-null only when <see cref="ExecutorKind"/> is <see cref="ExecutorKind.Container"/>.</summary>
+    public ContainerExecutorConfig? Container { get; set; }
 
     /// <summary>Non-null only when <see cref="ExecutorKind"/> is <see cref="ExecutorKind.Http"/>.</summary>
     public HttpExecutorConfig? Http { get; set; }

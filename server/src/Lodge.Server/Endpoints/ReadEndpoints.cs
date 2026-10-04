@@ -135,7 +135,8 @@ public static class ReadEndpoints
                 a.CreatedAt,
                 a.CompletedAt,
                 a.ExecutionRef,
-                a.InvalidatedAt)).ToList();
+                a.InvalidatedAt,
+                DeserializeDependsOn(a.DependsOnJson))).ToList();
 
             return Results.Ok(dtos);
         });
@@ -295,6 +296,24 @@ public static class ReadEndpoints
         });
 
         return app;
+    }
+
+    private static IReadOnlyList<ActionIdentityDto> DeserializeDependsOn(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return Array.Empty<ActionIdentityDto>();
+        }
+        try
+        {
+            return (JsonSerializer.Deserialize<List<ActionIdentity>>(json) ?? new List<ActionIdentity>())
+                .Select(d => new ActionIdentityDto(d.SignalPath, d.ItemKey, d.ActionKey))
+                .ToList();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<ActionIdentityDto>();
+        }
     }
 
     private static IReadOnlyList<PendingPromptDto> DeserializePrompts(string? json)

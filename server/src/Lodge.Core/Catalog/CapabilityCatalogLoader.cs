@@ -18,7 +18,11 @@ public static class CapabilityCatalogLoader
         .IgnoreUnmatchedProperties()
         .Build();
 
-    public static CapabilityDefinition LoadCapability(string yaml, string? sourceFile = null)
+    /// <summary>
+    /// <paramref name="defaults"/> are the kind's <c>kind.yaml</c> defaults (see
+    /// <see cref="LoadKindDefaults"/>), merged into every action of the file.
+    /// </summary>
+    public static CapabilityDefinition LoadCapability(string yaml, string? sourceFile = null, KindDefaults? defaults = null)
     {
         CapabilityDto dto;
         try
@@ -39,7 +43,7 @@ public static class CapabilityCatalogLoader
         var signals = new List<SignalDefinition>();
         foreach (var s in dto.Signals ?? new List<SignalDto>())
         {
-            signals.Add(LoadSignal(code, s, sourceFile));
+            signals.Add(LoadSignal(code, s, sourceFile, defaults));
         }
 
         return new CapabilityDefinition
@@ -50,6 +54,26 @@ public static class CapabilityCatalogLoader
             SourceFile = sourceFile,
             Signals = signals
         };
+    }
+
+    /// <summary>
+    /// The <c>defaults</c> of a kind's <c>kind.yaml</c>: inputs every action of the kind
+    /// gets unless it names the input itself (<c>name: ~</c> drops it). Other manifest keys
+    /// (<c>name</c>, ...) are ignored here.
+    /// </summary>
+    public static KindDefaults LoadKindDefaults(string yaml, string sourceFile = "kind.yaml")
+    {
+        KindManifestDto dto;
+        try
+        {
+            dto = Deserializer.Deserialize<KindManifestDto>(yaml) ?? new KindManifestDto();
+        }
+        catch (Exception ex)
+        {
+            throw new CatalogFormatException($"{sourceFile}: invalid YAML — {ex.Message}", ex);
+        }
+
+        return new KindDefaults(ParseInputs(dto.Defaults?.Inputs));
     }
 
     /// <summary>
@@ -226,7 +250,7 @@ public static class CapabilityCatalogLoader
         visited.Add(node);
     }
 
-    private static SignalDefinition LoadSignal(string capabilityCode, SignalDto dto, string? sourceFile)
+    private static SignalDefinition LoadSignal(string capabilityCode, SignalDto dto, string? sourceFile, KindDefaults? defaults)
     {
         var path = dto.Path?.Trim();
         if (string.IsNullOrEmpty(path))
@@ -239,7 +263,7 @@ public static class CapabilityCatalogLoader
         var rules = new List<SignalRule>();
         foreach (var r in dto.Rules ?? new List<RuleDto>())
         {
-            rules.Add(LoadRule(capabilityCode, path, kind, !string.IsNullOrWhiteSpace(dto.Files), r, sourceFile));
+            rules.Add(LoadRule(capabilityCode, path, kind, !string.IsNullOrWhiteSpace(dto.Files), r, sourceFile, defaults));
         }
 
         var where = $"{Location(sourceFile, capabilityCode)}, signal '{path}'";
@@ -288,7 +312,8 @@ public static class CapabilityCatalogLoader
         return signal;
     }
 
-    private static SignalRule LoadRule(string capabilityCode, string path, SignalKind kind, bool fileBacked, RuleDto dto, string? sourceFile)
+    private static SignalRule LoadRule(
+        string capabilityCode, string path, SignalKind kind, bool fileBacked, RuleDto dto, string? sourceFile, KindDefaults? defaults)
     {
         var where = $"{Location(sourceFile, capabilityCode)}, signal '{path}'";
         var trigger = ParseTrigger(dto.On, where);
@@ -320,10 +345,19 @@ public static class CapabilityCatalogLoader
             if (a.Runbook is not null)
             {
                 throw new CatalogFormatException(
-                    $"{at}: 'runbook' is retired — what runs is the executor block (docker/http), who may run it is 'requires'. Remove it.");
+                    $"{at}: 'runbook' is retired — what runs is the executor block (container/http), who may run it is 'requires'. Remove it.");
             }
 
             var inputs = ParseInputs(a.Inputs);
+            // Kind defaults go after the action's own inputs; an action that names the
+            // input itself (even as `name: ~`, which drops it) keeps its own say.
+            foreach (var input in defaults?.Inputs ?? Array.Empty<RuleInput>())
+            {
+                if (a.Inputs?.ContainsKey(input.Name) != true)
+                {
+                    inputs.Add(input);
+                }
+            }
             var policy = Enum.Parse<ActionPolicy>(a.Policy ?? "MANUAL_REQUIRED", ignoreCase: true);
             if (policy == ActionPolicy.AUTO && inputs.Any(i => i.Kind == RuleInputKind.Prompt))
             {
@@ -332,9 +366,9 @@ public static class CapabilityCatalogLoader
             }
 
             var executorKind = ParseExecutor(a.Executor, at);
-            if (executorKind != ExecutorKind.Docker && a.Docker is not null)
+            if (executorKind != ExecutorKind.Container && a.Container is not null)
             {
-                throw new CatalogFormatException($"{at}: declares a 'docker' block but 'executor' is not 'docker'.");
+                throw new CatalogFormatException($"{at}: declares a 'container' block but 'executor' is not 'container'.");
             }
             if (executorKind != ExecutorKind.Http && a.Http is not null)
             {
@@ -348,7 +382,7 @@ public static class CapabilityCatalogLoader
                 Policy = policy,
                 Requires = ActionAccess.Normalize(a.Requires),
                 ExecutorKind = executorKind,
-                Docker = executorKind == ExecutorKind.Docker ? ParseDocker(a.Docker, at) : null,
+                Container = executorKind == ExecutorKind.Container ? ParseContainer(a.Container, at) : null,
                 Http = executorKind == ExecutorKind.Http ? ParseHttp(a.Http, at) : null,
                 Inputs = inputs,
                 DependsOn = (a.DependsOn ?? new List<string>()).Select(d => d.Trim()).ToList()
@@ -433,47 +467,54 @@ public static class CapabilityCatalogLoader
     /// <c>..</c>); the catalog provider resolves them against the kind folder and rejects
     /// anything that still escapes it.
     /// </summary>
-    private static DockerExecutorConfig ParseDocker(DockerDto? dto, string where)
+    private static ContainerExecutorConfig ParseContainer(ContainerDto? dto, string where)
     {
         if (dto is null)
         {
-            throw new CatalogFormatException($"{where}: declares 'executor: docker' but has no 'docker' block.");
+            throw new CatalogFormatException($"{where}: declares 'executor: container' but has no 'container' block.");
         }
 
         var hasImage = !string.IsNullOrWhiteSpace(dto.Image);
         if (hasImage == (dto.Build is not null))
         {
             throw new CatalogFormatException(
-                $"{where}: the 'docker' block needs exactly one of 'image' (a ready-made image) or 'build' (a playbook folder).");
+                $"{where}: the 'container' block needs exactly one of 'image' (a ready-made image) or 'build' (a playbook folder).");
         }
 
-        DockerBuildConfig? build = null;
+        ContainerBuildConfig? build = null;
         if (dto.Build is not null)
         {
-            var context = NormalizeRelativePath(dto.Build.Context, "docker.build.context", where)
-                ?? throw new CatalogFormatException($"{where}: 'docker.build' is missing its 'context' folder.");
-            var dockerfile = NormalizeRelativePath(dto.Build.Dockerfile, "docker.build.dockerfile", where);
+            var context = NormalizeRelativePath(dto.Build.Context, "container.build.context", where)
+                ?? throw new CatalogFormatException($"{where}: 'container.build' is missing its 'context' folder.");
+            var dockerfile = NormalizeRelativePath(dto.Build.Dockerfile, "container.build.dockerfile", where);
             var args = new SortedDictionary<string, string>(StringComparer.Ordinal);
             foreach (var (name, value) in dto.Build.Args ?? new Dictionary<string, string?>())
             {
                 if (string.IsNullOrWhiteSpace(name))
                 {
-                    throw new CatalogFormatException($"{where}: 'docker.build.args' has an empty argument name.");
+                    throw new CatalogFormatException($"{where}: 'container.build.args' has an empty argument name.");
                 }
                 args[name.Trim()] = value ?? string.Empty;
             }
 
-            build = new DockerBuildConfig(
+            var additional = new SortedDictionary<string, string>(StringComparer.Ordinal);
+            foreach (var (name, folder) in dto.Build.AdditionalContexts ?? new Dictionary<string, string?>())
+            {
+                if (!ContextNamePattern.IsMatch(name ?? string.Empty))
+                {
+                    throw new CatalogFormatException(
+                        $"{where}: 'container.build.additional_contexts' name '{name}' must be lowercase letters, digits, '.', '_' or '-'.");
+                }
+                additional[name!] = NormalizeRelativePath(folder, $"container.build.additional_contexts.{name}", where)
+                    ?? throw new CatalogFormatException($"{where}: additional context '{name}' names no folder.");
+            }
+
+            build = new ContainerBuildConfig(
                 context,
                 dockerfile,
                 string.IsNullOrWhiteSpace(dto.Build.Target) ? null : dto.Build.Target.Trim(),
-                args.Count == 0 ? null : args);
-        }
-
-        var mounts = new List<DockerMount>();
-        foreach (var raw in dto.Mounts ?? new List<string>())
-        {
-            mounts.Add(ParseMount(raw, where));
+                args.Count == 0 ? null : args,
+                AdditionalContexts: additional.Count == 0 ? null : additional);
         }
 
         SortedDictionary<string, string>? env = null;
@@ -482,46 +523,22 @@ public static class CapabilityCatalogLoader
             if (!EnvNamePattern.IsMatch(name ?? string.Empty) || name!.StartsWith("LODGE_", StringComparison.Ordinal))
             {
                 throw new CatalogFormatException(
-                    $"{where}: 'docker.env' name '{name}' must be a plain variable name and may not start with LODGE_ (reserved for inputs).");
+                    $"{where}: 'container.env' name '{name}' must be a plain variable name and may not start with LODGE_ (reserved for inputs).");
             }
             env ??= new SortedDictionary<string, string>(StringComparer.Ordinal);
             env[name] = value ?? string.Empty;
         }
 
-        return new DockerExecutorConfig(
+        return new ContainerExecutorConfig(
             hasImage ? dto.Image!.Trim() : null,
             dto.Command ?? new List<string>(),
             dto.Entrypoint is { Count: > 0 } ? dto.Entrypoint : null,
             build,
-            mounts.Count == 0 ? null : mounts,
             env);
     }
 
     private static readonly System.Text.RegularExpressions.Regex EnvNamePattern = new("^[A-Za-z_][A-Za-z0-9_]*$");
-    private static readonly System.Text.RegularExpressions.Regex MountAliasPattern = new("^[A-Za-z0-9_-]+$");
-
-    /// <summary><c>alias:/absolute/target</c> with an optional <c>:ro</c>/<c>:rw</c> suffix.</summary>
-    private static DockerMount ParseMount(string? raw, string where)
-    {
-        var parts = (raw ?? string.Empty).Trim().Split(':');
-        var readOnly = false;
-        if (parts.Length == 3 && parts[2] is "ro" or "rw")
-        {
-            readOnly = parts[2] == "ro";
-        }
-        else if (parts.Length != 2)
-        {
-            parts = Array.Empty<string>();
-        }
-
-        if (parts.Length < 2 || !MountAliasPattern.IsMatch(parts[0]) || !parts[1].StartsWith('/'))
-        {
-            throw new CatalogFormatException(
-                $"{where}: mount '{raw}' must be 'alias:/container/path[:ro]', where alias names an entry of the server's DockerExecutor:Mounts.");
-        }
-
-        return new DockerMount(parts[0], parts[1], readOnly);
-    }
+    private static readonly System.Text.RegularExpressions.Regex ContextNamePattern = new("^[a-z0-9][a-z0-9_.-]*$");
 
     private static string? NormalizeRelativePath(string? raw, string field, string where)
     {
@@ -548,10 +565,10 @@ public static class CapabilityCatalogLoader
     private static ExecutorKind ParseExecutor(string? executor, string where)
         => executor?.Trim().ToLowerInvariant() switch
         {
-            "docker" => ExecutorKind.Docker,
+            "container" => ExecutorKind.Container,
             "http" => ExecutorKind.Http,
-            null or "" => throw new CatalogFormatException($"{where}: missing 'executor' (docker or http)."),
-            _ => throw new CatalogFormatException($"{where}: unknown executor '{executor}' (expected docker or http).")
+            null or "" => throw new CatalogFormatException($"{where}: missing 'executor' (container or http)."),
+            _ => throw new CatalogFormatException($"{where}: unknown executor '{executor}' (expected container or http).")
         };
 
     private static readonly HashSet<string> HttpMethods = new(StringComparer.Ordinal)
@@ -716,19 +733,18 @@ public static class CapabilityCatalogLoader
         public string? Policy { get; set; }
         public string? Requires { get; set; }
         public string? Executor { get; set; }
-        public DockerDto? Docker { get; set; }
+        public ContainerDto? Container { get; set; }
         public HttpDto? Http { get; set; }
         public Dictionary<string, InputDto>? Inputs { get; set; }
         public List<string>? DependsOn { get; set; }
     }
 
-    private sealed class DockerDto
+    private sealed class ContainerDto
     {
         public string? Image { get; set; }
-        public DockerBuildDto? Build { get; set; }
+        public ContainerBuildDto? Build { get; set; }
         public List<string>? Entrypoint { get; set; }
         public List<string>? Command { get; set; }
-        public List<string>? Mounts { get; set; }
         public Dictionary<string, string?>? Env { get; set; }
     }
 
@@ -743,12 +759,23 @@ public static class CapabilityCatalogLoader
         public List<int>? ExpectStatus { get; set; }
     }
 
-    private sealed class DockerBuildDto
+    private sealed class ContainerBuildDto
     {
         public string? Context { get; set; }
         public string? Dockerfile { get; set; }
         public string? Target { get; set; }
         public Dictionary<string, string?>? Args { get; set; }
+        public Dictionary<string, string?>? AdditionalContexts { get; set; }
+    }
+
+    private sealed class KindManifestDto
+    {
+        public KindDefaultsDto? Defaults { get; set; }
+    }
+
+    private sealed class KindDefaultsDto
+    {
+        public Dictionary<string, InputDto>? Inputs { get; set; }
     }
 
     private sealed class InputDto

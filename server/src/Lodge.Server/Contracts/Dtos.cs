@@ -32,7 +32,11 @@ public sealed record ActionDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset? CompletedAt,
     string? ExecutionRef = null,
-    DateTimeOffset? InvalidatedAt = null);
+    DateTimeOffset? InvalidatedAt = null,
+    IReadOnlyList<ActionIdentityDto>? DependsOn = null);
+
+/// <summary>One action's identity — an edge target of the action graph (see <see cref="ActionDto.DependsOn"/>).</summary>
+public sealed record ActionIdentityDto(string SignalPath, string? ItemKey, string ActionKey);
 
 /// <summary>
 /// A slice of the action's latest run log (see <c>GET …/actions/{id}/log?offset=</c>).

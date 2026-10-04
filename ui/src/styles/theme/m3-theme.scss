@@ -4,28 +4,63 @@
 @use '@angular/material' as mat;
 @use './palette' as p;
 
-$light-theme: mat.define-theme(
-  (
-    color: (
-      theme-type: light,
-      primary: p.$primary-palette,
-      tertiary: p.$tertiary-palette,
-    ),
-    typography: (
-      brand-family: 'Roboto Flex Variable',
-      plain-family: 'Roboto Flex Variable',
-    ),
-    density: (
-      scale: -1,
-    ),
-  )
+// Dark themes are AMOLED-friendly: Material builds every dark surface from the neutral
+// palette's low tones (background/surface 6, containers 4-22, surface-bright 24), so those
+// are pushed close to black. Accents get more chroma at the tones dark mode reads (80 for
+// primary/tertiary, 30 for containers, 20/90 for the text on them) — vivid, but not the
+// neon #0000ef that mat.$blue-palette uses for its dark primary container.
+@function _dark($palette, $tones, $neutral, $secondary: ()) {
+  @return map.deep-merge(
+    $palette,
+    map.merge($tones, (neutral: $neutral, secondary: $secondary))
+  );
+}
+
+$_amber-neutral: (
+  4: #000000,
+  6: #050403,
+  10: #0e0c0a,
+  12: #13110e,
+  17: #1b1815,
+  22: #24201c,
+  24: #28241f,
 );
+$_blue-neutral: (
+  4: #000000,
+  6: #030409,
+  10: #0b0d14,
+  12: #0f121a,
+  17: #171a24,
+  22: #1f222d,
+  24: #232733,
+);
+
+$_dark-amber-primary: _dark(
+  p.$primary-palette,
+  (20: #4a2800, 30: #7a4100, 80: #ffb951, 90: #ffddb0),
+  $_amber-neutral,
+  (30: #5a3f22)
+);
+$_dark-amber-tertiary: _dark(
+  p.$tertiary-palette,
+  (20: #343100, 30: #4c4800, 80: #d9d25a, 90: #f6ee7a),
+  $_amber-neutral,
+  (30: #5a3f22)
+);
+$_dark-blue-primary: _dark(
+  mat.$blue-palette,
+  (20: #002e6e, 30: #1846b4, 80: #82b1ff, 90: #d8e3ff),
+  $_blue-neutral,
+  (30: #2e3a5c)
+);
+$_dark-blue-tertiary: _dark(mat.$cyan-palette, (), $_blue-neutral, (30: #2e3a5c));
+
 $dark-theme: mat.define-theme(
   (
     color: (
       theme-type: dark,
-      primary: p.$primary-palette,
-      tertiary: p.$tertiary-palette,
+      primary: $_dark-amber-primary,
+      tertiary: $_dark-amber-tertiary,
     ),
     typography: (
       brand-family: 'Roboto Flex Variable',
@@ -57,5 +92,79 @@ $dark-theme: mat.define-theme(
   );
 }
 
-$light-red-theme: _lodge-theme(light, mat.$red-palette, mat.$orange-palette);
-$dark-blue-theme: _lodge-theme(dark, mat.$blue-palette, mat.$cyan-palette);
+$dark-blue-theme: _lodge-theme(dark, $_dark-blue-primary, $_dark-blue-tertiary);
+
+// Light themes, same idea mirrored: crisp near-white surfaces (background/surface 98,
+// containers 100-90, surface-dim 87) with only a hint of the accent's hue, and accents
+// re-toned at what light mode reads (40 for primary/tertiary, 90 for containers, 30 for
+// the text on them, 10/100 elsewhere). Stock mat.$green-palette's 90 is a neon #94f990
+// and mat.$red-palette's 40 is a pure #c00100; these keep the hue, lose the glare.
+@function _light($palette, $tones, $neutral, $neutral-variant, $secondary) {
+  @return map.deep-merge(
+    $palette,
+    map.merge(
+      $tones,
+      (neutral: $neutral, neutral-variant: $neutral-variant, secondary: $secondary)
+    )
+  );
+}
+
+$_green-neutral: (
+  10: #171d17,
+  20: #2c322c,
+  87: #d8ddd6,
+  90: #e1e6df,
+  92: #e7ece5,
+  94: #edf1eb,
+  95: #eff4ed,
+  96: #f2f6f1,
+  98: #f9fcf8,
+);
+$_green-neutral-variant: (30: #414940, 50: #717a70, 80: #c1c9bf, 90: #dde5da);
+$_green-secondary: (10: #0a1f0f, 30: #364b39, 40: #4d6350, 90: #cfe9d0);
+
+$_red-neutral: (
+  10: #211a1a,
+  20: #372f2f,
+  87: #e2d7d7,
+  90: #eae0e0,
+  92: #f0e6e6,
+  94: #f6ecec,
+  95: #fdeeee,
+  96: #fbf2f2,
+  98: #fffbfa,
+);
+$_red-neutral-variant: (30: #534344, 50: #857374, 80: #d8c2c2, 90: #f5dddd);
+$_red-secondary: (10: #2c1516, 30: #5d3f40, 40: #775657, 90: #ffdadb);
+
+$_light-green-primary: _light(
+  mat.$green-palette,
+  (10: #002109, 30: #005a26, 40: #0b7a36, 80: #8ad79a, 90: #b6f2bf),
+  $_green-neutral,
+  $_green-neutral-variant,
+  $_green-secondary
+);
+$_light-green-tertiary: _light(
+  mat.$cyan-palette,
+  (10: #002020, 30: #004f4f, 40: #006a6a, 80: #6fd8d6, 90: #a6f0ee),
+  $_green-neutral,
+  $_green-neutral-variant,
+  $_green-secondary
+);
+$_light-red-primary: _light(
+  mat.$red-palette,
+  (10: #400009, 30: #93101f, 40: #c22a35, 80: #ffb3b6, 90: #ffd9dc),
+  $_red-neutral,
+  $_red-neutral-variant,
+  $_red-secondary
+);
+$_light-red-tertiary: _light(
+  mat.$orange-palette,
+  (10: #331200, 30: #7a3800, 40: #a64f00, 80: #ffb68a, 90: #ffdcc6),
+  $_red-neutral,
+  $_red-neutral-variant,
+  $_red-secondary
+);
+
+$light-green-theme: _lodge-theme(light, $_light-green-primary, $_light-green-tertiary);
+$light-red-theme: _lodge-theme(light, $_light-red-primary, $_light-red-tertiary);

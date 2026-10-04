@@ -1,0 +1,203 @@
+@let graph = placed();
+
+<div class="graph-toolbar">
+  <mat-slide-toggle [checked]="includeSettled()" (change)="includeSettled.set($event.checked)">
+    Include completed
+  </mat-slide-toggle>
+  <span class="graph-legend">
+    @for (s of ['BLOCKED', 'QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED']; track s) {
+      <span class="legend-item" [attr.data-status]="s">
+        <mat-icon fontSet="material-symbols-outlined">{{ statusIcon(s) }}</mat-icon
+        >{{ s | lowercase }}
+      </span>
+    }
+    <span class="legend-item legend-optional">
+      <mat-icon fontSet="material-symbols-outlined">science</mat-icon>optional
+    </span>
+    <span class="legend-item">
+      <mat-icon fontSet="material-symbols-outlined">north</mat-icon>needs
+    </span>
+  </span>
+</div>
+
+<div
+  class="graph-canvas"
+  (pointerdown)="onPointerDown($event)"
+  (pointermove)="onPointerMove($event)"
+  (pointerup)="onPointerUp()"
+  (pointerleave)="onPointerUp()"
+  (wheel)="onWheel($event)"
+>
+  <button mat-icon-button class="graph-reset" aria-label="Reset view" (click)="resetView()">
+    <mat-icon fontSet="material-symbols-outlined">center_focus_strong</mat-icon>
+  </button>
+
+  @if (graph.nodes.length === 0) {
+    <p class="graph-empty">
+      <mat-icon fontSet="material-symbols-outlined">task_alt</mat-icon>
+      Nothing in progress — every change has been carried out.
+    </p>
+  } @else {
+    <div
+      class="graph-surface"
+      [style.width.px]="graph.width"
+      [style.height.px]="graph.height"
+      [style.transform]="
+        'translate(' + offsetX() + 'px, ' + offsetY() + 'px) scale(' + scale() + ')'
+      "
+    >
+      <svg class="graph-edges" [attr.width]="graph.width" [attr.height]="graph.height">
+        <defs>
+          <marker
+            id="graph-arrow"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" />
+          </marker>
+        </defs>
+        @for (edge of graph.edges; track edge.from + '>' + edge.to) {
+          <!-- Drawn from what's needed down to what needs it; the arrowhead sits on the
+               upper end, so arrows read bottom-up: "this needs that". -->
+          <path
+            [attr.d]="edge.path"
+            class="edge"
+            [class]="'edge-' + edge.kind"
+            marker-start="url(#graph-arrow)"
+          />
+        }
+      </svg>
+
+      @for (node of graph.nodes; track node.id) {
+        <div
+          class="node"
+          [class]="'node-' + node.kind"
+          [class.node-optional]="node.optional"
+          [attr.data-status]="node.action?.status ?? null"
+          [style.left.px]="node.x"
+          [style.top.px]="node.y"
+          [style.width.px]="node.width"
+          [style.height.px]="node.height"
+          [title]="
+            node.kind === 'cause'
+              ? (node.trigger | lowercase) +
+                ' · ' +
+                node.title +
+                (node.subtitle ? ' (' + node.subtitle + ')' : '')
+              : node.waitingFor.length
+                ? 'Waiting for ' + node.waitingFor.join(', ')
+                : ''
+          "
+        >
+          @switch (node.kind) {
+            @case ('cause') {
+              <mat-icon fontSet="material-symbols-outlined" class="node-icon">{{
+                triggerIcon(node.trigger)
+              }}</mat-icon>
+              <span class="node-title">{{ node.title }}</span>
+            }
+            @case ('ghost') {
+              <mat-icon fontSet="material-symbols-outlined" class="node-icon">help</mat-icon>
+              <div class="node-text">
+                <span class="node-title">{{ node.title }}</span>
+                <span class="node-subtitle"
+                  >not scheduled{{ node.subtitle ? ' · ' + node.subtitle : '' }}</span
+                >
+              </div>
+            }
+            @case ('action') {
+              @let action = node.action!;
+              <div class="node-head">
+                <mat-icon
+                  fontSet="material-symbols-outlined"
+                  class="node-icon"
+                  [class.spin]="action.status === 'RUNNING'"
+                  >{{ node.optional ? 'science' : statusIcon(action.status) }}</mat-icon
+                >
+                <div class="node-text">
+                  <span class="node-title">{{ node.title }}</span>
+                  <span class="node-subtitle">
+                    {{
+                      node.optional ? 'optional' : action.policy === 'AUTO' ? 'automatic' : 'manual'
+                    }}
+                    @if (node.subtitle) {
+                      · {{ node.subtitle }}
+                    }
+                    @if (action.requires) {
+                      ·
+                      <mat-icon fontSet="material-symbols-outlined" class="inline-icon"
+                        >lock</mat-icon
+                      >{{ action.requires }}
+                    }
+                  </span>
+                </div>
+                @if (action.execution_ref) {
+                  <button
+                    mat-icon-button
+                    class="node-log"
+                    aria-label="Logs"
+                    title="Logs"
+                    (click)="openLog.emit(action)"
+                  >
+                    <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+                  </button>
+                }
+              </div>
+              <div class="node-foot">
+                @if (action.status === 'RUNNING') {
+                  <span class="node-state">running…</span>
+                } @else if (isRunnable(action)) {
+                  @if (node.optional) {
+                    <button
+                      mat-stroked-button
+                      class="node-run"
+                      [disabled]="busyActionId() === action.id || !!disabledReason(action)"
+                      [title]="disabledReason(action) ?? 'Run this check now'"
+                      (click)="confirm.emit(action)"
+                    >
+                      <mat-icon fontSet="material-symbols-outlined">{{ runIcon(action) }}</mat-icon>
+                      Run
+                    </button>
+                  } @else {
+                    <button
+                      mat-flat-button
+                      class="node-run"
+                      [color]="action.status === 'FAILED' ? 'warn' : 'primary'"
+                      [disabled]="busyActionId() === action.id || !!disabledReason(action)"
+                      [title]="disabledReason(action) ?? ''"
+                      (click)="confirm.emit(action)"
+                    >
+                      <mat-icon fontSet="material-symbols-outlined">{{ runIcon(action) }}</mat-icon>
+                      {{ runLabel(action) }}
+                    </button>
+                  }
+                  @if (node.optional && node.lastRun; as last) {
+                    <span
+                      class="node-state"
+                      [title]="'Last run ' + (last.completed_at | date: 'short')"
+                      >last {{ last.status | lowercase }}</span
+                    >
+                  } @else if (node.optional) {
+                    <span class="node-state">never run</span>
+                  } @else if (action.status === 'QUEUED' && action.policy === 'AUTO') {
+                    <span class="node-state">starts on its own</span>
+                  }
+                } @else if (action.status === 'BLOCKED') {
+                  <span class="node-state node-state-wrap"
+                    >waiting for {{ node.waitingFor.join(', ') || 'its dependencies' }}</span
+                  >
+                } @else {
+                  <span class="node-state">{{ action.status | lowercase }}</span>
+                }
+              </div>
+            }
+          }
+        </div>
+      }
+    </div>
+  }
+</div>

@@ -70,7 +70,15 @@ public class ShowcaseInstanceFixtureTests
         var result = Reconcile(catalog, mergedYaml);
 
         Assert.Empty(result.ValidationErrors);
-        Assert.All(AllTemplates(catalog), a => Assert.NotNull(a.Docker!.Build!.Fingerprint));
+        Assert.All(AllTemplates(catalog), a => Assert.NotNull(a.Container!.Build!.Fingerprint));
+        // kind.yaml hands every action the Proton Pass token, and every playbook shares _base.
+        Assert.All(AllTemplates(catalog), a =>
+        {
+            var pat = Assert.Single(a.Inputs, i => i.Name == "pass_pat");
+            Assert.Equal(RuleInputKind.Secret, pat.Kind);
+            Assert.Equal("PROTON_PASS_PAT", pat.Value);
+            Assert.Equal("playbooks/_base", a.Container!.Build!.AdditionalContexts!["base"]);
+        });
     }
 
     [Fact]
@@ -102,11 +110,28 @@ public class ShowcaseInstanceFixtureTests
             Assert.EndsWith("." + a.Identity.ItemKey!.Split('/').Last(), a.ResolvedInputs["unit"]);
             using var inputs = JsonDocument.Parse(a.ResolvedInputs["inputs"]!);
             Assert.False(inputs.RootElement.TryGetProperty("compose", out _));
-            Assert.Equal("playbooks/terraform", a.DockerConfig!.Build!.Context);
-            Assert.Contains(a.DockerConfig.Mounts!, m => m.Alias == "tfstate");
+            Assert.Equal("playbooks/terraform", a.ContainerConfig!.Build!.Context);
         });
         Assert.All(applies.Where(a => a.ResolvedInputs["module"] == "cloudflare-dns-record"),
             a => Assert.Matches("^[0-9a-f]{32}$", a.ResolvedInputs["zone_id"]!));
+    }
+
+    [Fact]
+    public async Task The_first_cycle_emits_every_vms_whole_chain_blocked_on_its_direct_dependency()
+    {
+        var (catalog, mergedYaml) = await LoadHomelabLabAsync();
+        var created = Reconcile(catalog, mergedYaml).ToCreate;
+
+        var applies = created.Where(a => a.Identity.ActionKey == "apply_vm").ToList();
+        Assert.NotEmpty(applies);
+        Assert.All(applies, a => Assert.False(a.Blocked));
+        Assert.All(created.Where(a => a.Identity.ActionKey == "configure_vm"), c =>
+            Assert.Equal(new[] { new ActionIdentity(VmSignal, c.Identity.ItemKey, "apply_vm") }, c.BlockedBy));
+
+        var deploys = created.Where(a => a.Identity.ActionKey == "deploy_stack").ToList();
+        Assert.NotEmpty(deploys);
+        Assert.All(deploys, d =>
+            Assert.Equal(new[] { new ActionIdentity(VmSignal, d.Identity.ItemKey!.Split('/')[0], "configure_vm") }, d.BlockedBy));
     }
 
     [Fact]

@@ -56,7 +56,7 @@ public static class DependencyInjection
         services.AddScoped<ActionsQueryService>();
         services.AddScoped<SettingsService>();
 
-        // Shared by the catalog provider (stamps each docker.build action with its playbook
+        // Shared by the catalog provider (stamps each container.build action with its playbook
         // folder's fingerprint) and the Docker executor (re-checks it before building).
         services.AddSingleton<PlaybookContextResolver>();
         services.AddSingleton<ICapabilityCatalogProvider, FileCapabilityCatalogProvider>();
@@ -83,12 +83,17 @@ public static class DependencyInjection
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("oidc"),
             sp.GetRequiredService<IOptions<OidcOptions>>()));
 
-        // Execution: each action declares its executor explicitly (docker | http — see
+        // Execution: each action declares its executor explicitly (container | http — see
         // Lodge.Core.Domain.Enums.ExecutorKind), dispatched by CompositeRunbookExecutor, the
         // one registered as IRunbookExecutor. Concrete executors are singletons so run state
         // persists across requests for status polling; the HTTP one over a named client
         // (AddHttpClient<T> would make it transient and drop that state).
-        services.AddSingleton<DockerRunbookExecutor>();
+        // The container executor's runtime: Docker, the only one so far. Another runtime
+        // (Kubernetes) is another IImageBuilder + IContainerRunner pair, chosen here.
+        services.AddSingleton<DockerCli>();
+        services.AddSingleton<IImageBuilder, DockerImageBuilder>();
+        services.AddSingleton<IContainerRunner, DockerContainerRunner>();
+        services.AddSingleton<ContainerRunbookExecutor>();
         services.AddHttpClient("http-executor");
         services.AddSingleton(sp => new HttpRunbookExecutor(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("http-executor"),

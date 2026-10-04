@@ -1,9 +1,11 @@
 #!/bin/sh
-# Shared by every homelab playbook image (one copy per build context — each folder is its
-# own image). Mirrors the conventions of the homelab repo's scripts:
+# Shared by every homelab playbook image: it lives in playbooks/_base, which each
+# capability passes as the `base` additional build context (COPY --from=base). Mirrors the
+# conventions of the homelab repo's scripts:
 #  - secrets: "pass: VAR" markers resolve to pass://$PASS_PREFIX/VAR through pass-cli
 #    (installed in the image). It logs in with a Proton Pass personal access token — the
-#    `pass_pat` secret input, the one thing Lodge hands over — into a fresh session dir
+#    `pass_pat` secret input (declared once for every action, in kind.yaml), the one
+#    thing Lodge hands over — into a fresh session dir
 #    that dies with the container; no host session or file is ever mounted;
 #  - ssh: one private key for the VMs as $SSH_USER and for Proxmox, fetched from Proton
 #    Pass too: pass://$PASS_PREFIX/$SSH_KEY_VAR, base64 (or a plain PEM).
@@ -36,7 +38,7 @@ lodge_pass_markers() {
 lodge_pass_login() {
     [ "$LODGE_PASS_LOGGED_IN" = 1 ] && return 0
     [ -n "${LODGE_PARAM_PASS_PAT:-}" ] || {
-        echo "no Proton Pass token: the action needs a 'pass_pat: { secret: PROTON_PASS_PAT }' input" >&2
+        echo "no Proton Pass token: kind.yaml's defaults.inputs should give every action 'pass_pat: { secret: PROTON_PASS_PAT }' (unless the action drops it with 'pass_pat: ~')" >&2
         exit 1
     }
     PROTON_PASS_SESSION_DIR="$(mktemp -d)"

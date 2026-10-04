@@ -1,1 +1,10 @@
 name: "Homelab"
+
+# Inputs every action of this kind gets (an action can override one, or drop it with
+# `name: ~`). pass_pat is the Proton Pass personal access token (Homelab vault), resolved
+# by Lodge from PROTON_PASS_PAT — the only credential Lodge hands over; every run fetches
+# the rest (provider tokens, ssh key, state backend) from Proton Pass itself.
+defaults:
+  inputs:
+    pass_pat: { secret: PROTON_PASS_PAT }
+    tf_pg_conn_str: { secret: TF_PG_CONN_STR }

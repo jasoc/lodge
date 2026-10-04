@@ -18,6 +18,14 @@
     </div>
   </div>
 
+  @if (actionsFailed()) {
+    <p class="actions-error" role="alert">
+      <mat-icon fontSet="material-symbols-outlined">error</mat-icon>
+      Couldn't load this instance's actions — the server returned an error (see its log). Retrying
+      on its own.
+    </p>
+  }
+
   @if (activeActions().length > 0) {
     <section class="running-strip" aria-label="Running now">
       <span class="running-strip-title">
@@ -56,61 +64,31 @@
       <ng-container [ngTemplateOutlet]="capabilityCardsTpl"></ng-container>
     </m3-tab>
 
-    <m3-tab icon="description" label="Inventory">
-      <pre class="yaml-view">{{ t.latest_yaml ?? '(no inventory revision yet)' }}</pre>
+    <m3-tab icon="format_list_numbered" label="Run queue">
+      <lodge-run-queue
+        [actions]="actions()"
+        [lockedReason]="lockedReasonFn"
+        [capabilityTitle]="capabilityTitleFn"
+        [busyActionId]="busyActionId()"
+        (openLog)="openLog($event)"
+        (run)="runFromQueue($event)"
+      ></lodge-run-queue>
     </m3-tab>
 
-    <m3-tab icon="hub" label="Canvas">
-      <div class="canvas-view">
-        <div
-          class="inventory-canvas"
-          (pointerdown)="onCanvasPointerDown($event)"
-          (pointermove)="onCanvasPointerMove($event)"
-          (pointerup)="onCanvasPointerUp()"
-          (pointerleave)="onCanvasPointerUp()"
-          (wheel)="onCanvasWheel($event)"
-        >
-          <button
-            mat-icon-button
-            class="inventory-canvas-reset"
-            aria-label="Reset view"
-            (click)="resetCanvasView()"
-          >
-            <mat-icon fontSet="material-symbols-outlined">center_focus_strong</mat-icon>
-          </button>
-          <div
-            class="inventory-canvas-surface"
-            [style.transform]="
-              'translate(' +
-              canvasOffsetX() +
-              'px, ' +
-              canvasOffsetY() +
-              'px) scale(' +
-              canvasScale() +
-              ')'
-            "
-          >
-            @for (node of inventoryNodes(); track node.key) {
-              <div class="inventory-node">
-                <p class="inventory-node-title">{{ node.key }}</p>
-                @for (sig of node.signals; track sig.path) {
-                  <div
-                    class="inventory-signal"
-                    [class.inventory-signal-active]="sig.isSignal"
-                    [class.inventory-signal-highlighted]="highlightedSignalPath() === sig.path"
-                    (click)="sig.isSignal && highlightSignal(sig.path)"
-                  >
-                    <code>{{ sig.path }}</code>
-                    <span>{{ formatSignalValue(sig.value) }}</span>
-                  </div>
-                }
-              </div>
-            }
-          </div>
-        </div>
+    <m3-tab icon="account_tree" label="Graph">
+      <lodge-action-graph
+        [actions]="actions()"
+        [lockedReason]="lockedReasonFn"
+        [busyActionId]="busyActionId()"
+        (openLog)="openLog($event)"
+        (confirm)="startConfirm($event)"
+      ></lodge-action-graph>
+    </m3-tab>
 
-        <ng-container [ngTemplateOutlet]="capabilityCardsTpl"></ng-container>
-      </div>
+    <m3-tab icon="description" label="Inventory">
+      <lodge-yaml-viewer
+        [value]="t.latest_yaml ?? '# no inventory revision yet'"
+      ></lodge-yaml-viewer>
     </m3-tab>
   </m3-tabs>
 
@@ -215,6 +193,9 @@
               @if (card.running.length) {
                 <span class="count count-running">{{ card.running.length }} running</span>
               }
+              @if (card.waiting.length) {
+                <span class="count count-waiting">{{ card.waiting.length }} waiting</span>
+              }
               <a
                 class="capability-panel-link"
                 [routerLink]="['/kinds', kindCode, 'capabilities']"
@@ -224,6 +205,39 @@
               </a>
             </div>
           </div>
+
+          <!-- Running: in flight right now — always shown, never folded away. -->
+          @if (card.running.length > 0) {
+            <div class="running-list">
+              @for (action of card.running; track action.id) {
+                <div class="running-row" [class.running-row-starting]="action.status !== 'RUNNING'">
+                  <mat-icon
+                    fontSet="material-symbols-outlined"
+                    class="running-row-icon"
+                    [class.spin]="action.status === 'RUNNING'"
+                    >{{ action.status === 'RUNNING' ? 'progress_activity' : 'schedule' }}</mat-icon
+                  >
+                  <div class="todo-row-text">
+                    <span class="todo-row-label">
+                      {{ action.label }}
+                      @if (action.item_key) {
+                        <span class="running-row-item">{{ action.item_key }}</span>
+                      }
+                    </span>
+                    <span class="todo-row-note">
+                      {{ action.status === 'RUNNING' ? 'running' : 'starting on its own…' }}
+                    </span>
+                  </div>
+                  @if (hasLog(action)) {
+                    <button mat-stroked-button (click)="openLog(action)">
+                      <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+                      Logs
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          }
 
           <!-- Needs you: big, unmissable, failures first. -->
           @if (card.todo.length > 0) {
@@ -246,11 +260,7 @@
                       [ngTemplateOutletContext]="{ group }"
                     ></ng-container>
                     @for (action of group.rows; track action.id) {
-                      <div
-                        class="todo-row"
-                        [class.todo-row-failed]="action.status === 'FAILED'"
-                        [class.row-highlighted]="highlightedSignalPath() === action.signal_path"
-                      >
+                      <div class="todo-row" [class.todo-row-failed]="action.status === 'FAILED'">
                         <div class="todo-row-text">
                           <span class="todo-row-label">
                             @if (action.status === 'FAILED') {
@@ -323,6 +333,50 @@
             </p>
           }
 
+          <!-- Waiting: emitted already, held until what they depend on has succeeded. -->
+          @if (card.waiting.length > 0) {
+            <ng-container
+              [ngTemplateOutlet]="sectionHeader"
+              [ngTemplateOutletContext]="{
+                card,
+                section: 'waiting',
+                icon: 'hourglass_empty',
+                title: 'Waiting on dependencies',
+                count: card.waiting.length,
+              }"
+            ></ng-container>
+            @if (isSectionOpen(card, 'waiting')) {
+              <div class="todo-list">
+                @for (
+                  group of byItem(visibleRows(card, 'waiting', card.waiting));
+                  track group.item
+                ) {
+                  <div class="item-group" [class.item-group-plain]="group.item === null">
+                    <ng-container
+                      [ngTemplateOutlet]="itemHeader"
+                      [ngTemplateOutletContext]="{ group }"
+                    ></ng-container>
+                    @for (action of group.rows; track action.id) {
+                      <div class="todo-row todo-row-waiting">
+                        <div class="todo-row-text">
+                          <span class="todo-row-label">{{ action.label }}</span>
+                          <span class="todo-row-note">
+                            waiting for {{ waitingFor(action).join(', ') || 'its dependencies' }} ·
+                            then {{ action.policy === 'AUTO' ? 'runs on its own' : 'needs you' }}
+                          </span>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                }
+                <ng-container
+                  [ngTemplateOutlet]="showAll"
+                  [ngTemplateOutletContext]="{ card, section: 'waiting', rows: card.waiting }"
+                ></ng-container>
+              </div>
+            }
+          }
+
           <!-- Checks & tests: re-runnable at will, a toolbox not a chore list. -->
           @if (card.optional.length > 0) {
             <ng-container
@@ -347,10 +401,7 @@
                       [ngTemplateOutletContext]="{ group }"
                     ></ng-container>
                     @for (entry of group.rows; track entry.key) {
-                      <div
-                        class="check-row"
-                        [class.row-highlighted]="highlightedSignalPath() === entry.signal_path"
-                      >
+                      <div class="check-row">
                         @if (entry.live?.status === 'RUNNING') {
                           <button mat-stroked-button class="check-run" disabled>
                             <mat-icon fontSet="material-symbols-outlined" class="spin"
@@ -450,10 +501,7 @@
                       [ngTemplateOutletContext]="{ group }"
                     ></ng-container>
                     @for (action of group.rows; track action.id) {
-                      <div
-                        class="compact-row"
-                        [class.row-highlighted]="highlightedSignalPath() === action.signal_path"
-                      >
+                      <div class="compact-row">
                         <span class="compact-row-label">{{ action.label }}</span>
                         @if (action.synthetic) {
                           <span class="tag" title="Adopted via past_history — never run by Lodge"

@@ -16,47 +16,41 @@ signals:
           - key: download_image
             label: "Download image (Terraform)"
             policy: MANUAL_REQUIRED
-            executor: docker
-            docker:
-              build: { context: playbooks/terraform }
+            executor: container
+            container:
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["apply"]
-              mounts: ["tfstate:/state"]
             inputs:
               module: { const: proxmox-image }
               unit: { from: path }
               inputs: { from: item }
               import_id: { from: item.import_id }
-              pass_pat: { secret: PROTON_PASS_PAT }
 
       - on: modify
         actions:
           - key: update_image
             label: "Apply image changes (Terraform)"
             policy: MANUAL_REQUIRED
-            executor: docker
-            docker:
-              build: { context: playbooks/terraform }
+            executor: container
+            container:
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["apply"]
-              mounts: ["tfstate:/state"]
             inputs:
               module: { const: proxmox-image }
               unit: { from: path }
               inputs: { from: item }
               import_id: { from: item.import_id }
-              pass_pat: { secret: PROTON_PASS_PAT }
 
       - on: delete
         actions:
           - key: delete_image
             label: "Delete image (Terraform)"
             policy: MANUAL_REQUIRED
-            executor: docker
-            docker:
-              build: { context: playbooks/terraform }
+            executor: container
+            container:
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["destroy"]
-              mounts: ["tfstate:/state"]
             inputs:
               module: { const: proxmox-image }
               unit: { from: path }
               inputs: { from: item }
-              pass_pat: { secret: PROTON_PASS_PAT }

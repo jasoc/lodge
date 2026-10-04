@@ -11,7 +11,7 @@ using Xunit;
 namespace Lodge.Tests;
 
 /// <summary>
-/// Exercises <see cref="DockerRunbookExecutor"/> against a real spawned process — not a
+/// Exercises <see cref="ContainerRunbookExecutor"/> on its Docker runtime against a real spawned process — not a
 /// mock, an actual argv/env round-trip — but against a small fake "docker" script rather
 /// than a real docker daemon, which can't be assumed in CI. The fake script appends every
 /// invocation's argv (and, for <c>run</c>, every LODGE_* env var it received) to a calls
@@ -20,7 +20,7 @@ namespace Lodge.Tests;
 /// script, so tests never share process-global environment. Unix-only.
 /// </summary>
 [UnsupportedOSPlatform("windows")]
-public sealed class DockerRunbookExecutorTests : IDisposable
+public sealed class ContainerRunbookExecutorTests : IDisposable
 {
     private readonly string _scratchDir = Directory.CreateTempSubdirectory("lodge-docker-test-").FullName;
     private string CallsFile => Path.Combine(_scratchDir, "calls.txt");
@@ -28,8 +28,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
 
     public void Dispose() => Directory.Delete(_scratchDir, recursive: true);
 
-    private DockerRunbookExecutor NewExecutor(int runExit = 0, int buildExit = 0, string? logDir = null,
-        Dictionary<string, string>? mounts = null)
+    private ContainerRunbookExecutor NewExecutor(int runExit = 0, int buildExit = 0, string? logDir = null, string? network = null)
     {
         var scriptPath = Path.Combine(_scratchDir, $"fake-docker-{Guid.NewGuid():N}.sh");
         var builtDir = Path.Combine(_scratchDir, "built");
@@ -61,17 +60,21 @@ public sealed class DockerRunbookExecutorTests : IDisposable
             """.ReplaceLineEndings("\n"));
         File.SetUnixFileMode(scriptPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
-        return new DockerRunbookExecutor(
-            Options.Create(new DockerExecutorOptions
-            {
-                DockerBinaryPath = scriptPath,
-                LogDirectory = logDir ?? Path.Combine(_scratchDir, "logs"),
-                Mounts = mounts ?? new Dictionary<string, string>()
-            }),
-            new PlaybookContextResolver(Options.Create(new GitSnapshotOptions { RepoRoot = RepoRoot })));
+        var options = Options.Create(new DockerExecutorOptions
+        {
+            DockerBinaryPath = scriptPath,
+            LogDirectory = logDir ?? Path.Combine(_scratchDir, "logs"),
+            Network = network
+        });
+        var docker = new DockerCli(options);
+        return new ContainerRunbookExecutor(
+            options,
+            new PlaybookContextResolver(Options.Create(new GitSnapshotOptions { RepoRoot = RepoRoot })),
+            new DockerImageBuilder(options, docker),
+            new DockerContainerRunner(options, docker));
     }
 
-    private static async Task<RunbookRunStatus> WaitUntilTerminalAsync(DockerRunbookExecutor executor, string runId)
+    private static async Task<RunbookRunStatus> WaitUntilTerminalAsync(ContainerRunbookExecutor executor, string runId)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while (DateTime.UtcNow < deadline)
@@ -86,22 +89,22 @@ public sealed class DockerRunbookExecutorTests : IDisposable
         throw new TimeoutException($"Run '{runId}' did not reach a terminal state in time.");
     }
 
-    private static RunbookExecutionRequest Request(DockerExecutorConfig? config, Dictionary<string, string?>? parameters = null)
+    private static RunbookExecutionRequest Request(ContainerExecutorConfig? config, Dictionary<string, string?>? parameters = null)
         => new("homelab", "personal", "probe/run", Guid.NewGuid(),
-            parameters ?? new Dictionary<string, string?>(), ExecutorKind.Docker, config);
+            parameters ?? new Dictionary<string, string?>(), ExecutorKind.Container, config);
 
     private string[] Calls() => File.Exists(CallsFile) ? File.ReadAllLines(CallsFile) : Array.Empty<string>();
 
     private static string Arg(IEnumerable<string> lines, int index)
         => lines.Single(l => l.StartsWith($"ARGV[{index}]=", StringComparison.Ordinal)).Split('=', 2)[1];
 
-    private DockerBuildConfig WritePlaybook(string body = "echo hi", IReadOnlyDictionary<string, string>? args = null)
+    private ContainerBuildConfig WritePlaybook(string body = "echo hi", IReadOnlyDictionary<string, string>? args = null)
     {
         var dir = Path.Combine(RepoRoot, "inventory", "homelab", "playbooks", "probe");
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "Dockerfile"), "FROM alpine:3.20\nCOPY run.sh /run.sh\n");
         File.WriteAllText(Path.Combine(dir, "run.sh"), body);
-        var build = new DockerBuildConfig("playbooks/probe", Args: args);
+        var build = new ContainerBuildConfig("playbooks/probe", Args: args);
         var fingerprint = new PlaybookContextResolver(Options.Create(new GitSnapshotOptions { RepoRoot = RepoRoot }))
             .ComputeFingerprint("homelab", build);
         return build with { Fingerprint = fingerprint };
@@ -111,7 +114,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
     public async Task Image_run_passes_params_as_env_names_only_and_never_targets_a_remote_host()
     {
         var executor = NewExecutor();
-        var config = new DockerExecutorConfig("homelab/toolbox:latest", new[] { "ansible-profile" });
+        var config = new ContainerExecutorConfig("homelab/toolbox:latest", new[] { "ansible-profile" });
         var handle = await executor.StartAsync(Request(config, new Dictionary<string, string?>
         {
             ["docker_host"] = "192.168.178.200",
@@ -152,7 +155,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
     public async Task Entrypoint_head_becomes_the_flag_and_its_tail_leads_the_command()
     {
         var executor = NewExecutor();
-        var config = new DockerExecutorConfig("alpine:3.20", new[] { "echo $LODGE_PARAM_X" }, new[] { "/bin/sh", "-c" });
+        var config = new ContainerExecutorConfig("alpine:3.20", new[] { "echo $LODGE_PARAM_X" }, new[] { "/bin/sh", "-c" });
         var handle = await executor.StartAsync(Request(config));
         await WaitUntilTerminalAsync(executor, handle.RunId);
 
@@ -166,7 +169,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
     public async Task Reports_failure_on_a_nonzero_exit_code()
     {
         var executor = NewExecutor(runExit: 7);
-        var handle = await executor.StartAsync(Request(new DockerExecutorConfig("alpine:3.20", Array.Empty<string>())));
+        var handle = await executor.StartAsync(Request(new ContainerExecutorConfig("alpine:3.20", Array.Empty<string>())));
         var status = await WaitUntilTerminalAsync(executor, handle.RunId);
 
         Assert.Equal(RunbookRunState.Failed, status.State);
@@ -174,7 +177,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task Throws_when_the_request_carries_no_docker_config()
+    public async Task Throws_when_the_request_carries_no_container_config()
     {
         var executor = NewExecutor();
         await Assert.ThrowsAsync<InvalidOperationException>(() => executor.StartAsync(Request(null)));
@@ -184,7 +187,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
     public async Task Build_playbook_is_built_once_then_served_from_cache()
     {
         var build = WritePlaybook(args: new Dictionary<string, string> { ["ALPINE_VERSION"] = "3.20" });
-        var config = new DockerExecutorConfig(null, Array.Empty<string>(), Build: build);
+        var config = new ContainerExecutorConfig(null, Array.Empty<string>(), Build: build);
         var executor = NewExecutor();
 
         var first = await WaitUntilTerminalAsync(executor, (await executor.StartAsync(Request(config))).RunId);
@@ -203,6 +206,33 @@ public sealed class DockerRunbookExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task Build_playbook_passes_additional_contexts_to_the_build()
+    {
+        var baseDir = Path.Combine(RepoRoot, "inventory", "homelab", "playbooks", "_base");
+        Directory.CreateDirectory(baseDir);
+        File.WriteAllText(Path.Combine(baseDir, "lib.sh"), "echo lib");
+        var build = WritePlaybook() with
+        {
+            Fingerprint = null,
+            AdditionalContexts = new Dictionary<string, string> { ["base"] = "playbooks/_base" }
+        };
+        build = build with
+        {
+            Fingerprint = new PlaybookContextResolver(Options.Create(new GitSnapshotOptions { RepoRoot = RepoRoot }))
+                .ComputeFingerprint("homelab", build)
+        };
+        var executor = NewExecutor();
+
+        var status = await WaitUntilTerminalAsync(executor,
+            (await executor.StartAsync(Request(new ContainerExecutorConfig(null, Array.Empty<string>(), Build: build)))).RunId);
+
+        Assert.Equal(RunbookRunState.Succeeded, status.State);
+        var buildCall = Assert.Single(Calls(), l => l.StartsWith("CALL build ", StringComparison.Ordinal));
+        Assert.Contains($"--build-context base={baseDir} ", buildCall);
+        Assert.EndsWith(Path.Combine(RepoRoot, "inventory", "homelab", "playbooks", "probe"), buildCall);
+    }
+
+    [Fact]
     public async Task Build_playbook_changed_since_emission_is_refused_without_touching_docker()
     {
         var build = WritePlaybook("echo approved");
@@ -210,7 +240,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
         var executor = NewExecutor();
 
         var status = await WaitUntilTerminalAsync(executor,
-            (await executor.StartAsync(Request(new DockerExecutorConfig(null, Array.Empty<string>(), Build: build)))).RunId);
+            (await executor.StartAsync(Request(new ContainerExecutorConfig(null, Array.Empty<string>(), Build: build)))).RunId);
 
         Assert.Equal(RunbookRunState.Failed, status.State);
         Assert.Contains("changed since this action was emitted", status.Message);
@@ -224,7 +254,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
         var executor = NewExecutor();
 
         var status = await WaitUntilTerminalAsync(executor,
-            (await executor.StartAsync(Request(new DockerExecutorConfig(null, Array.Empty<string>(), Build: build)))).RunId);
+            (await executor.StartAsync(Request(new ContainerExecutorConfig(null, Array.Empty<string>(), Build: build)))).RunId);
 
         Assert.Equal(RunbookRunState.Failed, status.State);
         Assert.Contains("could not be resolved", status.Message);
@@ -238,7 +268,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
         var executor = NewExecutor(buildExit: 1);
 
         var status = await WaitUntilTerminalAsync(executor,
-            (await executor.StartAsync(Request(new DockerExecutorConfig(null, Array.Empty<string>(), Build: build)))).RunId);
+            (await executor.StartAsync(Request(new ContainerExecutorConfig(null, Array.Empty<string>(), Build: build)))).RunId);
 
         Assert.Equal(RunbookRunState.Failed, status.State);
         Assert.Contains("building", status.Message);
@@ -250,7 +280,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
     {
         var logDir = Path.Combine(_scratchDir, "logs-sidecar");
         var executor = NewExecutor(logDir: logDir);
-        var handle = await executor.StartAsync(Request(new DockerExecutorConfig("alpine:3.20", Array.Empty<string>())));
+        var handle = await executor.StartAsync(Request(new ContainerExecutorConfig("alpine:3.20", Array.Empty<string>())));
         await WaitUntilTerminalAsync(executor, handle.RunId);
 
         // Simulate a server restart: a brand-new executor instance, same log dir, has no
@@ -264,7 +294,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
     public async Task Run_log_can_be_tailed_by_offset()
     {
         var executor = NewExecutor();
-        var handle = await executor.StartAsync(Request(new DockerExecutorConfig("alpine:3.20", Array.Empty<string>())));
+        var handle = await executor.StartAsync(Request(new ContainerExecutorConfig("alpine:3.20", Array.Empty<string>())));
         await WaitUntilTerminalAsync(executor, handle.RunId);
 
         var logPath = Path.Combine(_scratchDir, "logs", $"{handle.RunId}.log");
@@ -282,7 +312,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
     public async Task Run_log_chunks_never_split_a_utf8_character()
     {
         var executor = NewExecutor();
-        var handle = await executor.StartAsync(Request(new DockerExecutorConfig("alpine:3.20", Array.Empty<string>())));
+        var handle = await executor.StartAsync(Request(new ContainerExecutorConfig("alpine:3.20", Array.Empty<string>())));
         await WaitUntilTerminalAsync(executor, handle.RunId);
         File.WriteAllText(Path.Combine(_scratchDir, "logs", $"{handle.RunId}.log"), "aè");   // 'è' is 2 bytes
 
@@ -304,37 +334,36 @@ public sealed class DockerRunbookExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task Mount_aliases_resolve_through_server_config_and_static_env_is_passed_by_name()
+    public async Task Static_env_is_passed_by_name_and_nothing_is_mounted()
     {
-        var executor = NewExecutor(mounts: new Dictionary<string, string>
-        {
-            ["ssh_key"] = "/home/me/.ssh/id",
-            ["tfstate"] = "volume:homelab-tfstate"
-        });
-        var config = new DockerExecutorConfig("alpine:3.20", Array.Empty<string>(),
-            Mounts: new[] { new DockerMount("ssh_key", "/keys/id", true), new DockerMount("tfstate", "/state", false) },
+        var executor = NewExecutor();
+        var config = new ContainerExecutorConfig("alpine:3.20", Array.Empty<string>(),
             Env: new Dictionary<string, string> { ["PROTON_PASS_KEY_PROVIDER"] = "fs" });
 
         var status = await WaitUntilTerminalAsync(executor, (await executor.StartAsync(Request(config))).RunId);
         Assert.Equal(RunbookRunState.Succeeded, status.State);
 
         var argv = Calls().Where(l => l.StartsWith("ARGV[")).Select(l => l.Split('=', 2)[1]).ToList();
-        Assert.Contains("type=bind,source=/home/me/.ssh/id,target=/keys/id,readonly", argv);
-        Assert.Contains("type=volume,source=homelab-tfstate,target=/state", argv);
         Assert.Contains("PROTON_PASS_KEY_PROVIDER", argv);
+        Assert.DoesNotContain(argv, a => a is "--mount" or "-v" or "--volume");
     }
 
     [Fact]
-    public async Task An_unconfigured_mount_alias_fails_the_run_without_starting_a_container()
+    public async Task A_configured_network_is_joined_and_none_by_default()
     {
-        var executor = NewExecutor();
-        var config = new DockerExecutorConfig("alpine:3.20", Array.Empty<string>(),
-            Mounts: new[] { new DockerMount("root_fs", "/host", false) });
+        var executor = NewExecutor(network: "lodge_default");
+        var config = new ContainerExecutorConfig("alpine:3.20", Array.Empty<string>());
 
         var status = await WaitUntilTerminalAsync(executor, (await executor.StartAsync(Request(config))).RunId);
+        Assert.Equal(RunbookRunState.Succeeded, status.State);
 
-        Assert.Equal(RunbookRunState.Failed, status.State);
-        Assert.Contains("mount alias 'root_fs' is not configured", status.Message);
-        Assert.DoesNotContain(Calls(), l => l.StartsWith("CALL run ", StringComparison.Ordinal));
+        var argv = Calls().Where(l => l.StartsWith("ARGV[")).Select(l => l.Split('=', 2)[1]).ToList();
+        Assert.Equal("lodge_default", argv[argv.IndexOf("--network") + 1]);
+
+        File.Delete(CallsFile);
+        var plain = NewExecutor();
+        await WaitUntilTerminalAsync(plain, (await plain.StartAsync(Request(config))).RunId);
+        Assert.DoesNotContain("--network", Calls());
+        Assert.DoesNotContain(Calls(), l => l == "ARGV[3]=--network");
     }
 }

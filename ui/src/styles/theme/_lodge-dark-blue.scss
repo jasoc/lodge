@@ -1,8 +1,8 @@
 @use '../tokens' as *;
 
-// Dark, blue accent: deep navy surfaces, bright blue primary.
+// Dark, blue accent: near-black (AMOLED) surfaces, vivid blue primary.
 [data-theme='lodge-dark-blue'] {
-  --lodge-background-color: #0b1020;
+  --lodge-background-color: #030409;
 
   --lodge-main-ui-text-color: #{$lodge-light-primary-text};
   --lodge-main-ui-text-color-light: #9aa6bf;
@@ -11,5 +11,6 @@
   --lodge-background-shader-lighter: #9fb8ff0d;
   --lodge-background-shader-stronger: #9fb8ff4d;
 
-  --lodge-accent-color-300: #adc6ff;
+  --lodge-accent-color-300: #82b1ff;
 }
+

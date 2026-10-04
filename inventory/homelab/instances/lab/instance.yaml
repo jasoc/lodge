@@ -23,13 +23,13 @@ proxmox:
       node: proxmox
       cores: 4
       cpu_type: x86-64-v3
-      memory_mb: 4096
+      memory_mb: 8192
       disk_gb: 128
       image: "vault:import/AlmaLinux-10-GenericCloud-10.2-20260817.0.x86_64.qcow2"
       ip: 192.168.178.114/24
       gateway: 192.168.178.1
       ansible_profile: docker-node
-      # import_id: "proxmox/100"
+      import_id: "proxmox/102"
       compose:
         - woodpecker.yml
         - gitlab.yml
@@ -43,6 +43,7 @@ proxmox:
       image: "vault:import/AlmaLinux-10-GenericCloud-10.2-20260817.0.x86_64.qcow2"
       ip: 192.168.178.115/24
       gateway: 192.168.178.1
+      import_id: "proxmox/103"
 
 cloudflare:
   zones:

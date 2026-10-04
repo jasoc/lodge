@@ -10,28 +10,28 @@ namespace Lodge.Infrastructure.Execution;
 /// </summary>
 public sealed class CompositeRunbookExecutor : IRunbookExecutor, IRunbookLogReader
 {
-    private readonly DockerRunbookExecutor _docker;
+    private readonly ContainerRunbookExecutor _container;
     private readonly HttpRunbookExecutor _http;
 
-    public CompositeRunbookExecutor(DockerRunbookExecutor docker, HttpRunbookExecutor http)
+    public CompositeRunbookExecutor(ContainerRunbookExecutor container, HttpRunbookExecutor http)
     {
-        _docker = docker;
+        _container = container;
         _http = http;
     }
 
     public Task<RunbookRunHandle> StartAsync(RunbookExecutionRequest request, CancellationToken cancellationToken = default)
         => request.ExecutorKind switch
         {
-            ExecutorKind.Docker => _docker.StartAsync(request, cancellationToken),
+            ExecutorKind.Container => _container.StartAsync(request, cancellationToken),
             ExecutorKind.Http => _http.StartAsync(request, cancellationToken),
             _ => throw new NotSupportedException($"Executor '{request.ExecutorKind}' is not supported.")
         };
 
     public Task<RunbookRunStatus> GetStatusAsync(string runId, CancellationToken cancellationToken = default)
-        => IsHttp(runId) ? _http.GetStatusAsync(runId, cancellationToken) : _docker.GetStatusAsync(runId, cancellationToken);
+        => IsHttp(runId) ? _http.GetStatusAsync(runId, cancellationToken) : _container.GetStatusAsync(runId, cancellationToken);
 
     public Task<RunbookLogChunk?> ReadLogAsync(string runId, long offset, int maxBytes, CancellationToken cancellationToken = default)
-        => IsHttp(runId) ? _http.ReadLogAsync(runId, offset, maxBytes, cancellationToken) : _docker.ReadLogAsync(runId, offset, maxBytes, cancellationToken);
+        => IsHttp(runId) ? _http.ReadLogAsync(runId, offset, maxBytes, cancellationToken) : _container.ReadLogAsync(runId, offset, maxBytes, cancellationToken);
 
     private static bool IsHttp(string runId) => runId.StartsWith(HttpRunbookExecutor.RunIdPrefix, StringComparison.Ordinal);
 }

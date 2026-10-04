@@ -27,7 +27,7 @@ public sealed record RunbookExecutionRequest(
     Guid ActionId,
     IReadOnlyDictionary<string, string?> Parameters,
     ExecutorKind ExecutorKind,
-    DockerExecutorConfig? DockerConfig = null,
+    ContainerExecutorConfig? ContainerConfig = null,
     HttpExecutorConfig? HttpConfig = null,
     IReadOnlyCollection<string>? SecretNames = null);
 

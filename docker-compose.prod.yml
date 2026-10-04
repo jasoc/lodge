@@ -30,10 +30,13 @@ services:
       retries: 10
 
   server:
-    # PLACEHOLDER: no published image yet. Until there is one, build it locally under this
-    # same tag (./scripts/prod-test.sh does):
-    #   docker build -t "$LODGE_SERVER_IMAGE" -f server/src/Lodge.Server/Dockerfile .
-    image: ${LODGE_SERVER_IMAGE:-ghcr.io/CHANGEME/lodge-server:CHANGEME}
+    # Published by .github/workflows/docker-publish.yml. `up` pulls it (and builds only if the
+    # pull fails); to run the checkout's code instead, build it from the root Dockerfile under
+    # this same tag with `up --build` (./scripts/prod-test.sh does).
+    image: ${LODGE_SERVER_IMAGE:-ghcr.io/jasoc/lodge:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:

@@ -1,9 +1,9 @@
 #!/bin/bash
-# Builds the server image locally and runs the full production stack
+# Builds the server image from this checkout and runs the full production stack
 # (docker-compose.prod.yml: server, Postgres, Keycloak) with .env.prod — the closest local
-# approximation to a real deployment. Until the server image is published, this local build
-# is the only way to get it: it's tagged as LODGE_SERVER_IMAGE so the compose file picks it
-# up. Its state lives in the `lodge-prod` project's named volumes, never in the dev
+# approximation to a real deployment. The build goes through the compose file's `build:`
+# (root Dockerfile, repo root as context) and is tagged as LODGE_SERVER_IMAGE, shadowing
+# the published image locally until the next pull. Its state lives in the `lodge-prod` project's named volumes, never in the dev
 # database (./data/postgres).
 #
 # Usage: ./scripts/prod-test.sh [up|down]  (default: up)
@@ -32,9 +32,7 @@ prod_compose() {
 
 case "${1:-up}" in
     up)
-        echo "==> Building $LODGE_SERVER_IMAGE"
-        docker build -t "$LODGE_SERVER_IMAGE" -f server/src/Lodge.Server/Dockerfile .
-        prod_compose up
+        prod_compose up --build
         ;;
     down)
         prod_compose down

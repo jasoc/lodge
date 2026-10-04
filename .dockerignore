@@ -1,0 +1,15 @@
+# Build context is the repo root, but the Dockerfile only COPYs ui/, server/src/ and
+# migrations/. Keep everything else out — notably ./data (the dev Postgres directory, not
+# even readable by the build user) and any .env with real secrets.
+*
+!ui/
+!server/src/
+!migrations/
+
+# Local build outputs and dependencies, rebuilt inside the image.
+**/node_modules
+**/bin
+**/obj
+ui/dist
+ui/.angular
+server/src/Lodge.Server/wwwroot

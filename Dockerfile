@@ -1,9 +1,9 @@
 # Lodge — one image, one container: the SPA is built here and served as static files by
 # Lodge.Server itself, and Badgie.Migrator is bundled alongside it so the server can
-# migrate its own schema. Build context is the repo root (needs ui/, server/src/, and
-# migrations/ all at once). inventory/ and schemas/ (the SSOT) are NOT copied in: they're
-# bind-mounted at runtime (see docker-compose.prod.yml) so the source of truth stays external
-# to the image.
+# migrate its own schema. Lives at the repo root, next to its build context (it needs ui/,
+# server/src/ and migrations/ all at once; .dockerignore keeps the rest out). inventory/ and
+# schemas/ (the SSOT) are NOT copied in: they're bind-mounted at runtime (see
+# docker-compose.prod.yml) so the source of truth stays external to the image.
 
 # ---- SPA build ----
 FROM node:22.23.1-alpine AS spa-build

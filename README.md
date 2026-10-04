@@ -69,8 +69,9 @@ server migrates its own schema on first boot. Visit `http://localhost:4200`.
 - `docker-compose.prod.yml` — **production**: the Lodge server image, its Postgres, and
   Keycloak (with its own Postgres) for SSO, all state in named volumes, configured by
   `.env.prod` (copy `.env.prod.example` and fill in every `CHANGEME`). The server image
-  isn't published yet — `LODGE_SERVER_IMAGE` is a placeholder, and
-  `./scripts/prod-test.sh` builds it locally under that tag.
+  is `ghcr.io/jasoc/lodge`, built from the root `Dockerfile` and published by the manual
+  `docker-publish` workflow; `up --build` (or `./scripts/prod-test.sh`) builds it from the
+  checkout instead, under the same `LODGE_SERVER_IMAGE` tag.
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d

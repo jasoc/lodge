@@ -82,12 +82,4 @@ public class PassCliSecretProviderTests
         var envFilePath = runner.LastStartInfo!.ArgumentList[runner.LastStartInfo.ArgumentList.IndexOf("--env-file") + 1];
         Assert.False(File.Exists(envFilePath));
     }
-
-    [Fact]
-    public async Task GetEphemeralCredentialAsync_is_not_supported()
-    {
-        var provider = new PassCliSecretProvider(Options.Create(new PassCliOptions()), new FakeProcessRunner());
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => provider.GetEphemeralCredentialAsync("target", TimeSpan.FromMinutes(5), "purpose"));
-    }
 }

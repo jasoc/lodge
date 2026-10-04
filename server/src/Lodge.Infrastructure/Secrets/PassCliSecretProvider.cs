@@ -72,9 +72,4 @@ public sealed class PassCliSecretProvider : ISecretProvider
             File.Delete(tempEnvFile);
         }
     }
-
-    public Task<EphemeralCredential> GetEphemeralCredentialAsync(
-        string target, TimeSpan ttl, string purpose, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException(
-            "PassCliSecretProvider only resolves static secrets — ephemeral credentials need a real vault (FortiPAM, Vault, ...).");
 }

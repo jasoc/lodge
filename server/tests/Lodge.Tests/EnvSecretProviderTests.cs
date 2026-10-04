@@ -29,25 +29,4 @@ public class EnvSecretProviderTests
             () => provider.GetSecretAsync($"LODGE_TEST_UNSET_{Guid.NewGuid():N}"));
         Assert.Contains("not set", ex.Message);
     }
-
-    [Fact]
-    public async Task GetEphemeralCredentialAsync_reads_the_sanitized_target_purpose_key()
-    {
-        var key = "LODGE_SECRET_MY_TARGET_DEPLOY";
-        Environment.SetEnvironmentVariable(key, "deploy-secret");
-        try
-        {
-            var provider = new EnvSecretProvider();
-            var cred = await provider.GetEphemeralCredentialAsync("my-target", TimeSpan.FromMinutes(5), "deploy");
-
-            Assert.Equal("my-target", cred.Target);
-            Assert.Equal("deploy-secret", cred.Secret);
-            Assert.Equal("deploy", cred.Purpose);
-            Assert.True(cred.ExpiresAt > DateTimeOffset.UtcNow);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(key, null);
-        }
-    }
 }

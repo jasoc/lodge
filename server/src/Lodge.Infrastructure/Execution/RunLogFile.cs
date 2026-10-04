@@ -60,6 +60,23 @@ internal static partial class RunLogFile
         return length;
     }
 
+    /// <summary>Throws unless <paramref name="runId"/> has this executor's id shape — it becomes a file name.</summary>
+    public static void EnsureValidRunId(string expectedPrefix, string runId)
+    {
+        if (!runId.StartsWith(expectedPrefix, StringComparison.Ordinal) || !RunIdPattern().IsMatch(runId))
+        {
+            throw new ArgumentException($"'{runId}' is not a run id of this executor.", nameof(runId));
+        }
+    }
+
+    /// <summary>
+    /// The status of a run id that was recorded on its action but has no trace in the
+    /// executor: the server stopped after persisting it and before launching anything.
+    /// Nothing ran, and nothing is re-run on its own — a human retries it.
+    /// </summary>
+    public static string NeverStartedMessage(string runId)
+        => $"Run '{runId}' never started: the server stopped after recording it and before launching it. Retry the action.";
+
     [GeneratedRegex("^[a-z]+-[0-9a-f]{32}$")]
     private static partial Regex RunIdPattern();
 }

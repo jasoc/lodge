@@ -14,10 +14,12 @@ namespace Lodge.Tests;
 /// Exercises <see cref="ContainerRunbookExecutor"/> on its Docker runtime against a real spawned process — not a
 /// mock, an actual argv/env round-trip — but against a small fake "docker" script rather
 /// than a real docker daemon, which can't be assumed in CI. The fake script appends every
-/// invocation's argv (and, for <c>run</c>, every LODGE_* env var it received) to a calls
-/// file, and simulates the image cache: <c>build</c> marks a tag as present,
-/// <c>image inspect</c> reports it. Paths and exit codes are baked into each test's own
-/// script, so tests never share process-global environment. Unix-only.
+/// invocation's argv (and, for <c>create</c>, every LODGE_* env var it received) to a calls
+/// file, and simulates the image cache (<c>build</c> marks a tag as present, <c>image
+/// inspect</c> reports it) and the container store (<c>create</c> records a container under
+/// its <c>lodge.run_id</c> label, <c>ps</c> finds it, <c>wait</c> reports the exit code,
+/// <c>rm</c> removes it). Paths and exit codes are baked into each test's own script, so
+/// tests never share process-global environment. Unix-only.
 /// </summary>
 [UnsupportedOSPlatform("windows")]
 public sealed class ContainerRunbookExecutorTests : IDisposable
@@ -28,15 +30,19 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
 
     public void Dispose() => Directory.Delete(_scratchDir, recursive: true);
 
+    private string ContainersDir => Path.Combine(_scratchDir, "containers");
+
     private ContainerRunbookExecutor NewExecutor(int runExit = 0, int buildExit = 0, string? logDir = null, string? network = null)
     {
         var scriptPath = Path.Combine(_scratchDir, $"fake-docker-{Guid.NewGuid():N}.sh");
         var builtDir = Path.Combine(_scratchDir, "built");
         Directory.CreateDirectory(builtDir);
+        Directory.CreateDirectory(ContainersDir);
         File.WriteAllText(scriptPath, $$"""
             #!/bin/sh
             calls='{{CallsFile}}'
             built='{{builtDir}}'
+            containers='{{ContainersDir}}'
             echo "CALL $*" >> "$calls"
             case "$1 $2" in
               "image inspect")
@@ -45,18 +51,41 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
               "image ls"|"image rm")
                 exit 0 ;;
             esac
-            if [ "$1" = "build" ]; then
-              tag=$(echo "$3" | tr '/:' '__')
-              [ {{buildExit}} -eq 0 ] && touch "$built/$tag"
-              exit {{buildExit}}
-            fi
-            i=1
-            for a in "$@"; do
-              echo "ARGV[$i]=$a" >> "$calls"
-              i=$((i+1))
-            done
-            env | grep '^LODGE_' | sort >> "$calls"
-            exit {{runExit}}
+            case "$1" in
+              build)
+                tag=$(echo "$3" | tr '/:' '__')
+                [ {{buildExit}} -eq 0 ] && touch "$built/$tag"
+                exit {{buildExit}} ;;
+              create)
+                i=1
+                for a in "$@"; do
+                  echo "ARGV[$i]=$a" >> "$calls"
+                  i=$((i+1))
+                done
+                env | grep '^LODGE_' | sort >> "$calls"
+                run=$(printf '%s\n' "$@" | sed -n 's/^lodge.run_id=//p' | head -1)
+                echo "cid-$run" > "$containers/$run"
+                echo "cid-$run"
+                exit 0 ;;
+              start)
+                exit 0 ;;
+              logs)
+                echo "container output"
+                exit 0 ;;
+              wait)
+                echo {{runExit}}
+                exit 0 ;;
+              rm)
+                for a in "$@"; do
+                  case "$a" in cid-*) rm -f "$containers/${a#cid-}" ;; esac
+                done
+                exit 0 ;;
+              ps)
+                run=$(printf '%s\n' "$@" | sed -n 's/^label=lodge.run_id=//p' | head -1)
+                [ -f "$containers/$run" ] && cat "$containers/$run"
+                exit 0 ;;
+            esac
+            exit 0
             """.ReplaceLineEndings("\n"));
         File.SetUnixFileMode(scriptPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
@@ -127,8 +156,9 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
         Assert.Equal(RunbookRunState.Succeeded, status.State);
 
         var calls = Calls();
-        Assert.Equal("run", Arg(calls, 1));
-        Assert.Equal("--rm", Arg(calls, 2));
+        Assert.Equal("create", Arg(calls, 1));
+        Assert.Equal("--name", Arg(calls, 2));
+        Assert.Equal($"lodge-{handle.RunId}", Arg(calls, 3));
         Assert.DoesNotContain(calls, l => l.Contains("ssh://") || l == "ARGV[1]=-H");
 
         // Values only ever travel through the environment — never through argv.
@@ -202,7 +232,7 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
         Assert.Contains("--build-arg ALPINE_VERSION=3.20", buildCall);
         Assert.Contains($"--label lodge.fingerprint={build.Fingerprint}", buildCall);
         Assert.EndsWith(Path.Combine(RepoRoot, "inventory", "homelab", "playbooks", "probe"), buildCall);
-        Assert.Equal(2, calls.Count(l => l.StartsWith("CALL run ", StringComparison.Ordinal) && l.Contains(expectedTag)));
+        Assert.Equal(2, calls.Count(l => l.StartsWith("CALL create ", StringComparison.Ordinal) && l.Contains(expectedTag)));
     }
 
     [Fact]
@@ -272,7 +302,7 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
 
         Assert.Equal(RunbookRunState.Failed, status.State);
         Assert.Contains("building", status.Message);
-        Assert.DoesNotContain(Calls(), l => l.StartsWith("CALL run ", StringComparison.Ordinal));
+        Assert.DoesNotContain(Calls(), l => l.StartsWith("CALL create ", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -364,6 +394,98 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
         var plain = NewExecutor();
         await WaitUntilTerminalAsync(plain, (await plain.StartAsync(Request(config))).RunId);
         Assert.DoesNotContain("--network", Calls());
-        Assert.DoesNotContain(Calls(), l => l == "ARGV[3]=--network");
+        Assert.DoesNotContain(Calls(), l => l == "ARGV[4]=--network");
+    }
+
+    // --- Crash safety: run ids, reattach -------------------------------------------------------
+
+    [Fact]
+    public async Task A_run_is_labelled_with_its_run_id_collected_and_removed()
+    {
+        var executor = NewExecutor(runExit: 3);
+        var handle = await executor.StartAsync(Request(new ContainerExecutorConfig("alpine:3.20", Array.Empty<string>())));
+        var status = await WaitUntilTerminalAsync(executor, handle.RunId);
+
+        Assert.Equal(RunbookRunState.Failed, status.State);
+        Assert.Contains("exit 3", status.Message);
+        var argv = Calls().Where(l => l.StartsWith("ARGV[")).Select(l => l.Split('=', 2)[1]).ToList();
+        Assert.Contains($"lodge.run_id={handle.RunId}", argv);
+        Assert.Contains(Calls(), l => l == $"CALL rm --force --volumes cid-{handle.RunId}");
+        Assert.Contains("container output", File.ReadAllText(Path.Combine(_scratchDir, "logs", $"{handle.RunId}.log")));
+    }
+
+    [Fact]
+    public async Task Starting_the_same_run_id_twice_launches_it_once_even_across_a_restart()
+    {
+        var logDir = Path.Combine(_scratchDir, "logs-idem");
+        var executor = NewExecutor(logDir: logDir);
+        var runId = executor.AllocateRunId(ExecutorKind.Container);
+        var request = Request(new ContainerExecutorConfig("alpine:3.20", Array.Empty<string>())) with { RunId = runId };
+
+        await executor.StartAsync(request);
+        await executor.StartAsync(request);
+        await WaitUntilTerminalAsync(executor, runId);
+        await NewExecutor(logDir: logDir).StartAsync(request);   // a "restarted" executor
+
+        Assert.Single(Calls(), l => l.StartsWith("CALL create ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_run_id_recorded_but_never_started_reports_failed_without_running_anything()
+    {
+        var executor = NewExecutor();
+        var status = await executor.GetStatusAsync(executor.AllocateRunId(ExecutorKind.Container));
+
+        Assert.Equal(RunbookRunState.Failed, status.State);
+        Assert.Contains("never started", status.Message);
+        Assert.Empty(Calls());
+    }
+
+    [Fact]
+    public async Task After_a_restart_a_run_in_flight_is_reattached_and_its_real_exit_code_collected()
+    {
+        var logDir = Path.Combine(_scratchDir, "logs-reattach");
+        Directory.CreateDirectory(logDir);
+        var runId = $"docker-{Guid.NewGuid():N}";
+        // What a crash mid-run leaves behind: a sidecar with no outcome, and the container.
+        File.WriteAllText(Path.Combine(logDir, $"{runId}.json"), JsonSerializer.Serialize(new
+        {
+            ActionRef = "probe/run", StartedAt = DateTimeOffset.UtcNow, CompletedAt = (DateTimeOffset?)null,
+            Succeeded = false, ExitCode = (int?)null, Message = (string?)null, Phase = "running"
+        }));
+        File.WriteAllText(Path.Combine(logDir, $"{runId}.log"), "before the restart\n");
+        var executor = NewExecutor(runExit: 0, logDir: logDir);
+        File.WriteAllText(Path.Combine(ContainersDir, runId), $"cid-{runId}");
+
+        var status = await WaitUntilTerminalAsync(executor, runId);
+
+        Assert.Equal(RunbookRunState.Succeeded, status.State);
+        Assert.Contains(Calls(), l => l == $"CALL wait cid-{runId}");
+        Assert.Contains(Calls(), l => l.StartsWith($"CALL logs --follow --since ", StringComparison.Ordinal));
+        Assert.False(File.Exists(Path.Combine(ContainersDir, runId)));
+        var log = File.ReadAllText(Path.Combine(logDir, $"{runId}.log"));
+        Assert.StartsWith("before the restart\n[lodge] reattached", log);
+        Assert.Equal(RunbookRunState.Succeeded, (await NewExecutor(logDir: logDir).GetStatusAsync(runId)).State);
+    }
+
+    [Theory]
+    [InlineData("running", "outcome unknown")]
+    [InlineData("building playbook image", "never ran")]
+    public async Task After_a_restart_a_run_whose_container_is_gone_fails_honestly(string phase, string expected)
+    {
+        var logDir = Path.Combine(_scratchDir, "logs-gone");
+        Directory.CreateDirectory(logDir);
+        var runId = $"docker-{Guid.NewGuid():N}";
+        File.WriteAllText(Path.Combine(logDir, $"{runId}.json"), JsonSerializer.Serialize(new
+        {
+            ActionRef = "probe/run", StartedAt = DateTimeOffset.UtcNow, CompletedAt = (DateTimeOffset?)null,
+            Succeeded = false, ExitCode = (int?)null, Message = (string?)null, Phase = phase
+        }));
+
+        var status = await WaitUntilTerminalAsync(NewExecutor(logDir: logDir), runId);
+
+        Assert.Equal(RunbookRunState.Failed, status.State);
+        Assert.Contains(expected, status.Message);
+        Assert.DoesNotContain(Calls(), l => l.StartsWith("CALL create ", StringComparison.Ordinal));
     }
 }

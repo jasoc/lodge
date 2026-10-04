@@ -94,11 +94,11 @@ public static class Reconciler
                 // image/playbook fingerprint must never run a different one, so a changed
                 // playbook folder re-queues the action for a fresh confirmation.
                 // Same for who may approve it: a row emitted for anyone must not stay
-                // confirmable by anyone once the catalog restricts it to a group.
-                var snapshotMatches =
-                    string.Equals(live.DesiredValueJson, required.DesiredValueJson, StringComparison.Ordinal) &&
-                    string.Equals(live.ExecutorConfigJson, required.ExecutorConfigJson, StringComparison.Ordinal) &&
-                    string.Equals(live.Requires, required.Requires, StringComparison.Ordinal);
+                // confirmable by anyone once the catalog restricts it to a group. And
+                // for what it runs with and under which policy: a row must never run
+                // inputs (from/const, secret refs, prompts) or show a policy the
+                // catalog no longer declares.
+                var snapshotMatches = SnapshotMatches(live, required);
                 if (live.Status == ActionStatus.RUNNING || snapshotMatches)
                 {
                     // A RUNNING row is never superseded mid-flight even if its snapshot
@@ -159,6 +159,15 @@ public static class Reconciler
             ToUnblock = toUnblock
         };
     }
+
+    private static bool SnapshotMatches(LiveActionRow live, RequiredAction required)
+        => string.Equals(live.DesiredValueJson, required.DesiredValueJson, StringComparison.Ordinal) &&
+           string.Equals(live.ExecutorConfigJson, required.ExecutorConfigJson, StringComparison.Ordinal) &&
+           string.Equals(live.Requires, required.Requires, StringComparison.Ordinal) &&
+           live.Policy == required.Policy &&
+           string.Equals(live.ResolvedInputsJson, required.ResolvedInputsJson, StringComparison.Ordinal) &&
+           string.Equals(live.SecretInputsJson, required.SecretInputsJson, StringComparison.Ordinal) &&
+           string.Equals(live.PendingPromptsJson, required.PendingPromptsJson, StringComparison.Ordinal);
 
     private static bool IsAutoStartable(RequiredAction required)
         => required.Policy == ActionPolicy.AUTO && !required.Satisfied && !required.Blocked && required.PendingPrompts.Count == 0;

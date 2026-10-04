@@ -170,8 +170,11 @@ public sealed class DockerImageBuilder : IImageBuilder
 }
 
 /// <summary>
-/// <see cref="IContainerRunner"/> on the docker daemon: one <c>docker run --rm</c>, every
-/// value passed as <c>-e NAME</c> with the value in the CLI's own environment.
+/// <see cref="IContainerRunner"/> on the docker daemon. A run is <c>docker create</c> (every
+/// value passed as <c>-e NAME</c> with the value in the CLI's own environment), <c>docker
+/// start</c>, <c>docker logs --follow</c> into the run log, <c>docker wait</c> for the exit
+/// code, then <c>docker rm</c> — not one attached <c>docker run --rm</c>, so the container
+/// and its exit code survive a server restart until they've been collected.
 /// </summary>
 public sealed class DockerContainerRunner : IContainerRunner
 {
@@ -184,12 +187,85 @@ public sealed class DockerContainerRunner : IContainerRunner
         _docker = docker;
     }
 
-    public Task<int> RunAsync(ContainerRunSpec spec, string logPath, CancellationToken cancellationToken = default)
-        => _docker.RunAsync(RunArgs(spec), spec.Environment, logPath);
-
-    private List<string> RunArgs(ContainerRunSpec spec)
+    public async Task<int> RunAsync(ContainerRunSpec spec, string logPath, CancellationToken cancellationToken = default)
     {
-        var args = new List<string> { "run", "--rm" };
+        // `docker create` pulls a missing image (its progress goes to the log) and prints
+        // the new container's id. The name makes a second create of the same run fail
+        // instead of starting a duplicate.
+        var created = new StringBuilder();
+        var exitCode = await _docker.RunAsync(CreateArgs(spec), spec.Environment, logPath, created);
+        if (exitCode != 0)
+        {
+            return exitCode;
+        }
+
+        var containerId = created.ToString().Trim();
+        exitCode = await _docker.RunAsync(new[] { "start", containerId }, null, logPath);
+        if (exitCode != 0)
+        {
+            await RemoveAsync(containerId);
+            return exitCode;
+        }
+
+        return await FollowAsync(containerId, since: null, logPath);
+    }
+
+    public async Task<int?> ReattachAsync(string runId, string logPath, CancellationToken cancellationToken = default)
+    {
+        var listing = new StringBuilder();
+        var exitCode = await _docker.RunAsync(
+            new[] { "ps", "--all", "--quiet", "--no-trunc", "--filter", $"label={ContainerLabels.RunId}={runId}" },
+            null, logPath: null, capture: listing);
+        if (exitCode != 0)
+        {
+            throw new InvalidOperationException($"could not list containers (docker exit {exitCode}).");
+        }
+
+        var containerId = listing.ToString()
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault();
+        if (containerId is null)
+        {
+            return null;
+        }
+
+        // Only what the container printed after the log was last written: a line or two
+        // around the restart may show up twice, none goes missing.
+        DateTimeOffset? since = File.Exists(logPath) ? File.GetLastWriteTimeUtc(logPath) : null;
+        File.AppendAllText(logPath, $"[lodge] reattached to container {containerId[..Math.Min(12, containerId.Length)]} after a server restart{Environment.NewLine}");
+        return await FollowAsync(containerId, since, logPath);
+    }
+
+    /// <summary>Streams the container's output into the log until it stops, then collects its exit code and removes it.</summary>
+    private async Task<int> FollowAsync(string containerId, DateTimeOffset? since, string logPath)
+    {
+        var logsArgs = new List<string> { "logs", "--follow" };
+        if (since is { } from)
+        {
+            logsArgs.Add("--since");
+            logsArgs.Add(from.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture));
+        }
+        logsArgs.Add(containerId);
+        await _docker.RunAsync(logsArgs, null, logPath);
+
+        var waited = new StringBuilder();
+        var exitCode = await _docker.RunAsync(new[] { "wait", containerId }, null, logPath, waited);
+        if (exitCode != 0 || !int.TryParse(waited.ToString().Trim(), System.Globalization.CultureInfo.InvariantCulture, out var containerExit))
+        {
+            throw new InvalidOperationException($"could not read the exit code of container {containerId} (docker exit {exitCode}).");
+        }
+
+        await RemoveAsync(containerId);
+        return containerExit;
+    }
+
+    /// <summary>Best-effort: a container left behind is found again by its label, never mistaken for a new run.</summary>
+    private Task<int> RemoveAsync(string containerId)
+        => _docker.RunAsync(new[] { "rm", "--force", "--volumes", containerId }, null, logPath: null);
+
+    private List<string> CreateArgs(ContainerRunSpec spec)
+    {
+        var args = new List<string> { "create", "--name", $"lodge-{spec.RunId}" };
         if (!string.IsNullOrWhiteSpace(_options.Network))
         {
             args.Add("--network");

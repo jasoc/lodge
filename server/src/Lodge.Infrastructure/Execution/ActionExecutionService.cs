@@ -23,6 +23,13 @@ public sealed record ActionExecutionResult(
 /// <c>requires</c> group and merging any human-supplied prompt values
 /// (<see cref="ConfirmAsync"/>). Lodge supervises; the executor runs the action. Every
 /// transition is audited.
+///
+/// Starting is ordered so a crash can never run an action twice: the run id is allocated
+/// first, the row is claimed (a conditional update — only one caller wins a QUEUED/FAILED
+/// row) and committed as RUNNING with that id, and only then is the executor asked to
+/// launch it. A crash before the launch leaves a RUNNING row whose run never started, which
+/// the executor reports as such (FAILED, for a human to retry); a crash after it leaves a
+/// run the executor finds again by its id.
 /// </summary>
 public sealed class ActionExecutionService
 {
@@ -46,23 +53,14 @@ public sealed class ActionExecutionService
     /// <summary>
     /// Start an AUTO action the reconciler queued this cycle. Assumes no pending prompts
     /// (the reconciler guarantees it) and runs on behalf of the system, so no
-    /// <c>requires</c> gate applies. Does not persist; the caller's unit of work saves.
+    /// <c>requires</c> gate applies. Persists (with whatever else the caller's context has
+    /// pending) before launching. False when the row was no longer startable.
     /// </summary>
-    public async Task StartAutoAsync(
+    public async Task<bool> StartAutoAsync(
         ActionEntity action, string kindCode, string instanceCode, CancellationToken cancellationToken = default)
     {
-        var handle = await _executor.StartAsync(
-            await BuildRequestAsync(action, promptValues: null, kindCode, instanceCode, cancellationToken), cancellationToken);
-
-        var previousStatus = action.Status;
-        action.Status = ActionStatus.RUNNING;
-        action.ExecutionRef = handle.RunId;
-        action.UpdatedAt = DateTimeOffset.UtcNow;
-
-        var payload = AuditLog.ActionSnapshot(action);
-        payload["previousStatus"] = previousStatus.ToString();
-        payload["auto"] = true;
-        _db.AddAudit(action.InstanceId, kindCode, "action.confirmed", "system", payload);
+        var request = await BuildRequestAsync(action, promptValues: null, kindCode, instanceCode, cancellationToken);
+        return await StartAsync(action, request, kindCode, "system", promptValues: null, auto: true, cancellationToken);
     }
 
     /// <summary>
@@ -102,29 +100,84 @@ public sealed class ActionExecutionService
             return denied;
         }
 
-        var handle = await _executor.StartAsync(
-            await BuildRequestAsync(action, promptValues, kindCode, instanceCode, cancellationToken), cancellationToken);
+        var request = await BuildRequestAsync(action, promptValues, kindCode, instanceCode, cancellationToken);
+        if (!await StartAsync(action, request, kindCode, actor, promptValues, auto: false, cancellationToken))
+        {
+            return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
+                "Action is not awaiting confirmation (it was started or changed meanwhile).");
+        }
 
+        return action.Status == ActionStatus.RUNNING
+            ? new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef, $"'{action.Label}' started.")
+            : new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef, $"'{action.Label}' could not be started.");
+    }
+
+    /// <summary>
+    /// Claims a QUEUED/FAILED row for one run and launches it, in the crash-safe order
+    /// (see the class summary). False when another caller claimed it first — nothing is
+    /// launched. A launch that throws lands the row FAILED with the reason.
+    /// </summary>
+    private async Task<bool> StartAsync(
+        ActionEntity action, RunbookExecutionRequest request, string kindCode, string actor,
+        IReadOnlyDictionary<string, string?>? promptValues, bool auto, CancellationToken cancellationToken)
+    {
+        var runId = _executor.AllocateRunId(action.ExecutorKind);
         var previousStatus = action.Status;
+        var now = DateTimeOffset.UtcNow;
+
+        // The claim: one conditional UPDATE, so of two callers starting the same row (two
+        // humans, or a human and the loop) exactly one gets to launch it.
+        var claimed = await _db.Actions
+            .Where(a => a.Id == action.Id && a.Status == previousStatus && a.ExecutionRef == action.ExecutionRef)
+            .ExecuteUpdateAsync(set => set
+                .SetProperty(a => a.Status, ActionStatus.RUNNING)
+                .SetProperty(a => a.ExecutionRef, runId)
+                .SetProperty(a => a.UpdatedAt, now)
+                .SetProperty(a => a.CompletedAt, (DateTimeOffset?)null), cancellationToken);
+        if (claimed == 0)
+        {
+            await _db.Entry(action).ReloadAsync(cancellationToken);
+            return false;
+        }
+
         action.Status = ActionStatus.RUNNING;
-        action.ExecutionRef = handle.RunId;
-        action.UpdatedAt = DateTimeOffset.UtcNow;
+        action.ExecutionRef = runId;
+        action.UpdatedAt = now;
         action.CompletedAt = null;
 
         // Prompt answers are human-typed runbook inputs, not secrets (those come only
         // from SecretInputsJson via ISecretProvider), so they are recorded as given.
         var payload = AuditLog.ActionSnapshot(action);
         payload["previousStatus"] = previousStatus.ToString();
+        if (auto)
+        {
+            payload["auto"] = true;
+        }
         if (promptValues is { Count: > 0 })
         {
             payload["promptValues"] = promptValues;
         }
         _db.AddAudit(action.InstanceId, kindCode, "action.confirmed", actor, payload);
-
         await _db.SaveChangesAsync(cancellationToken);
 
-        return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
-            $"'{action.Label}' started.");
+        try
+        {
+            await _executor.StartAsync(request with { RunId = runId }, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            var failedAt = DateTimeOffset.UtcNow;
+            action.Status = ActionStatus.FAILED;
+            action.UpdatedAt = failedAt;
+            action.CompletedAt = failedAt;
+            var failure = AuditLog.ActionSnapshot(action);
+            failure["state"] = RunbookRunState.Failed.ToString();
+            failure["message"] = $"could not be started: {ex.Message}";
+            _db.AddAudit(action.InstanceId, kindCode, "action.execution.completed", "system", failure);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        return true;
     }
 
     /// <summary>

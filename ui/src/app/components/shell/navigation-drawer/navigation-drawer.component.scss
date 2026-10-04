@@ -5,6 +5,7 @@
 // buttons pad their icon by 12px, so every first-level icon is centered 36px from the
 // drawer's left edge — under the menu button, and in the middle of the 72px collapsed rail.
 $rail: 12px;
+$ease: cubic-bezier(0.2, 0, 0, 1);
 
 #navigation-drawer {
   height: 100vh;
@@ -20,6 +21,16 @@ $rail: 12px;
     height: 56px;
     // The 40px icon button's center lands on the 36px icon axis.
     padding: 0 $rail 0 16px;
+
+    // The logo is a mask over the text color, so it follows the theme like any glyph.
+    .lodge-logo {
+      flex: none;
+      width: 28px;
+      height: 28px;
+      margin-left: tokens.$lodge-space-2;
+      background-color: var(--lodge-main-ui-text-color);
+      mask: url('/lodge-logo.svg') center / contain no-repeat;
+    }
 
     p {
       margin: 0 0 0 tokens.$lodge-space-2;
@@ -73,8 +84,11 @@ $rail: 12px;
       background: var(--lodge-background-shader-stronger);
     }
 
+    transition: gap 280ms $ease;
+
     &-collapsed {
       padding: 0 tokens.$lodge-space-2;
+      gap: 0;
     }
   }
 
@@ -86,8 +100,41 @@ $rail: 12px;
 
     &-expanded {
       background: var(--lodge-background-shader-lighter);
-      padding-bottom: tokens.$lodge-space-1;
     }
+  }
+
+  // Labels stay in the DOM and fade, so they are clipped by the width transition instead
+  // of popping in and out.
+  .fade-slot {
+    transition:
+      opacity 200ms ease 60ms,
+      max-width 280ms $ease;
+    max-width: 200px;
+
+    &.faded {
+      opacity: 0;
+      max-width: 0;
+      pointer-events: none;
+      transition-delay: 0s;
+    }
+  }
+
+  // Sub-entries open by growing their row from 0fr to 1fr: height animates with no
+  // measuring and no unmounting, and `inert` (set in the template while closed) keeps the
+  // hidden ones out of the tab order.
+  .navigation-sub-wrap {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 280ms $ease;
+
+    &.open {
+      grid-template-rows: 1fr;
+    }
+  }
+
+  .navigation-sub-clip {
+    min-height: 0;
+    overflow: hidden;
   }
 
   // Sub-entries hang off a guide line drawn under the parent's icon.
@@ -95,9 +142,16 @@ $rail: 12px;
     display: flex;
     flex-direction: column;
     gap: 2px;
-    margin: 2px tokens.$lodge-space-1 0 23px;
+    margin: 2px tokens.$lodge-space-1 tokens.$lodge-space-1 23px;
     padding-left: tokens.$lodge-space-2;
     border-left: 2px solid var(--lodge-background-shader);
+    opacity: 0;
+    transition: opacity 160ms ease;
+  }
+
+  .navigation-sub-wrap.open .navigation-sub {
+    opacity: 1;
+    transition-delay: 80ms;
   }
 
   .user-widget,
@@ -181,5 +235,14 @@ $rail: 12px;
     display: flex;
     align-items: center;
     width: 100%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0s !important;
+      transition-delay: 0s !important;
+    }
   }
 }

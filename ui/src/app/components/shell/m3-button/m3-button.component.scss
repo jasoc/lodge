@@ -40,17 +40,65 @@
 
 .m3-button__icon {
   flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  overflow: hidden;
   width: 24px;
   height: 24px;
+}
+
+// A changed icon slides out to the left while the new one comes in from the right, with a
+// small overshoot so it settles with a little bounce. Short and clipped to the icon box.
+.m3-button__glyph {
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+
+  &.glyph-enter {
+    animation: glyph-in 450ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  &.glyph-leave {
+    animation: glyph-out 320ms cubic-bezier(0.4, 0, 1, 1) both;
+  }
+}
+
+@keyframes glyph-in {
+  from {
+    transform: translateX(100%) rotate(40deg) scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes glyph-out {
+  to {
+    transform: translateX(-100%) rotate(-40deg) scale(0.6);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m3-button__glyph.glyph-enter,
+  .m3-button__glyph.glyph-leave {
+    animation-duration: 1ms;
+  }
 }
 
 .m3-button__text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: opacity 200ms ease 60ms;
+}
+
+// Same geometry as the open button: the icon's 12px padding centers it in the 48px rail.
+.m3-button-compact .m3-button__text {
+  opacity: 0;
+  transition-delay: 0s;
 }
 
 // Drawer entries.

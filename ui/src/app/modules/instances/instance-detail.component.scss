@@ -66,6 +66,10 @@
     color: var(--mat-sys-on-error-container, inherit);
   }
 
+  .tab-body {
+    padding: tokens.$lodge-space-3 0;
+  }
+
   // Page-wide, above the tabs: whatever is in flight right now, one click from its logs.
   .running-strip {
     display: flex;

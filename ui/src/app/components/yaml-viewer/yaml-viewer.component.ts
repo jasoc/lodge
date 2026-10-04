@@ -65,7 +65,7 @@ export class YamlViewerComponent implements OnDestroy {
 
   constructor() {
     // Created only once the host is actually on screen with a size: content projected into
-    // a hidden tab (m3-tab) is instantiated before it's ever attached, and Monaco needs a
+    // a hidden or not-yet-laid-out container instantiates it before it's ever attached, and Monaco needs a
     // laid-out element to measure.
     effect((onCleanup) => {
       const host = this.host()?.nativeElement;

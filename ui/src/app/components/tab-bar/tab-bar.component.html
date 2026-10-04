@@ -1,0 +1,40 @@
+<div
+  #bar
+  class="tab-bar"
+  [attr.role]="isNav() ? 'navigation' : 'tablist'"
+  [attr.aria-label]="label()"
+>
+  @for (tab of tabs(); track tab.id; let i = $index) {
+    @if (tab.link !== undefined) {
+      <a
+        class="tab"
+        [routerLink]="tab.link"
+        [class.active]="tab.id === selected()"
+        [attr.aria-current]="tab.id === selected() ? 'page' : null"
+      >
+        <ng-container [ngTemplateOutlet]="content" [ngTemplateOutletContext]="{ $implicit: tab }" />
+      </a>
+    } @else {
+      <button
+        type="button"
+        class="tab"
+        role="tab"
+        [class.active]="tab.id === selected()"
+        [attr.aria-selected]="tab.id === selected()"
+        [tabindex]="tab.id === selected() ? 0 : -1"
+        (click)="selectedChange.emit(tab.id)"
+        (keydown)="onKeydown($event, i)"
+      >
+        <ng-container [ngTemplateOutlet]="content" [ngTemplateOutletContext]="{ $implicit: tab }" />
+      </button>
+    }
+  }
+  <span #indicator class="indicator" aria-hidden="true"></span>
+</div>
+
+<ng-template #content let-tab>
+  @if (tab.icon) {
+    <mat-icon fontSet="material-symbols-outlined">{{ tab.icon }}</mat-icon>
+  }
+  <span>{{ tab.label }}</span>
+</ng-template>

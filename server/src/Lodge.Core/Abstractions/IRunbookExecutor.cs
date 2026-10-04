@@ -18,7 +18,8 @@ public enum RunbookRunState
 /// A request to run one action. <see cref="ActionRef"/> (<c>capability/action_key</c>) only
 /// names it in logs and status messages. <see cref="SecretNames"/> lists which
 /// <see cref="Parameters"/> hold resolved secrets, so an executor that echoes what it sends
-/// (the HTTP one) can mask them.
+/// can mask them. <see cref="RunId"/> is the id from <see cref="IRunbookExecutor.AllocateRunId"/>
+/// the caller already persisted; null lets the executor allocate one itself.
 /// </summary>
 public sealed record RunbookExecutionRequest(
     string KindCode,
@@ -29,7 +30,8 @@ public sealed record RunbookExecutionRequest(
     ExecutorKind ExecutorKind,
     ContainerExecutorConfig? ContainerConfig = null,
     HttpExecutorConfig? HttpConfig = null,
-    IReadOnlyCollection<string>? SecretNames = null);
+    IReadOnlyCollection<string>? SecretNames = null,
+    string? RunId = null);
 
 /// <summary>Handle returned when a runbook run is started.</summary>
 public sealed record RunbookRunHandle(string RunId, RunbookRunState State);
@@ -43,7 +45,18 @@ public sealed record RunbookRunStatus(string RunId, RunbookRunState State, strin
 /// </summary>
 public interface IRunbookExecutor
 {
-    /// <summary>Start the runbook for an action and return a handle to poll.</summary>
+    /// <summary>
+    /// The id the next run of an action of <paramref name="kind"/> will have. Nothing is
+    /// started: the caller persists the id first and only then calls <see cref="StartAsync"/>
+    /// with it, so a crash in between can never lose track of a run that did start.
+    /// </summary>
+    string AllocateRunId(ExecutorKind kind);
+
+    /// <summary>
+    /// Start the runbook for an action and return a handle to poll. Idempotent per
+    /// <see cref="RunbookExecutionRequest.RunId"/>: a run id this executor has already
+    /// started is never launched twice.
+    /// </summary>
     Task<RunbookRunHandle> StartAsync(RunbookExecutionRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>Return the current status of a previously started run.</summary>

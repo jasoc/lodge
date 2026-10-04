@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Lodge.Core.Abstractions;
 using Lodge.Core.Catalog;
+using Lodge.Core.Domain.Enums;
 using Microsoft.Extensions.Options;
 
 namespace Lodge.Infrastructure.Execution;
@@ -33,10 +34,12 @@ namespace Lodge.Infrastructure.Execution;
 /// instead of building different code — the next reconciliation cycle then supersedes it
 /// with a fresh action to confirm.
 ///
-/// Run-state tracking: an in-memory run
-/// dict for the common case plus a JSON sidecar file so a run survives being asked about
-/// after a restart in a *degraded but honest* way — outcome reported as unknown rather
-/// than guessed.
+/// Run-state tracking: an in-memory run dict for the common case plus a JSON sidecar file,
+/// written before anything is launched. After a restart a run without a recorded outcome
+/// is reattached: its container, found by its <see cref="ContainerLabels.RunId"/> label,
+/// is followed to completion and its real exit code collected. Only a run whose container
+/// is gone reports its outcome as unknown, rather than guessed; a run id with no sidecar
+/// never started. Starting a run id that already has a sidecar never launches it again.
 /// </summary>
 public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
 {
@@ -57,6 +60,11 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         Directory.CreateDirectory(_options.LogDirectory);
     }
 
+    // "docker-" predates other runtimes; kept so earlier runs' logs stay readable.
+    private const string RunIdPrefix = "docker-";
+
+    public string AllocateRunId(ExecutorKind kind) => $"{RunIdPrefix}{Guid.NewGuid():N}";
+
     public Task<RunbookRunHandle> StartAsync(RunbookExecutionRequest request, CancellationToken cancellationToken = default)
     {
         if (request.ContainerConfig is null)
@@ -66,44 +74,67 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
                 "this is a catalog/persistence bug, not a user error (the loader guarantees a container config for 'executor: container').");
         }
 
-        // "docker-" predates other runtimes; kept so earlier runs' logs stay readable.
-        var runId = $"docker-{Guid.NewGuid():N}";
+        var runId = request.RunId ?? AllocateRunId(ExecutorKind.Container);
+        RunLogFile.EnsureValidRunId(RunIdPrefix, runId);
+        var handle = new RunbookRunHandle(runId, RunbookRunState.Running);
+
         var state = new RunState(
             request.ActionRef,
             Path.Combine(_options.LogDirectory, $"{runId}.log"),
             Path.Combine(_options.LogDirectory, $"{runId}.json"),
             DateTimeOffset.UtcNow);
-        WriteSidecar(state, outcome: null, completedAt: null);
+        lock (_runs)
+        {
+            // Already started under this id — by this process, or by one before a restart
+            // (its sidecar is written before anything is launched): never launch it twice.
+            if (_runs.ContainsKey(runId) || File.Exists(state.SidecarPath))
+            {
+                return Task.FromResult(handle);
+            }
+            WriteSidecar(state, outcome: null, completedAt: null);
+            _runs[runId] = state;
+        }
 
-        _runs[runId] = state;
-        state.Completion = Task.Run(() => RunPipelineAsync(request, request.ContainerConfig, state));
-
-        return Task.FromResult(new RunbookRunHandle(runId, RunbookRunState.Running));
+        state.Completion = Task.Run<RunOutcome?>(() => RunPipelineAsync(request, request.ContainerConfig, state, runId));
+        return Task.FromResult(handle);
     }
 
     public Task<RunbookRunStatus> GetStatusAsync(string runId, CancellationToken cancellationToken = default)
     {
-        if (_runs.TryGetValue(runId, out var state))
+        if (!_runs.TryGetValue(runId, out var state))
         {
-            if (state.Completion is not { IsCompleted: true } completion)
+            if (StatusFromSidecar(runId) is { } settled)
             {
-                return Task.FromResult(new RunbookRunStatus(runId, RunbookRunState.Running,
-                    $"Action '{state.ActionRef}': {state.Phase}.", DateTimeOffset.UtcNow));
+                return Task.FromResult(settled);
             }
-
-            var outcome = completion.Result;
-            return Task.FromResult(new RunbookRunStatus(runId,
-                outcome.Succeeded ? RunbookRunState.Succeeded : RunbookRunState.Failed,
-                outcome.Message, state.CompletedAt ?? DateTimeOffset.UtcNow));
+            state = BeginReattach(runId);
         }
 
-        return Task.FromResult(StatusFromSidecar(runId));
+        if (state.Completion is not { IsCompleted: true } completion)
+        {
+            return Task.FromResult(new RunbookRunStatus(runId, RunbookRunState.Running,
+                $"Action '{state.ActionRef}': {state.Phase}.", DateTimeOffset.UtcNow));
+        }
+
+        if (completion.Result is not { } outcome)
+        {
+            // The runtime couldn't be asked (daemon unreachable): still running as far as
+            // anyone knows — the next status read tries again.
+            _runs.TryRemove(KeyValuePair.Create(runId, state));
+            return Task.FromResult(new RunbookRunStatus(runId, RunbookRunState.Running,
+                $"Action '{state.ActionRef}': {state.Phase}.", DateTimeOffset.UtcNow));
+        }
+
+        return Task.FromResult(new RunbookRunStatus(runId,
+            outcome.Succeeded ? RunbookRunState.Succeeded : RunbookRunState.Failed,
+            outcome.Message, state.CompletedAt ?? DateTimeOffset.UtcNow));
     }
 
     public Task<RunbookLogChunk?> ReadLogAsync(string runId, long offset, int maxBytes, CancellationToken cancellationToken = default)
         => RunLogFile.ReadAsync(_options.LogDirectory, "docker-", runId, offset, maxBytes, cancellationToken);
 
-    private async Task<RunOutcome> RunPipelineAsync(RunbookExecutionRequest request, ContainerExecutorConfig config, RunState state)
+    private async Task<RunOutcome?> RunPipelineAsync(
+        RunbookExecutionRequest request, ContainerExecutorConfig config, RunState state, string runId)
     {
         RunOutcome outcome;
         try
@@ -111,7 +142,7 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
             var image = config.Image;
             if (config.Build is { } build)
             {
-                state.Phase = "building playbook image";
+                SetPhase(state, Phases.Building);
                 var built = await EnsurePlaybookImageAsync(request.KindCode, build, state);
                 if (built.Failure is not null)
                 {
@@ -121,11 +152,8 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
                 image = built.Image;
             }
 
-            state.Phase = "running";
-            var exitCode = await _runner.RunAsync(RunSpec(request, config, image!), state.LogPath);
-            outcome = exitCode == 0
-                ? new RunOutcome(true, 0, $"Action '{state.ActionRef}' completed (exit 0). Log: {state.LogPath}")
-                : new RunOutcome(false, exitCode, $"Action '{state.ActionRef}' failed (exit {exitCode}). Log: {state.LogPath}");
+            SetPhase(state, Phases.Running);
+            outcome = ExitOutcome(state, await _runner.RunAsync(RunSpec(request, config, image!, runId), state.LogPath));
         }
         catch (Exception ex)
         {
@@ -136,11 +164,78 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         return Finish(state, outcome);
     }
 
+    private static RunOutcome ExitOutcome(RunState state, int exitCode)
+        => exitCode == 0
+            ? new RunOutcome(true, 0, $"Action '{state.ActionRef}' completed (exit 0). Log: {state.LogPath}")
+            : new RunOutcome(false, exitCode, $"Action '{state.ActionRef}' failed (exit {exitCode}). Log: {state.LogPath}");
+
     private RunOutcome Finish(RunState state, RunOutcome outcome)
     {
         state.CompletedAt = DateTimeOffset.UtcNow;
         WriteSidecar(state, outcome, state.CompletedAt);
         return outcome;
+    }
+
+    private static void SetPhase(RunState state, string phase)
+    {
+        state.Phase = phase;
+        WriteSidecar(state, outcome: null, completedAt: null);
+    }
+
+    /// <summary>
+    /// Picks up a run this process didn't start — the server restarted while it was in
+    /// flight: its container is followed to completion and its real exit code becomes the
+    /// outcome. Registered once per run id, however many readers ask at the same time.
+    /// </summary>
+    private RunState BeginReattach(string runId)
+    {
+        var sidecar = ReadSidecar(runId)!;
+        var state = new RunState(
+            sidecar.ActionRef,
+            Path.Combine(_options.LogDirectory, $"{runId}.log"),
+            Path.Combine(_options.LogDirectory, $"{runId}.json"),
+            sidecar.StartedAt) { Phase = "reattaching after a server restart" };
+
+        lock (_runs)
+        {
+            if (_runs.TryGetValue(runId, out var existing))
+            {
+                return existing;
+            }
+            _runs[runId] = state;
+        }
+
+        var phaseBeforeRestart = sidecar.Phase;
+        state.Completion = Task.Run(() => ReattachPipelineAsync(runId, state, phaseBeforeRestart));
+        return state;
+    }
+
+    private async Task<RunOutcome?> ReattachPipelineAsync(string runId, RunState state, string? phaseBeforeRestart)
+    {
+        int? exitCode;
+        try
+        {
+            exitCode = await _runner.ReattachAsync(runId, state.LogPath);
+        }
+        catch (Exception ex)
+        {
+            AppendLog(state.LogPath, $"[lodge] could not reattach yet: {ex.Message}");
+            return null;
+        }
+
+        state.Phase = Phases.Running;
+        if (exitCode is { } code)
+        {
+            return Finish(state, ExitOutcome(state, code));
+        }
+
+        // No container carries this run id. Before the "running" phase none was ever
+        // created (the restart hit the build); after it, its exit code is lost.
+        var message = phaseBeforeRestart is Phases.Running
+            ? $"Action '{state.ActionRef}' outcome unknown: the server restarted while this run was in progress and its container is gone."
+            : $"Action '{state.ActionRef}' never ran: the server restarted before its container started. Retry the action.";
+        AppendLog(state.LogPath, $"[lodge] {message}");
+        return Finish(state, new RunOutcome(false, null, message));
     }
 
     /// <summary>
@@ -221,7 +316,7 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         return new RunOutcome(false, null, $"Action '{state.ActionRef}' refused: {message}");
     }
 
-    private static ContainerRunSpec RunSpec(RunbookExecutionRequest request, ContainerExecutorConfig config, string image)
+    private static ContainerRunSpec RunSpec(RunbookExecutionRequest request, ContainerExecutorConfig config, string image, string runId)
     {
         // Static env from the catalog first; LODGE_* names are reserved (the loader
         // rejects them there), so inputs can never be shadowed.
@@ -243,12 +338,13 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
 
         var labels = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["lodge.managed"] = "true",
-            ["lodge.action_id"] = request.ActionId.ToString()
+            [ContainerLabels.Managed] = "true",
+            [ContainerLabels.ActionId] = request.ActionId.ToString(),
+            [ContainerLabels.RunId] = runId
         };
 
         return new ContainerRunSpec(
-            image, environment, config.Entrypoint, config.Command, labels);
+            runId, image, environment, config.Entrypoint, config.Command, labels);
     }
 
     private static string ParamEnvName(string key)
@@ -298,15 +394,24 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
 
     private static string Short(string fingerprint) => fingerprint.Length > 16 ? fingerprint[..16] : fingerprint;
 
-    private RunbookRunStatus StatusFromSidecar(string runId)
+    /// <summary>
+    /// The settled status of a run this process isn't tracking: its recorded outcome, or
+    /// "never started" when it has no sidecar at all. Null when the sidecar records no
+    /// outcome yet — a run in flight across a restart, to reattach to.
+    /// </summary>
+    private RunbookRunStatus? StatusFromSidecar(string runId)
     {
-        var sidecarPath = Path.Combine(_options.LogDirectory, $"{runId}.json");
-        if (!File.Exists(sidecarPath))
+        if (!runId.StartsWith(RunIdPrefix, StringComparison.Ordinal) || runId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
         {
             return new RunbookRunStatus(runId, RunbookRunState.Failed, "Unknown run.", DateTimeOffset.UtcNow);
         }
 
-        var sidecar = JsonSerializer.Deserialize<Sidecar>(File.ReadAllText(sidecarPath))!;
+        var sidecar = ReadSidecar(runId);
+        if (sidecar is null)
+        {
+            return new RunbookRunStatus(runId, RunbookRunState.Failed, RunLogFile.NeverStartedMessage(runId), DateTimeOffset.UtcNow);
+        }
+
         if (sidecar.CompletedAt is { } completedAt)
         {
             // ExitCode 0 also covers sidecars written before the Succeeded flag existed.
@@ -315,19 +420,31 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
                 : new RunbookRunStatus(runId, RunbookRunState.Failed, sidecar.Message, completedAt);
         }
 
-        // After a restart the container is no longer our child process: its exit
-        // code isn't reliably recoverable, so report the outcome as unknown rather than
-        // guessing.
-        return new RunbookRunStatus(runId, RunbookRunState.Failed,
-            $"Action '{sidecar.ActionRef}' outcome unknown: the server restarted while this run was in progress.",
-            DateTimeOffset.UtcNow);
+        return null;
+    }
+
+    private Sidecar? ReadSidecar(string runId)
+    {
+        var sidecarPath = Path.Combine(_options.LogDirectory, $"{runId}.json");
+        return File.Exists(sidecarPath) ? JsonSerializer.Deserialize<Sidecar>(File.ReadAllText(sidecarPath)) : null;
     }
 
     private static void WriteSidecar(RunState state, RunOutcome? outcome, DateTimeOffset? completedAt)
     {
         var sidecar = new Sidecar(state.ActionRef, state.StartedAt, completedAt,
-            outcome?.Succeeded ?? false, outcome?.ExitCode, outcome?.Message);
-        File.WriteAllText(state.SidecarPath, JsonSerializer.Serialize(sidecar));
+            outcome?.Succeeded ?? false, outcome?.ExitCode, outcome?.Message, state.Phase);
+        lock (state)
+        {
+            File.WriteAllText(state.SidecarPath, JsonSerializer.Serialize(sidecar));
+        }
+    }
+
+    /// <summary>Where a run is, as recorded in its sidecar — what a restart needs to tell "never ran" from "lost".</summary>
+    private static class Phases
+    {
+        public const string Starting = "starting";
+        public const string Building = "building playbook image";
+        public const string Running = "running";
     }
 
     private sealed class RunState(string actionRef, string logPath, string sidecarPath, DateTimeOffset startedAt)
@@ -336,13 +453,16 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         public string LogPath { get; } = logPath;
         public string SidecarPath { get; } = sidecarPath;
         public DateTimeOffset StartedAt { get; } = startedAt;
-        public volatile string Phase = "starting";
+        public volatile string Phase = Phases.Starting;
         public DateTimeOffset? CompletedAt { get; set; }
-        public Task<RunOutcome>? Completion { get; set; }
+
+        /// <summary>The run's outcome; null when the runtime couldn't be asked and a later read should try again.</summary>
+        public Task<RunOutcome?>? Completion { get; set; }
     }
 
     private sealed record RunOutcome(bool Succeeded, int? ExitCode, string Message);
 
     private sealed record Sidecar(
-        string ActionRef, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, bool Succeeded, int? ExitCode, string? Message);
+        string ActionRef, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, bool Succeeded, int? ExitCode, string? Message,
+        string? Phase = null);
 }

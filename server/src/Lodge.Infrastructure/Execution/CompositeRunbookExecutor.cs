@@ -19,6 +19,14 @@ public sealed class CompositeRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         _http = http;
     }
 
+    public string AllocateRunId(ExecutorKind kind)
+        => kind switch
+        {
+            ExecutorKind.Container => _container.AllocateRunId(kind),
+            ExecutorKind.Http => _http.AllocateRunId(kind),
+            _ => throw new NotSupportedException($"Executor '{kind}' is not supported.")
+        };
+
     public Task<RunbookRunHandle> StartAsync(RunbookExecutionRequest request, CancellationToken cancellationToken = default)
         => request.ExecutorKind switch
         {

@@ -3,6 +3,7 @@ using Lodge.Core.Abstractions;
 using Lodge.Core.Domain.Entities;
 using Lodge.Infrastructure.Git;
 using Lodge.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -29,9 +30,15 @@ public enum SyncTrigger
 /// that cycle's result instead of starting another; the timer is never throttled.
 /// Every real cycle invalidates the file-backed catalog/permission caches (so edits to
 /// <c>mapping/</c> apply live) and records a <see cref="SyncCycle"/> row for the Sync page.
+/// The in-memory single-flight only covers one process; across replicas a Postgres
+/// advisory lock (<see cref="AdvisoryLockKey"/>, held on the cycle's own connection) lets
+/// exactly one cycle run at a time — a replica that doesn't get it skips the tick.
 /// </summary>
 public sealed class ReconciliationCoordinator
 {
+    /// <summary>Arbitrary constant ("LODGE" in ASCII) naming the cluster-wide reconciliation lock.</summary>
+    public const long AdvisoryLockKey = 0x4C4F44474500L;
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly GitOptions _options;
     private readonly object _gate = new();
@@ -75,6 +82,53 @@ public sealed class ReconciliationCoordinator
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LodgeDbContext>();
 
+        // Session-level lock on this scope's own connection, which the runner shares: it
+        // lives exactly as long as the cycle and is released if the process dies.
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync();
+        try
+        {
+            if (!await TryLockAsync(connection))
+            {
+                lock (_gate)
+                {
+                    _inFlight = null;
+                }
+                return new CycleSummary(0, 0, 0,
+                    new[] { "another replica is running a reconciliation cycle; skipped" }, Array.Empty<string>());
+            }
+
+            try
+            {
+                return await RunLockedAsync(scope, db, trigger);
+            }
+            finally
+            {
+                await UnlockAsync(connection);
+            }
+        }
+        finally
+        {
+            await connection.CloseAsync();
+        }
+    }
+
+    private static async Task<bool> TryLockAsync(System.Data.Common.DbConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT pg_try_advisory_lock({AdvisoryLockKey})";
+        return (bool)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task UnlockAsync(System.Data.Common.DbConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT pg_advisory_unlock({AdvisoryLockKey})";
+        await command.ExecuteScalarAsync();
+    }
+
+    private async Task<CycleSummary> RunLockedAsync(IServiceScope scope, LodgeDbContext db, SyncTrigger trigger)
+    {
         var cycle = new SyncCycle
         {
             Id = Guid.NewGuid(),

@@ -59,38 +59,39 @@
     </section>
   }
 
-  <m3-tabs>
-    <m3-tab icon="bolt" label="Capabilities">
-      <ng-container [ngTemplateOutlet]="capabilityCardsTpl"></ng-container>
-    </m3-tab>
+  <lodge-tab-bar [tabs]="tabs" [selected]="activeTab()" aria-label="Instance sections" />
 
-    <m3-tab icon="format_list_numbered" label="Run queue">
-      <lodge-run-queue
-        [actions]="actions()"
-        [lockedReason]="lockedReasonFn"
-        [capabilityTitle]="capabilityTitleFn"
-        [busyActionId]="busyActionId()"
-        (openLog)="openLog($event)"
-        (run)="runFromQueue($event)"
-      ></lodge-run-queue>
-    </m3-tab>
-
-    <m3-tab icon="account_tree" label="Graph">
-      <lodge-action-graph
-        [actions]="actions()"
-        [lockedReason]="lockedReasonFn"
-        [busyActionId]="busyActionId()"
-        (openLog)="openLog($event)"
-        (confirm)="startConfirm($event)"
-      ></lodge-action-graph>
-    </m3-tab>
-
-    <m3-tab icon="description" label="Inventory">
-      <lodge-yaml-viewer
-        [value]="t.latest_yaml ?? '# no inventory revision yet'"
-      ></lodge-yaml-viewer>
-    </m3-tab>
-  </m3-tabs>
+  <div class="tab-body lodge-tab-content">
+    @switch (activeTab()) {
+      @case ('queue') {
+        <lodge-run-queue
+          [actions]="actions()"
+          [lockedReason]="lockedReasonFn"
+          [capabilityTitle]="capabilityTitleFn"
+          [busyActionId]="busyActionId()"
+          (openLog)="openLog($event)"
+          (run)="runFromQueue($event)"
+        ></lodge-run-queue>
+      }
+      @case ('graph') {
+        <lodge-action-graph
+          [actions]="actions()"
+          [lockedReason]="lockedReasonFn"
+          [busyActionId]="busyActionId()"
+          (openLog)="openLog($event)"
+          (confirm)="startConfirm($event)"
+        ></lodge-action-graph>
+      }
+      @case ('inventory') {
+        <lodge-yaml-viewer
+          [value]="t.latest_yaml ?? '# no inventory revision yet'"
+        ></lodge-yaml-viewer>
+      }
+      @default {
+        <ng-container [ngTemplateOutlet]="capabilityCardsTpl"></ng-container>
+      }
+    }
+  </div>
 
   <ng-template #capabilityCardsTpl>
     <div class="capability-toolbar">

@@ -442,18 +442,22 @@ public sealed class ReconciliationRunner
         await _db.SaveChangesAsync(cancellationToken);
 
         // AUTO drift runs itself; FAILED rows are deliberately absent from ToAutoStart
-        // (parked until a human re-runs them or the desired snapshot changes).
+        // (parked until a human re-runs them or the desired snapshot changes). Each start
+        // commits the row as RUNNING before its run is launched.
+        var autoStarted = 0;
         foreach (var auto in result.ToAutoStart)
         {
             var row = auto.LiveRowId is { } liveId
                 ? await _db.Actions.FirstAsync(a => a.Id == liveId, cancellationToken)
                 : createdByIdentity[auto.Identity];
-            await _execution.StartAutoAsync(row, kindCode, instance.InstanceCode, cancellationToken);
+            if (await _execution.StartAutoAsync(row, kindCode, instance.InstanceCode, cancellationToken))
+            {
+                autoStarted++;
+            }
         }
-        if (result.ToAutoStart.Count > 0)
+        if (autoStarted > 0)
         {
-            await _db.SaveChangesAsync(cancellationToken);
-            messages.Add($"{kindCode}/{instance.InstanceCode}: auto-started {result.ToAutoStart.Count} action(s)");
+            messages.Add($"{kindCode}/{instance.InstanceCode}: auto-started {autoStarted} action(s)");
         }
 
         // Advance RUNNING rows so AUTO completions land without anyone watching the UI.
@@ -499,7 +503,8 @@ public sealed class ReconciliationRunner
             .Where(a => a.Status is ActionStatus.QUEUED or ActionStatus.BLOCKED or ActionStatus.RUNNING or ActionStatus.FAILED)
             .Select(a => new LiveActionRow(
                 a.Id, new ActionIdentity(a.SignalPath, a.ItemKey, a.ActionKey),
-                a.Trigger, a.Status, a.DesiredValueJson, a.ExecutorConfigJson, a.Requires))
+                a.Trigger, a.Status, a.DesiredValueJson, a.ExecutorConfigJson, a.Requires,
+                a.Policy, a.ResolvedInputsJson, a.SecretInputsJson, a.PendingPromptsJson))
             .ToList();
 
         var input = new ReconciliationInput(
@@ -571,11 +576,11 @@ public sealed class ReconciliationRunner
             Label = required.Label,
             Policy = required.Policy,
             DesiredValueJson = required.DesiredValueJson,
-            ResolvedInputsJson = JsonSerializer.Serialize(required.ResolvedInputs),
-            PendingPromptsJson = JsonSerializer.Serialize(required.PendingPrompts),
+            ResolvedInputsJson = required.ResolvedInputsJson,
+            PendingPromptsJson = required.PendingPromptsJson,
             ExecutorKind = required.ExecutorKind,
             ExecutorConfigJson = required.ExecutorConfigJson,
-            SecretInputsJson = JsonSerializer.Serialize(required.SecretInputs),
+            SecretInputsJson = required.SecretInputsJson,
             DependsOnJson = required.DependsOn.Count == 0 ? null : JsonSerializer.Serialize(required.DependsOn),
             CreatedAt = now,
             UpdatedAt = now

@@ -8,12 +8,25 @@
   [class.sidenav-left]="Type() === 'sidenav-left'"
   [class.m3-button-icon-only]="!hasText()"
   [class.m3-button-active]="Rippled()"
-  [attr.title]="hasText() ? null : Tooltip()"
+  [class.m3-button-compact]="Compact()"
+  [attr.title]="Compact() || !hasText() ? Tooltip() : null"
+  [attr.aria-label]="Compact() ? Text() : null"
 >
   @if (Icon() != null) {
-    <m3-icon class="m3-button__icon" [filled]="iconFilled()" [weight]="600">{{ Icon() }}</m3-icon>
+    <span class="m3-button__icon">
+      @for (glyph of glyphs(); track glyph.id) {
+        <m3-icon
+          class="m3-button__glyph"
+          [class.glyph-enter]="glyph.state === 'enter'"
+          [class.glyph-leave]="glyph.state === 'leave'"
+          [filled]="iconFilled()"
+          [weight]="600"
+          >{{ glyph.name }}</m3-icon
+        >
+      }
+    </span>
   }
   @if (hasText()) {
-    <span class="m3-button__text lodge-fade-enter">{{ Text() }}</span>
+    <span class="m3-button__text">{{ Text() }}</span>
   }
 </button>

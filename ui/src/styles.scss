@@ -167,6 +167,16 @@ code {
   font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
 }
 
+// A mat-tab-group that fills its container: the active tab's body takes the remaining
+// height and scrolls, instead of growing the group to fit its content.
+.lodge-fill-tabs {
+  height: 100%;
+
+  > .mat-mdc-tab-body-wrapper {
+    flex: 1 1 auto;
+  }
+}
+
 .density-minus-1 {
   @include mat.button-density(-1);
 }

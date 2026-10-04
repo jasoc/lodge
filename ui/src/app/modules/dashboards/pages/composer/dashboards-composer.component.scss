@@ -30,7 +30,12 @@
     margin-left: tokens.$lodge-shell-margin;
     position: relative;
 
-    m3-tab {
+    .tab-label {
+      margin-left: tokens.$lodge-space-2;
+    }
+
+    .tab-body {
+      padding: tokens.$lodge-space-3;
       display: flex;
       flex-direction: column;
       align-items: flex-start;

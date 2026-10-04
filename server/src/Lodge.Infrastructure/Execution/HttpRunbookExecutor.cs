@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Lodge.Core.Abstractions;
 using Lodge.Core.Catalog;
+using Lodge.Core.Domain.Enums;
 using Microsoft.Extensions.Options;
 
 namespace Lodge.Infrastructure.Execution;
@@ -59,7 +60,15 @@ public sealed partial class HttpRunbookExecutor : IRunbookExecutor, IRunbookLogR
                 "a catalog/persistence bug (the loader guarantees an http block for 'executor: http').");
         }
 
-        var runId = $"{RunIdPrefix}{Guid.NewGuid():N}";
+        var runId = request.RunId ?? AllocateRunId(ExecutorKind.Http);
+        RunLogFile.EnsureValidRunId(RunIdPrefix, runId);
+        if (_runs.ContainsKey(runId) || File.Exists(Path.Combine(_options.LogDirectory, $"{runId}.json")))
+        {
+            // Already sent (or attempted) under this id: never send it twice — the
+            // status comes from memory, or from the sidecar after a restart.
+            return Task.FromResult(new RunbookRunHandle(runId, RunbookRunState.Running));
+        }
+
         var state = new RunState(
             request.ActionRef,
             Path.Combine(_options.LogDirectory, $"{runId}.log"),
@@ -71,6 +80,8 @@ public sealed partial class HttpRunbookExecutor : IRunbookExecutor, IRunbookLogR
         state.Completion = Task.Run(() => RunAsync(request, request.HttpConfig, state));
         return Task.FromResult(new RunbookRunHandle(runId, RunbookRunState.Running));
     }
+
+    public string AllocateRunId(ExecutorKind kind) => $"{RunIdPrefix}{Guid.NewGuid():N}";
 
     public Task<RunbookRunStatus> GetStatusAsync(string runId, CancellationToken cancellationToken = default)
     {
@@ -262,7 +273,7 @@ public sealed partial class HttpRunbookExecutor : IRunbookExecutor, IRunbookLogR
         var sidecarPath = Path.Combine(_options.LogDirectory, $"{runId}.json");
         if (!File.Exists(sidecarPath))
         {
-            return new RunbookRunStatus(runId, RunbookRunState.Failed, "Unknown run.", DateTimeOffset.UtcNow);
+            return new RunbookRunStatus(runId, RunbookRunState.Failed, RunLogFile.NeverStartedMessage(runId), DateTimeOffset.UtcNow);
         }
 
         var sidecar = JsonSerializer.Deserialize<Sidecar>(File.ReadAllText(sidecarPath))!;

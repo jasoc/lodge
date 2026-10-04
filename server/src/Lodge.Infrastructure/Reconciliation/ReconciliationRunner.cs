@@ -442,18 +442,22 @@ public sealed class ReconciliationRunner
         await _db.SaveChangesAsync(cancellationToken);
 
         // AUTO drift runs itself; FAILED rows are deliberately absent from ToAutoStart
-        // (parked until a human re-runs them or the desired snapshot changes).
+        // (parked until a human re-runs them or the desired snapshot changes). Each start
+        // commits the row as RUNNING before its run is launched.
+        var autoStarted = 0;
         foreach (var auto in result.ToAutoStart)
         {
             var row = auto.LiveRowId is { } liveId
                 ? await _db.Actions.FirstAsync(a => a.Id == liveId, cancellationToken)
                 : createdByIdentity[auto.Identity];
-            await _execution.StartAutoAsync(row, kindCode, instance.InstanceCode, cancellationToken);
+            if (await _execution.StartAutoAsync(row, kindCode, instance.InstanceCode, cancellationToken))
+            {
+                autoStarted++;
+            }
         }
-        if (result.ToAutoStart.Count > 0)
+        if (autoStarted > 0)
         {
-            await _db.SaveChangesAsync(cancellationToken);
-            messages.Add($"{kindCode}/{instance.InstanceCode}: auto-started {result.ToAutoStart.Count} action(s)");
+            messages.Add($"{kindCode}/{instance.InstanceCode}: auto-started {autoStarted} action(s)");
         }
 
         // Advance RUNNING rows so AUTO completions land without anyone watching the UI.

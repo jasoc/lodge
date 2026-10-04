@@ -8,14 +8,13 @@ import { MatRippleModule } from '@angular/material/core';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
+import { MatTabsModule } from '@angular/material/tabs';
 import { MatInputModule } from '@angular/material/input';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
 import { DynamicFormComponent } from '../../components/dynamic-form/dynamic-form.component';
 import { DynamicFormRoot } from '../../components/dynamic-form/types/dynamic-form';
 import { TextboxElement } from '../../components/dynamic-form/types/dynamic-form-element-textbox';
-import { M3TabComponent } from '../../components/m3-tabs/m3-tab/m3-tab.component';
-import { M3TabsComponent } from '../../components/m3-tabs/m3-tabs.component';
 import { YamlViewerComponent } from '../../components/yaml-viewer/yaml-viewer.component';
 import {
   ActionModel,
@@ -100,8 +99,7 @@ const SECTION_PREVIEW = 6;
     MatDialogModule,
     MatFormFieldModule,
     MatInputModule,
-    M3TabsComponent,
-    M3TabComponent,
+    MatTabsModule,
     DynamicFormComponent,
     YamlViewerComponent,
     ActionGraphComponent,

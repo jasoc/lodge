@@ -54,6 +54,11 @@ its own Postgres schema on startup. Only Postgres is a separate container.
 - **Policy** — `AUTO` (runs immediately at reconciliation), `MANUAL_REQUIRED` (waits for a
   human to confirm), or `OPTIONAL` (available but never required). Unspecified defaults to
   `MANUAL_REQUIRED`.
+- **Snapshot** — what a live (not yet run) row was emitted with: desired value, executor
+  config, `requires`, policy, and inputs (resolved `from`/`const` values, secret
+  references, prompts). Any difference from what the catalog emits now supersedes the row
+  and queues a fresh one, so nobody confirms something that has changed under them. A
+  RUNNING row is never superseded mid-flight.
 - **Status** — `BLOCKED`, `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `SUPERSEDED`. An
   action whose `depends_on` targets haven't succeeded yet is still emitted, `BLOCKED`, in
   the same cycle as the change that calls for it — so the whole chain a change sets off is

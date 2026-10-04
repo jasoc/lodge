@@ -59,38 +59,62 @@
     </section>
   }
 
-  <m3-tabs>
-    <m3-tab icon="bolt" label="Capabilities">
-      <ng-container [ngTemplateOutlet]="capabilityCardsTpl"></ng-container>
-    </m3-tab>
+  <mat-tab-group>
+    <mat-tab>
+      <ng-template mat-tab-label>
+        <mat-icon fontSet="material-symbols-outlined">bolt</mat-icon>
+        <span class="tab-label">Capabilities</span>
+      </ng-template>
+      <div class="tab-body">
+        <ng-container [ngTemplateOutlet]="capabilityCardsTpl"></ng-container>
+      </div>
+    </mat-tab>
 
-    <m3-tab icon="format_list_numbered" label="Run queue">
-      <lodge-run-queue
-        [actions]="actions()"
-        [lockedReason]="lockedReasonFn"
-        [capabilityTitle]="capabilityTitleFn"
-        [busyActionId]="busyActionId()"
-        (openLog)="openLog($event)"
-        (run)="runFromQueue($event)"
-      ></lodge-run-queue>
-    </m3-tab>
+    <mat-tab>
+      <ng-template mat-tab-label>
+        <mat-icon fontSet="material-symbols-outlined">format_list_numbered</mat-icon>
+        <span class="tab-label">Run queue</span>
+      </ng-template>
+      <div class="tab-body">
+        <lodge-run-queue
+          [actions]="actions()"
+          [lockedReason]="lockedReasonFn"
+          [capabilityTitle]="capabilityTitleFn"
+          [busyActionId]="busyActionId()"
+          (openLog)="openLog($event)"
+          (run)="runFromQueue($event)"
+        ></lodge-run-queue>
+      </div>
+    </mat-tab>
 
-    <m3-tab icon="account_tree" label="Graph">
-      <lodge-action-graph
-        [actions]="actions()"
-        [lockedReason]="lockedReasonFn"
-        [busyActionId]="busyActionId()"
-        (openLog)="openLog($event)"
-        (confirm)="startConfirm($event)"
-      ></lodge-action-graph>
-    </m3-tab>
+    <mat-tab>
+      <ng-template mat-tab-label>
+        <mat-icon fontSet="material-symbols-outlined">account_tree</mat-icon>
+        <span class="tab-label">Graph</span>
+      </ng-template>
+      <div class="tab-body">
+        <lodge-action-graph
+          [actions]="actions()"
+          [lockedReason]="lockedReasonFn"
+          [busyActionId]="busyActionId()"
+          (openLog)="openLog($event)"
+          (confirm)="startConfirm($event)"
+        ></lodge-action-graph>
+      </div>
+    </mat-tab>
 
-    <m3-tab icon="description" label="Inventory">
-      <lodge-yaml-viewer
-        [value]="t.latest_yaml ?? '# no inventory revision yet'"
-      ></lodge-yaml-viewer>
-    </m3-tab>
-  </m3-tabs>
+    <mat-tab>
+      <ng-template mat-tab-label>
+        <mat-icon fontSet="material-symbols-outlined">description</mat-icon>
+        <span class="tab-label">Inventory</span>
+      </ng-template>
+      <div class="tab-body">
+        <lodge-yaml-viewer
+          [value]="t.latest_yaml ?? '# no inventory revision yet'"
+        ></lodge-yaml-viewer>
+      </div>
+    </mat-tab>
+  </mat-tab-group>
 
   <ng-template #capabilityCardsTpl>
     <div class="capability-toolbar">

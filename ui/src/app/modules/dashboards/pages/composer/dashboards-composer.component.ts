@@ -22,13 +22,12 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatTabsModule } from '@angular/material/tabs';
 import { ActivatedRoute } from '@angular/router';
 
 import { DynamicFormComponent } from '../../../../components/dynamic-form/dynamic-form.component';
 import { DynamicFormRoot } from '../../../../components/dynamic-form/types/dynamic-form';
 import { M3IconComponent } from '../../../../components/m3-icon/m3-icon.component';
-import { M3TabComponent } from '../../../../components/m3-tabs/m3-tab/m3-tab.component';
-import { M3TabsComponent } from '../../../../components/m3-tabs/m3-tabs.component';
 import { DashboardModel } from '../../../../domain';
 import { DashboardService } from '../../../../services/dashboard.service';
 import { QuestionControlService } from '../../../../services/question-control.service';
@@ -44,8 +43,7 @@ import { BaseLodgeWidget } from '../../widgets/BaseLodgeWidget';
     GridstackModule,
     MatButtonModule,
     MatIconModule,
-    M3TabsComponent,
-    M3TabComponent,
+    MatTabsModule,
     M3IconComponent,
     DynamicFormComponent,
   ],

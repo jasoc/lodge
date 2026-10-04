@@ -405,9 +405,6 @@ public class ReconcilerTests
 
     private const string ChainYaml = "vms:\n  vm1:\n    size: 1";
 
-    private static LiveActionRow LiveOf(RequiredAction required, ActionStatus status)
-        => new(Guid.NewGuid(), required.Identity, required.Trigger, status, required.DesiredValueJson, required.ExecutorConfigJson, required.Requires);
-
     [Fact]
     public void A_whole_chain_is_emitted_in_one_cycle_each_link_blocked_by_its_direct_dependency()
     {
@@ -427,7 +424,7 @@ public class ReconcilerTests
     {
         var first = Reconciler.Reconcile(Input(ChainCatalog(), ChainYaml)).ToCreate.ToDictionary(a => a.Identity.ActionKey);
         var history = new[] { Succeeded(first["a"].Identity, SignalTrigger.ADD, first["a"].DesiredValueJson, T(1), false) };
-        var live = new[] { LiveOf(first["b"], ActionStatus.BLOCKED), LiveOf(first["c"], ActionStatus.BLOCKED) };
+        var live = new[] { Live(first["b"], ActionStatus.BLOCKED), Live(first["c"], ActionStatus.BLOCKED) };
 
         var result = Reconciler.Reconcile(Input(ChainCatalog(), ChainYaml, history, live));
 
@@ -442,7 +439,7 @@ public class ReconcilerTests
     {
         var first = Reconciler.Reconcile(Input(ChainCatalog(), ChainYaml)).ToCreate.ToDictionary(a => a.Identity.ActionKey);
         // b was unblocked by a's success, which has since been invalidated (absent from history).
-        var live = new[] { LiveOf(first["b"], ActionStatus.QUEUED) };
+        var live = new[] { Live(first["b"], ActionStatus.QUEUED) };
 
         var result = Reconciler.Reconcile(Input(ChainCatalog(), ChainYaml, live: live));
 
@@ -454,7 +451,7 @@ public class ReconcilerTests
     public void A_blocked_action_whose_snapshot_changed_is_superseded_and_recreated_blocked()
     {
         var first = Reconciler.Reconcile(Input(ChainCatalog(), ChainYaml)).ToCreate.ToDictionary(a => a.Identity.ActionKey);
-        var live = new[] { LiveOf(first["b"], ActionStatus.BLOCKED) };
+        var live = new[] { Live(first["b"], ActionStatus.BLOCKED) };
 
         var result = Reconciler.Reconcile(Input(ChainCatalog(), "vms:\n  vm1:\n    size: 2", live: live));
 
@@ -472,7 +469,7 @@ public class ReconcilerTests
         Assert.True(b.Blocked);
 
         var history = new[] { Succeeded(first.ToAdopt[0].Identity, SignalTrigger.ADD, first.ToAdopt[0].DesiredValueJson, T(1), true) };
-        var live = new[] { LiveOf(b, ActionStatus.BLOCKED) };
+        var live = new[] { Live(b, ActionStatus.BLOCKED) };
         var second = Reconciler.Reconcile(Input(ChainCatalog(), yaml, history, live));
 
         Assert.Contains(live[0].Id, second.ToSupersede);

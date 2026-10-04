@@ -34,7 +34,8 @@ export interface ActionModel {
   signal_path: string;
   item_key: string | null;
   action_key: string;
-  runbook_ref: string;
+  /** The group whose members alone may confirm/retry/revoke it; null = anyone. */
+  requires: string | null;
   trigger: string;
   label: string;
   policy: 'AUTO' | 'MANUAL_REQUIRED' | 'OPTIONAL';
@@ -107,4 +108,25 @@ export interface CycleSummaryModel {
   drift_count: number;
   messages: string[];
   validation_errors: string[];
+}
+
+/** One reconciliation cycle (`GET /reconcile/cycles`). */
+export interface SyncCycleModel {
+  id: string;
+  started_at: string;
+  completed_at: string | null;
+  triggered_by: 'Timer' | 'Manual' | 'Api' | string;
+  success: boolean;
+  kinds_checked: number;
+  instances_reconciled: number;
+  drift_count: number;
+  error: string | null;
+  messages: string[];
+  validation_errors: string[];
+}
+
+export interface SyncCyclesModel {
+  loop_enabled: boolean;
+  interval_seconds: number;
+  cycles: SyncCycleModel[];
 }

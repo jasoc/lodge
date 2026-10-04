@@ -1,0 +1,166 @@
+@use 'tokens' as tokens;
+
+:host {
+  display: block;
+  max-width: 1100px;
+
+  .page-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: tokens.$lodge-space-3;
+    margin-bottom: tokens.$lodge-space-4;
+
+    .page-title {
+      margin: 0;
+    }
+  }
+
+  .page-subtitle {
+    margin: 2px 0 0;
+    color: var(--lodge-main-ui-text-color-light);
+  }
+
+  .spin {
+    animation: reconciliation-spin 1s linear infinite;
+  }
+
+  @keyframes reconciliation-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .muted {
+    margin: 0;
+    color: var(--lodge-main-ui-text-color-light);
+  }
+
+  .errors-panel {
+    padding: tokens.$lodge-space-4;
+    border-radius: 16px;
+    background: var(--lodge-background-shader);
+    box-shadow: inset 4px 0 0 var(--mat-sys-error, #c62828);
+
+    &-ok {
+      box-shadow: inset 4px 0 0 var(--mat-sys-primary, var(--lodge-main-ui-text-color-light));
+    }
+  }
+
+  .errors-head {
+    display: flex;
+    align-items: center;
+    gap: tokens.$lodge-space-2;
+    margin-bottom: tokens.$lodge-space-1;
+
+    h2 {
+      margin: 0;
+      font-size: 1.2rem;
+    }
+  }
+
+  .errors-panel:not(.errors-panel-ok) .errors-head mat-icon {
+    color: var(--mat-sys-error, #c62828);
+  }
+
+  .error-list,
+  .event-list {
+    list-style: none;
+    margin: tokens.$lodge-space-3 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: tokens.$lodge-space-1;
+  }
+
+  .error-list li {
+    display: flex;
+    gap: tokens.$lodge-space-2;
+    align-items: baseline;
+    padding: tokens.$lodge-space-2 tokens.$lodge-space-3;
+    border-radius: 10px;
+    background: var(--lodge-background-shader-lighter);
+    line-height: 1.45;
+  }
+
+  .error-source {
+    flex: none;
+    font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--mat-sys-error, #c62828);
+  }
+
+  .error-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .event-list li {
+    font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
+    font-size: 0.82rem;
+    color: var(--lodge-main-ui-text-color-light);
+  }
+
+  .crash {
+    margin: tokens.$lodge-space-2 0 0;
+    padding: tokens.$lodge-space-3;
+    border-radius: 10px;
+    background: var(--lodge-background-shader-lighter);
+    white-space: pre-wrap;
+  }
+
+  .section-title {
+    margin: tokens.$lodge-space-5 0 tokens.$lodge-space-3;
+    font-size: 1.1rem;
+  }
+
+  .cycles {
+    h3 {
+      margin: tokens.$lodge-space-3 0 0;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--lodge-main-ui-text-color-light);
+    }
+  }
+
+  mat-panel-title {
+    display: flex;
+    align-items: center;
+    gap: tokens.$lodge-space-2;
+    flex: 0 0 auto;
+    min-width: 190px;
+  }
+
+  mat-panel-description {
+    display: flex;
+    flex-wrap: wrap;
+    gap: tokens.$lodge-space-3;
+    align-items: center;
+
+    .bad {
+      color: var(--mat-sys-error, #c62828);
+      font-weight: 500;
+    }
+
+    .cycle-duration {
+      margin-left: auto;
+    }
+  }
+
+  .cycle-icon {
+    color: var(--lodge-main-ui-text-color-light);
+
+    &-bad {
+      color: var(--mat-sys-error, #c62828);
+    }
+  }
+
+  .cycle-trigger {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+}

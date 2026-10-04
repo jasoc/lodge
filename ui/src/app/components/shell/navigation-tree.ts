@@ -48,6 +48,11 @@ export const navigationElementsTree: NavigationElement[] = [
     icon: 'token',
   }),
   new NavigationElement({
+    name: 'Reconciliation',
+    icon: 'sync',
+    redirect: 'reconciliation',
+  }),
+  new NavigationElement({
     name: 'Drift',
     icon: 'sync_problem',
     redirect: 'drift',
@@ -71,6 +76,11 @@ export const navigationElementsTree: NavigationElement[] = [
     name: 'Dashboards',
     icon: 'dataset',
     redirect: 'dashboards',
+  }),
+  new NavigationElement({
+    name: 'Users & groups',
+    icon: 'group',
+    redirect: 'users',
   }),
   new NavigationElement({
     name: 'Settings',

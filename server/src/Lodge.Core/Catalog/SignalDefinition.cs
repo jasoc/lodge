@@ -55,6 +55,9 @@ public sealed class SignalDefinition
 
     public IReadOnlyList<SignalRule> Rules { get; set; } = new List<SignalRule>();
 
+    /// <summary>Human name for the signal where a view shows it (a column header); defaults to the path's last segment.</summary>
+    public string? Label { get; set; }
+
     /// <summary>Separates the parent and child key in a nested collection's item keys.</summary>
     public const char NestedItemKeySeparator = '/';
 

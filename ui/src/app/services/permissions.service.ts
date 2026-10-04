@@ -4,7 +4,7 @@ import { ActivatedRouteSnapshot, Router, RouterStateSnapshot, UrlTree } from '@a
 import { AuthService } from './auth.service';
 
 export class PermissionsService {
-  /** Establishes a session before any guarded route activates. In the no-auth profile
+  /** Establishes a session (and loads who it belongs to) before any guarded route activates. In the no-auth profile
    * this always succeeds with no user interaction. In the Oidc profile there's no silent
    * mint, so a missing session sends the browser to `/auth/login` (outside this guard's
    * own route tree) instead of activating the shell. */
@@ -16,6 +16,10 @@ export class PermissionsService {
     const router = inject(Router);
     await authService.ensureSession();
     if (authService.userLogged()) {
+      // Who we are (and our groups) decides which action buttons are live.
+      if (authService.me() === null) {
+        await authService.loadMe().catch(() => null);
+      }
       return true;
     }
     return router.parseUrl('/auth/login');

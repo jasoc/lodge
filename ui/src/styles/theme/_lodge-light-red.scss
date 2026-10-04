@@ -1,0 +1,15 @@
+@use '../tokens' as *;
+
+// Light, red accent: warm off-white surfaces, crimson primary.
+[data-theme='lodge-light-red'] {
+  --lodge-background-color: #fff8f7;
+
+  --lodge-main-ui-text-color: #{$lodge-dark-primary-text};
+  --lodge-main-ui-text-color-light: #5b4f4e;
+
+  --lodge-background-shader: #3a00001a;
+  --lodge-background-shader-lighter: #3a00000d;
+  --lodge-background-shader-stronger: #3a000040;
+
+  --lodge-accent-color-300: #c0001d;
+}

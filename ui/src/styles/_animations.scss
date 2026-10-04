@@ -51,20 +51,6 @@ $lodge-ease-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
 // ---------------------------------------------------------------------------
-// Navigation Drawer — separator
-// ---------------------------------------------------------------------------
-.separator-animated {
-  transition:
-    opacity 280ms $lodge-ease,
-    margin 280ms $lodge-ease;
-
-  &.separator-hidden {
-    opacity: 0;
-    margin: 0;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Navigation Drawer — subgroup
 // ---------------------------------------------------------------------------
 .subgroup-animated {
@@ -73,25 +59,6 @@ $lodge-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   &.subgroup-hidden {
     opacity: 0;
   }
-}
-
-// ---------------------------------------------------------------------------
-// M3 Button — margin animation for icon when text is present
-// ---------------------------------------------------------------------------
-.m3-button-margin-animated {
-  transition:
-    margin-left 280ms $lodge-ease,
-    margin-right 280ms $lodge-ease;
-}
-
-.m3-button-margin-no-text {
-  margin-left: tokens.$lodge-space-2;
-  margin-right: 0px;
-}
-
-.m3-button-margin-has-text {
-  margin-left: tokens.$lodge-space-3;
-  margin-right: tokens.$lodge-space-4;
 }
 
 // ---------------------------------------------------------------------------

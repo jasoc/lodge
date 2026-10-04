@@ -20,9 +20,8 @@ signals:
       - on: add
         actions:
           - key: deploy_stack
-            runbook: homelab/compose-deploy
             label: "Deploy stack"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             depends_on: [ "proxmox.virtual_machines.configure_vm" ]
             executor: docker
             docker:
@@ -38,9 +37,8 @@ signals:
       - on: modify
         actions:
           - key: update_stack
-            runbook: homelab/compose-update
             label: "Update stack"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             executor: docker
             docker:
               build: { context: playbooks/compose }
@@ -55,7 +53,6 @@ signals:
       - on: delete
         actions:
           - key: remove_stack
-            runbook: homelab/compose-remove
             label: "Remove stack"
             policy: MANUAL_REQUIRED
             executor: docker

@@ -1,7 +1,7 @@
 # One Proxmox VM per key under proxmox.virtual_machines. Lifecycle:
 #   add    → apply_vm (Terraform creates it, MANUAL) → configure_vm (Ansible profile, AUTO)
 #   modify → apply_vm_changes (Terraform updates it in place, MANUAL)
-#   delete → destroy_vm (Terraform destroys it, MANUAL)
+#   delete → destroy_vm (Terraform destroys it, MANUAL — only members of `admins`)
 #   plan_vm (OPTIONAL, any time): what Terraform would change for this VM right now
 #
 # Terraform: the generic runner (playbooks/terraform) applies the `proxmox-vm` module as
@@ -29,7 +29,6 @@ signals:
       - on: add
         actions:
           - key: apply_vm
-            runbook: homelab/terraform-apply
             label: "Create VM (Terraform)"
             policy: MANUAL_REQUIRED
             executor: docker
@@ -46,7 +45,6 @@ signals:
               pass_pat: { secret: PROTON_PASS_PAT }
 
           - key: configure_vm
-            runbook: homelab/ansible-profile
             label: "Configure VM (Ansible profile)"
             policy: AUTO
             depends_on: [ "proxmox.virtual_machines.apply_vm" ]
@@ -62,7 +60,6 @@ signals:
               pass_pat: { secret: PROTON_PASS_PAT }
 
           - key: plan_vm
-            runbook: homelab/terraform-plan
             label: "Plan VM (Terraform, read-only)"
             policy: OPTIONAL
             executor: docker
@@ -81,7 +78,6 @@ signals:
       - on: modify
         actions:
           - key: apply_vm_changes
-            runbook: homelab/terraform-apply-changes
             label: "Apply VM changes (Terraform)"
             policy: MANUAL_REQUIRED
             executor: docker
@@ -100,9 +96,9 @@ signals:
       - on: delete
         actions:
           - key: destroy_vm
-            runbook: homelab/terraform-destroy
             label: "Destroy VM (Terraform)"
             policy: MANUAL_REQUIRED
+            requires: admins
             executor: docker
             docker:
               build: { context: playbooks/terraform }

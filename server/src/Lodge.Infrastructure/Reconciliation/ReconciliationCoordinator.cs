@@ -86,15 +86,11 @@ public sealed class ReconciliationCoordinator
 
         try
         {
-            // Mapping files (capabilities, instance overrides, runbook permissions) are
-            // reloaded every cycle, not just at startup — policy is never frozen.
+            // Mapping files (capabilities, instance overrides) are reloaded every cycle,
+            // not just at startup — policy is never frozen.
             if (scope.ServiceProvider.GetRequiredService<ICapabilityCatalogProvider>() is ICacheInvalidatable catalogs)
             {
                 catalogs.Invalidate();
-            }
-            if (scope.ServiceProvider.GetRequiredService<IPermissionResolver>() is ICacheInvalidatable permissions)
-            {
-                permissions.Invalidate();
             }
 
             var runner = scope.ServiceProvider.GetRequiredService<ReconciliationRunner>();

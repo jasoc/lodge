@@ -1,8 +1,8 @@
 # Deployment scenario: homelab
 
-The default profile this repo ships for. One host, one container, no identity provider,
-no groups — you are the only actor, and the audit trail exists so you can answer "wait,
-why did that happen?" at 2am, not to enforce RBAC on yourself.
+The default profile this repo ships for. One host, one container, no identity provider —
+you are the only actor, and the audit trail exists so you can answer "wait, why did that
+happen?" at 2am, not to enforce permissions on yourself.
 
 ## Topology
 
@@ -56,15 +56,24 @@ nothing for you to log in *as*.
 
 ```bash
 git clone <your-fork> lodge && cd lodge
-cp .env.example .env          # defaults are already homelab-shaped
-./scripts/prod-test.sh        # docker compose up --build, the real production image
+cp .env.prod.example .env.prod
+# in .env.prod: set Auth__Mode=NoAuth, Git__Provider=Local, the Postgres password, and
+# LODGE_BIND=0.0.0.0 if you're not putting a reverse proxy in front
+./scripts/prod-test.sh        # builds the server image, then runs docker-compose.prod.yml
 ```
 
-`./scripts/prod-test.sh` is literally `docker compose up`, using the same
-`docker-compose.yml` you'd run on the actual box — "test" only means "you're running it
-locally before trusting it," not "different from production." For day-to-day dev
-instead of a deployment test, `./scripts/run.sh` is the zero-touch native loop (see the
-root README).
+`docker-compose.prod.yml` is the same file you'd run on the actual box — "test" only
+means "you're running it locally before trusting it," not "different from production."
+It also defines Keycloak for the SSO profile; with `NoAuth` you don't need it, so on the
+box start only the server and its database:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d postgres server
+```
+
+(`KEYCLOAK_*` still have to be set to something for the file to parse — any non-empty
+value does when Keycloak never starts.) For day-to-day dev instead of a deployment test,
+`./scripts/run.sh` is the native loop (see the root README).
 
 For the real deployment, put this behind whatever you already use to reach your homelab
 — Tailscale, a Caddy/nginx reverse proxy with a real cert, or nothing at all if it's
@@ -85,8 +94,8 @@ own `kind` (the *type* of thing you're governing — e.g. `host` for bare-metal 
 inventory/
   host/
     capabilities/
-      backups.yaml          # signal: backup.enabled → restic runbook (AUTO) /
-                             #         decommission runbook (MANUAL_REQUIRED)
+      backups.yaml          # signal: backup.enabled → restic container (AUTO) /
+                             #         decommission container (MANUAL_REQUIRED)
     instances/
       nas/
         instance.yaml       # kind_code: host, instance: nas, display_name: "Synology NAS"
@@ -96,31 +105,36 @@ inventory/
         state.yaml
 ```
 
-A shell runbook (`executor: shell`, the default) is any command on the server host, invoked
-with `LODGE_INSTANCE_CODE` and `LODGE_PARAM_*` env vars. Point an action's `runbook:` at a
-script path directly; no alias config needed unless you want a friendlier name in the
-capability YAML.
+Every action names its executor. To call something that already has an API (n8n, Home
+Assistant, a CI trigger), use `executor: http`: its `http:` block is the whole request
+(`method`, `url`, `headers`, `query`, `body`), with `{{ name }}` replaced by the action's
+inputs at run time — secrets included, and masked in the run log.
 
 For tooling Lodge's image doesn't ship (ansible, terraform, ...), use `executor: docker`.
 The action can run a ready-made `image:` or a playbook folder with a Dockerfile under
 `inventory/<kind>/playbooks/`. Lodge builds that folder on the host's docker daemon
-(`docker-compose.yml` mounts `/var/run/docker.sock`) and caches the image by content hash.
+(`docker-compose.prod.yml` mounts `/var/run/docker.sock`) and caches the image by content hash.
 The container receives the same `LODGE_PARAM_*` variables, plus `LODGE_PARAMS_JSON`.
 Mounting the socket gives root-equivalent access to the host: anyone who can merge to the
 inventory can run containers on it. `inventory/homelab/` is a working example: its VMs are
-created and destroyed by `playbooks/terraform-vm/`, which reads the VM spec through
-`TF_VAR_*` variables.
+created and destroyed by `playbooks/terraform/`, configured by `playbooks/ansible/`, and
+their compose stacks deployed by `playbooks/compose/`.
 
-## RBAC in this profile
+## Users and `requires` in this profile
 
-`inventory/{kind}/runbook-permissions.yaml` is consulted by `FilePermissionResolver`,
-but `local-admin` always has `IsAdmin = true` and admins bypass every grant — so an
-empty or missing permissions file (the shipped default) is fine here. There's no one to
-restrict.
+None: everyone signs in as the implicit local admin, and admins may run every action, so a
+`requires: <group>` (like the shipped homelab's `destroy_vm` → `admins`) only takes effect
+once you switch to `Oidc` and your IdP's groups come in.
+
+## Validation errors
+
+An invalid instance or capability file stops what it describes from being reconciled.
+The **Reconciliation** page lists the errors the last cycle found, the events of the
+recent cycles, and has a button to reconcile right away.
 
 ## Secrets
 
-`EnvSecretProvider` (the default `ISecretProvider`) reads whatever a runbook needs
+`EnvSecretProvider` (the default `ISecretProvider`) reads whatever an action needs
 straight from the container's environment — put them in `.env` alongside everything
 else. There's no vault integration in this profile; for a single-operator homelab,
 `.env` (never committed, root-owned file permissions) is the vault.

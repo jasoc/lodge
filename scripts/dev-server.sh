@@ -1,6 +1,7 @@
 #!/bin/bash
 # Runs Lodge.Server natively (not in a container) against the dev Postgres (the
-# docker-compose.yml `postgres` service — ./scripts/dev-db-up.sh, or ./scripts/run.sh). It migrates itself on startup — nothing else to run first.
+# docker-compose.yml — ./scripts/dev-db-up.sh, or ./scripts/run.sh). It migrates itself on
+# startup — nothing else to run first. Requires the .NET SDK pinned in global.json.
 # Usage: ./scripts/dev-server.sh
 set -euo pipefail
 
@@ -13,9 +14,8 @@ source "$ROOT/scripts/lib/dotnet.sh"
 lodge_load_env "$ROOT"
 lodge_ensure_dotnet "$ROOT"
 
-# The only two things that have to differ from .env's own (docker-compose-shaped)
-# defaults: Postgres is reached via its published host port, not the compose network's
-# `postgres` hostname, and the listen URL matches what proxy.conf.json expects.
+# Postgres is reached via its published host port, and the listen URL matches what
+# proxy.conf.json expects.
 export POSTGRES_HOST=localhost
 export ASPNETCORE_URLS="http://localhost:8080"
 

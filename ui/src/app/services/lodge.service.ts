@@ -6,7 +6,9 @@ import {
   ActionModel,
   AuditEventModel,
   CapabilityCatalogModel,
+  CapabilityViewModel,
   CycleSummaryModel,
+  SyncCyclesModel,
   GlobalActionModel,
   GlobalAuditEventModel,
   KindModel,
@@ -115,6 +117,18 @@ export class LodgeService extends BackendService {
     const res = await this.get<ActionExecutionResultModel>(
       `/kinds/${kindCode}/instances/${instanceCode}/actions/${actionId}/status`,
     );
+    return res.body!;
+  }
+
+  /** View capabilities (no rules) rendered against the instance's latest inventory. */
+  async getViews(kindCode: string, instanceCode: string): Promise<CapabilityViewModel[]> {
+    const res = await this.get<CapabilityViewModel[]>(`/kinds/${kindCode}/instances/${instanceCode}/views`);
+    return res.body!;
+  }
+
+  /** The latest reconciliation cycles, newest first, with their validation errors. */
+  async getCycles(limit = 20): Promise<SyncCyclesModel> {
+    const res = await this.get<SyncCyclesModel>('/reconcile/cycles', { limit });
     return res.body!;
   }
 

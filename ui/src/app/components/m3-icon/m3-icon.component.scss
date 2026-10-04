@@ -1,5 +1,15 @@
 :host {
   display: flex;
+  font-size: 24px;
+}
+
+// The glyph follows the host's font-size, so a caller sizes the icon by sizing the host
+// (a 20px drawer sub-entry gets a 20px glyph, not a 24px one clipped to 20px).
+mat-icon {
+  font-size: inherit;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
 }
 .material-symbols-sharp {
   font-variation-settings:

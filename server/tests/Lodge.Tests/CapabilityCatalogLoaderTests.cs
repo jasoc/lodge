@@ -16,14 +16,16 @@ public class CapabilityCatalogLoaderTests
               - when: true
                 actions:
                   - key: configure_sso
-                    runbook: acme-instance-ops/configure-sso
+                    executor: http
+                    http: { url: "https://ops.test/acme-instance-ops/configure-sso" }
                     label: "Configure SSO"
                     policy: AUTO
                     inputs:
                       instance: { from: instance }
                       mode: { const: "enable" }
                   - key: redeploy
-                    runbook: acme-instance-ops/redeploy
+                    executor: http
+                    http: { url: "https://ops.test/acme-instance-ops/redeploy" }
                     policy: MANUAL_REQUIRED
                     inputs:
                       instance: { from: instance }
@@ -31,7 +33,8 @@ public class CapabilityCatalogLoaderTests
               - when: false
                 actions:
                   - key: configure_sso
-                    runbook: acme-instance-ops/configure-sso
+                    executor: http
+                    http: { url: "https://ops.test/acme-instance-ops/configure-sso" }
                     label: "Disable SSO"
                     policy: AUTO
                     inputs:
@@ -69,14 +72,16 @@ public class CapabilityCatalogLoaderTests
 
         var configure = enableRule.Actions[0];
         Assert.Equal("configure_sso", configure.Key);
-        Assert.Equal("acme-instance-ops/configure-sso", configure.Runbook);
+        Assert.Equal(ExecutorKind.Http, configure.ExecutorKind);
+        Assert.Equal("https://ops.test/acme-instance-ops/configure-sso", configure.Http!.Url);
+        Assert.Null(configure.Requires);
         Assert.Equal("Configure SSO", configure.Label);
         Assert.Equal(ActionPolicy.AUTO, configure.Policy);
         Assert.Contains(configure.Inputs, i => i.Name == "instance" && i.Kind == RuleInputKind.From && i.Value == "instance");
         Assert.Contains(configure.Inputs, i => i.Name == "mode" && i.Kind == RuleInputKind.Const && i.Value == "enable");
 
         var redeploy = enableRule.Actions[1];
-        Assert.Equal("acme-instance-ops/redeploy", redeploy.Label); // label defaults to runbook
+        Assert.Equal("redeploy", redeploy.Label); // label defaults to the key
         Assert.Contains(redeploy.Inputs, i => i.Name == "environment" && i.Kind == RuleInputKind.Prompt && i.Required);
     }
 
@@ -95,7 +100,7 @@ public class CapabilityCatalogLoaderTests
               - path: features.x
                 rules:
                   - when: true
-                    actions: [ { runbook: r } ]
+                    actions: [ { executor: http, http: { url: "https://ops.test/r" } } ]
             """;
         var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
         Assert.Contains("key", ex.Message);
@@ -110,7 +115,7 @@ public class CapabilityCatalogLoaderTests
               - path: features.x
                 rules:
                   - on: add
-                    actions: [ { key: k, runbook: r } ]
+                    actions: [ { key: k, executor: http, http: { url: "https://ops.test/r" } } ]
             """;
         Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(onForScalar));
 
@@ -121,7 +126,7 @@ public class CapabilityCatalogLoaderTests
                 kind: keyed_collection
                 rules:
                   - when: true
-                    actions: [ { key: k, runbook: r } ]
+                    actions: [ { key: k, executor: http, http: { url: "https://ops.test/r" } } ]
             """;
         Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(whenForCollection));
     }
@@ -136,27 +141,9 @@ public class CapabilityCatalogLoaderTests
                 kind: scalar_list
                 rules:
                   - on: modify
-                    actions: [ { key: k, runbook: r } ]
+                    actions: [ { key: k, executor: http, http: { url: "https://ops.test/r" } } ]
             """;
         Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
-    }
-
-    [Fact]
-    public void LoadCapability_rejects_same_runbook_under_two_triggers_of_one_signal()
-    {
-        var yaml = """
-            capability: vms
-            signals:
-              - path: virtual_machines
-                kind: keyed_collection
-                rules:
-                  - on: add
-                    actions: [ { key: provision, runbook: acme/provision } ]
-                  - on: modify
-                    actions: [ { key: update, runbook: acme/provision } ]
-            """;
-        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
-        Assert.Contains("distinct runbook per trigger", ex.Message);
     }
 
     [Fact]
@@ -169,9 +156,9 @@ public class CapabilityCatalogLoaderTests
                 kind: keyed_collection
                 rules:
                   - on: add
-                    actions: [ { key: provision, runbook: acme/provision } ]
+                    actions: [ { key: provision, executor: http, http: { url: "https://ops.test/acme/provision" } } ]
                   - on: modify
-                    actions: [ { key: provision, runbook: acme/update } ]
+                    actions: [ { key: provision, executor: http, http: { url: "https://ops.test/acme/update" } } ]
             """;
         var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
         Assert.Contains("distinct key per trigger", ex.Message);
@@ -188,8 +175,8 @@ public class CapabilityCatalogLoaderTests
                 rules:
                   - on: add
                     actions:
-                      - { key: provision, runbook: acme/provision }
-                      - { key: provision, runbook: acme/provision-2 }
+                      - { key: provision, executor: http, http: { url: "https://ops.test/acme/provision" } }
+                      - { key: provision, executor: http, http: { url: "https://ops.test/acme/provision-2" } }
             """;
         var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
         Assert.Contains("used more than once", ex.Message);
@@ -216,7 +203,8 @@ public class CapabilityCatalogLoaderTests
                   - when: true
                     actions:
                       - key: k
-                        runbook: r
+                        executor: http
+                        http: { url: "https://ops.test/r" }
                         policy: AUTO
                         inputs:
                           env: { prompt: "Which env?" }
@@ -235,7 +223,7 @@ public class CapabilityCatalogLoaderTests
                 kind: keyed_collection
                 rules:
                   - on: add
-                    actions: [ { key: provision, runbook: acme/provision } ]
+                    actions: [ { key: provision, executor: http, http: { url: "https://ops.test/acme/provision" } } ]
             """);
         var overrides = CapabilityCatalogLoader.LoadCapability("""
             capability: virtual_machines
@@ -245,7 +233,7 @@ public class CapabilityCatalogLoaderTests
                 rules:
                   - on: add
                     item_key: vm-quirky
-                    actions: [ { key: apply_quirk_profile, runbook: acme/apply-quirk-profile } ]
+                    actions: [ { key: apply_quirk_profile, executor: http, http: { url: "https://ops.test/acme/apply-quirk-profile" } } ]
             """);
 
         var catalog = CapabilityCatalogLoader.Merge("acme", new[] { generic }, new[] { overrides });
@@ -267,7 +255,7 @@ public class CapabilityCatalogLoaderTests
                 kind: keyed_collection
                 rules:
                   - on: add
-                    actions: [ { key: provision, runbook: acme/provision } ]
+                    actions: [ { key: provision, executor: http, http: { url: "https://ops.test/acme/provision" } } ]
             """);
         var overrides = CapabilityCatalogLoader.LoadCapability("""
             capability: virtual_machines
@@ -276,7 +264,7 @@ public class CapabilityCatalogLoaderTests
                 kind: keyed_collection
                 rules:
                   - on: delete
-                    actions: [ { key: destroy, runbook: acme/destroy } ]
+                    actions: [ { key: destroy, executor: http, http: { url: "https://ops.test/acme/destroy" } } ]
             """);
 
         CapabilityCatalogLoader.Merge("acme", new[] { generic }, new[] { overrides });
@@ -294,7 +282,7 @@ public class CapabilityCatalogLoaderTests
               - path: features.sso_login
                 rules:
                   - when: true
-                    actions: [ { key: configure, runbook: acme/configure } ]
+                    actions: [ { key: configure, executor: http, http: { url: "https://ops.test/acme/configure" } } ]
             """);
         var overrides = CapabilityCatalogLoader.LoadCapability("""
             capability: special
@@ -302,7 +290,7 @@ public class CapabilityCatalogLoaderTests
               - path: special.flag
                 rules:
                   - when: true
-                    actions: [ { key: special, runbook: acme/special } ]
+                    actions: [ { key: special, executor: http, http: { url: "https://ops.test/acme/special" } } ]
             """);
 
         var catalog = CapabilityCatalogLoader.Merge("acme", new[] { generic }, new[] { overrides });
@@ -323,11 +311,12 @@ public class CapabilityCatalogLoaderTests
                 kind: keyed_collection
                 rules:
                   - on: add
-                    actions: [ { key: provision, runbook: acme/provision } ]
+                    actions: [ { key: provision, executor: http, http: { url: "https://ops.test/acme/provision" } } ]
                   - on: modify
                     actions:
                       - key: update
-                        runbook: acme/update
+                        executor: http
+                        http: { url: "https://ops.test/acme/update" }
                         depends_on: [ "virtual_machines.provision" ]
             """);
 
@@ -348,7 +337,8 @@ public class CapabilityCatalogLoaderTests
                   - on: add
                     actions:
                       - key: provision
-                        runbook: acme/provision
+                        executor: http
+                        http: { url: "https://ops.test/acme/provision" }
                         depends_on: [ "virtual_machines.nonexistent" ]
             """);
 
@@ -367,11 +357,12 @@ public class CapabilityCatalogLoaderTests
                 kind: keyed_collection
                 rules:
                   - on: add
-                    actions: [ { key: provision, runbook: acme/provision } ]
+                    actions: [ { key: provision, executor: http, http: { url: "https://ops.test/acme/provision" } } ]
                   - on: modify
                     actions:
                       - key: update
-                        runbook: acme/update
+                        executor: http
+                        http: { url: "https://ops.test/acme/update" }
                         depends_on: [ "virtual_machines[vm1].provision" ]
             """);
         var ex = Assert.Throws<CatalogFormatException>(
@@ -391,12 +382,14 @@ public class CapabilityCatalogLoaderTests
                   - on: add
                     actions:
                       - key: a
-                        runbook: acme/a
+                        executor: http
+                        http: { url: "https://ops.test/acme/a" }
                         depends_on: [ "virtual_machines.b" ]
                   - on: modify
                     actions:
                       - key: b
-                        runbook: acme/b
+                        executor: http
+                        http: { url: "https://ops.test/acme/b" }
                         depends_on: [ "virtual_machines.a" ]
             """);
 
@@ -408,11 +401,138 @@ public class CapabilityCatalogLoaderTests
     // --- executor -----------------------------------------------------------------------
 
     [Fact]
-    public void LoadCapability_defaults_executor_to_shell()
+    public void LoadCapability_requires_an_explicit_executor()
     {
-        var capability = CapabilityCatalogLoader.LoadCapability(SsoYaml);
-        Assert.Equal(ExecutorKind.Shell, capability.Signals[0].Rules[0].Actions[0].ExecutorKind);
-        Assert.Null(capability.Signals[0].Rules[0].Actions[0].Docker);
+        var yaml = """
+            capability: bad
+            signals:
+              - path: features.x
+                rules:
+                  - when: true
+                    actions: [ { key: k } ]
+            """;
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
+        Assert.Contains("missing 'executor'", ex.Message);
+    }
+
+    [Fact]
+    public void LoadCapability_rejects_the_retired_runbook_field()
+    {
+        var yaml = """
+            capability: bad
+            signals:
+              - path: features.x
+                rules:
+                  - when: true
+                    actions: [ { key: k, runbook: ops/k, executor: http, http: { url: "https://ops.test/k" } } ]
+            """;
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
+        Assert.Contains("'runbook' is retired", ex.Message);
+    }
+
+    [Fact]
+    public void LoadCapability_parses_an_http_executor_config()
+    {
+        var yaml = """
+            capability: notify
+            signals:
+              - path: features.x
+                rules:
+                  - when: true
+                    actions:
+                      - key: notify
+                        executor: http
+                        requires: ops
+                        http:
+                          method: put
+                          url: "https://hooks.test/{{ instance }}"
+                          headers: { Authorization: "Bearer {{ token }}" }
+                          query: { zone: "{{ zone }}" }
+                          body: { name: "{{ instance }}", ttl: 1, tags: [a, b] }
+                          timeout_seconds: 10
+                          expect_status: [200, 204]
+            """;
+        var action = CapabilityCatalogLoader.LoadCapability(yaml).Signals[0].Rules[0].Actions[0];
+
+        Assert.Equal("ops", action.Requires);
+        var http = action.Http!;
+        Assert.Equal("PUT", http.Method);
+        Assert.Equal("https://hooks.test/{{ instance }}", http.Url);
+        Assert.Equal("Bearer {{ token }}", http.Headers!["Authorization"]);
+        Assert.Equal("{{ zone }}", http.Query!["zone"]);
+        Assert.True(http.BodyIsJson);
+        Assert.Contains("\"name\":\"{{ instance }}\"", http.Body);
+        Assert.Contains("\"tags\":[\"a\",\"b\"]", http.Body);
+        Assert.Equal(10, http.TimeoutSeconds);
+        Assert.Equal(new[] { 200, 204 }, http.ExpectStatus);
+        Assert.Null(action.Docker);
+    }
+
+    [Theory]
+    [InlineData("nobody")]
+    [InlineData("Nobody")]
+    [InlineData("")]
+    public void LoadCapability_treats_requires_nobody_as_anyone(string requires)
+    {
+        var yaml = $$"""
+            capability: c
+            signals:
+              - path: features.x
+                rules:
+                  - when: true
+                    actions: [ { key: k, requires: "{{requires}}", executor: http, http: { url: "https://ops.test/k" } } ]
+            """;
+        Assert.Null(CapabilityCatalogLoader.LoadCapability(yaml).Signals[0].Rules[0].Actions[0].Requires);
+    }
+
+    [Fact]
+    public void LoadCapability_rejects_an_http_url_that_is_not_absolute()
+    {
+        var yaml = """
+            capability: bad
+            signals:
+              - path: features.x
+                rules:
+                  - when: true
+                    actions: [ { key: k, executor: http, http: { url: "/relative" } } ]
+            """;
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
+        Assert.Contains("absolute http(s) URL", ex.Message);
+    }
+
+    // --- views ----------------------------------------------------------------------------
+
+    [Fact]
+    public void A_capability_without_rules_is_a_view_and_may_use_per_item_scalar_paths()
+    {
+        var view = CapabilityCatalogLoader.LoadCapability("""
+            capability: vm_sizes
+            title: "VM sizes"
+            signals:
+              - path: proxmox.virtual_machines.*.cores
+                label: CPU
+              - path: proxmox.virtual_machines.*.memory_mb
+                label: RAM (MB)
+            """);
+        var catalog = CapabilityCatalogLoader.Merge("homelab", new[] { view }, Array.Empty<CapabilityDefinition>());
+
+        Assert.True(catalog.Capabilities[0].IsView);
+        Assert.Equal("CPU", catalog.Capabilities[0].Signals[0].Label);
+    }
+
+    [Fact]
+    public void A_per_item_scalar_path_with_rules_is_rejected()
+    {
+        var yaml = """
+            capability: bad
+            signals:
+              - path: proxmox.virtual_machines.*.cores
+                rules:
+                  - when: 4
+                    actions: [ { key: k, executor: http, http: { url: "https://ops.test/k" } } ]
+            """;
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
+        Assert.Contains("rule-less view signal", ex.Message);
     }
 
     [Fact]
@@ -427,7 +547,6 @@ public class CapabilityCatalogLoaderTests
                   - on: add
                     actions:
                       - key: run_ansible_profile
-                        runbook: homelab-ops/ansible-profile
                         executor: docker
                         docker:
                           image: "homelab/toolbox:latest"
@@ -451,7 +570,7 @@ public class CapabilityCatalogLoaderTests
               - path: features.x
                 rules:
                   - when: true
-                    actions: [ { key: k, runbook: r, executor: docker } ]
+                    actions: [ { key: k, executor: docker } ]
             """;
         var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
         Assert.Contains("no 'docker' block", ex.Message);
@@ -468,30 +587,14 @@ public class CapabilityCatalogLoaderTests
                   - when: true
                     actions:
                       - key: k
-                        runbook: r
+                        executor: http
+                        http: { url: "https://ops.test/r" }
                         docker:
                           image: "img"
                           command: ["run"]
             """;
         var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
         Assert.Contains("'executor' is not 'docker'", ex.Message);
-    }
-
-    [Theory]
-    [InlineData("octopus")]
-    [InlineData("kubernetes")]
-    public void LoadCapability_rejects_reserved_executors(string executor)
-    {
-        var yaml = $$"""
-            capability: bad
-            signals:
-              - path: features.x
-                rules:
-                  - when: true
-                    actions: [ { key: k, runbook: r, executor: {{executor}} } ]
-            """;
-        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
-        Assert.Contains("reserved for a future release", ex.Message);
     }
 
     [Fact]
@@ -503,7 +606,7 @@ public class CapabilityCatalogLoaderTests
               - path: features.x
                 rules:
                   - when: true
-                    actions: [ { key: k, runbook: r, executor: nonsense } ]
+                    actions: [ { key: k, executor: nonsense } ]
             """;
         var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(yaml));
         Assert.Contains("unknown executor", ex.Message);
@@ -523,7 +626,8 @@ public class CapabilityCatalogLoaderTests
                   - on: add
                     actions:
                       - key: k
-                        runbook: r
+                        executor: http
+                        http: { url: "https://ops.test/r" }
                         inputs:
                           registry_token: { secret: "Homelab/environments/REGISTRY_PULL_TOKEN" }
             """;
@@ -546,7 +650,8 @@ public class CapabilityCatalogLoaderTests
                   - when: true
                     actions:
                       - key: k
-                        runbook: r
+                        executor: http
+                        http: { url: "https://ops.test/r" }
                         policy: AUTO
                         inputs:
                           token: { secret: "Homelab/environments/TOKEN" }
@@ -566,7 +671,6 @@ public class CapabilityCatalogLoaderTests
               - on: add
                 actions:
                   - key: probe
-                    runbook: homelab-ops/probe
                     executor: docker
                     docker:
         {{dockerBlock}}
@@ -681,7 +785,6 @@ public class CapabilityCatalogLoaderTests
                   - on: add
                     actions:
                       - key: deploy
-                        runbook: ops/deploy
                         executor: docker
                         docker:
                           image: "alpine:3.20"

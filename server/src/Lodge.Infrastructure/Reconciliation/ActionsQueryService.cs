@@ -14,7 +14,7 @@ public sealed record ActionRow(
     string SignalPath,
     string? ItemKey,
     string ActionKey,
-    string RunbookRef,
+    string? Requires,
     SignalTrigger Trigger,
     string Label,
     ActionPolicy Policy,
@@ -87,7 +87,7 @@ public sealed class ActionsQueryService
         return rows.Select(x => new ActionRow(
             x.Action.Id, x.Instance.KindCode, x.Instance.InstanceCode, x.Instance.DisplayName,
             x.Action.CapabilityCode, x.Action.SignalPath, x.Action.ItemKey, x.Action.ActionKey,
-            x.Action.RunbookRef, x.Action.Trigger, x.Action.Label, x.Action.Policy, x.Action.Status,
+            x.Action.Requires, x.Action.Trigger, x.Action.Label, x.Action.Policy, x.Action.Status,
             x.Action.Synthetic, x.Action.InvalidatedAt is not null, x.Action.CreatedAt, x.Action.CompletedAt))
             .ToList();
     }

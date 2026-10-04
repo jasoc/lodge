@@ -28,22 +28,6 @@ body {
   // labels, ...). The explicit h1-h6/p rule below is now redundant but harmless.
   color: var(--lodge-main-ui-text-color);
 
-  // The "About" page's branded type (previously opt-in via `.branded-font`) is now the
-  // app-wide default — `code`/`pre`/`.yaml-view` switch to a real monospace font-family
-  // below, and font-variation-settings has no effect on a non-variable font, so this
-  // never touches code/YAML rendering.
-  font-variation-settings:
-    'wdth' 100,
-    'opsz' 50,
-    'GRAD' 0,
-    'slnt' 0,
-    'XTRA' 500,
-    'YTLC' 500,
-    'YOPQ' 80,
-    'YTAS' 750,
-    'YTDE' -230,
-    'XOPQ' 92;
-
   // Applying Material Themes
   @include mat.elevation-classes();
   @include mat.app-background();
@@ -51,10 +35,23 @@ body {
   @include mat.all-component-densities(theme.$dark-theme);
   @include mat.color-variants-backwards-compatibility(theme.$dark-theme);
   @include mat.typography-hierarchy(theme.$dark-theme);
+  // --mat-sys-* custom properties: what our own components read for primary/error/
+  // containers, so they follow the theme's accent too.
+  @include mat.system-level-colors(theme.$dark-theme);
 
-  // Light Theme
   [data-theme='lodge-light'] {
     @include mat.all-component-colors(theme.$light-theme);
+    @include mat.system-level-colors(theme.$light-theme);
+  }
+
+  [data-theme='lodge-light-red'] {
+    @include mat.all-component-colors(theme.$light-red-theme);
+    @include mat.system-level-colors(theme.$light-red-theme);
+  }
+
+  [data-theme='lodge-dark-blue'] {
+    @include mat.all-component-colors(theme.$dark-blue-theme);
+    @include mat.system-level-colors(theme.$dark-blue-theme);
   }
 }
 
@@ -64,20 +61,43 @@ body {
   color: var(--lodge-main-ui-text-color);
 }
 
+// Lodge's type: Roboto Flex with the About page's axis settings, everywhere. Set on every
+// element rather than inherited from body, because Material components use the `font`
+// shorthand, which resets font-variation-settings to normal on each of them — hence the
+// !important on this one property. Icon fonts are left alone (they use the same mechanism
+// for FILL/weight), and so is monospace code.
+:root {
+  // --lodge-font-variation:
+  //   'wdth' 100, 'opsz' 50, 'GRAD' 0, 'slnt' 0, 'XTRA' 500, 'YTLC' 500, 'YOPQ' 80, 'YTAS' 750,
+  //   'YTDE' -230, 'XOPQ' 92;
+}
+
+html,
+body,
+body
+  :where(
+    :not(
+      mat-icon,
+      .mat-icon,
+      .material-symbols-outlined,
+      .material-symbols-rounded,
+      .material-symbols-sharp,
+      code,
+      pre
+    )
+  ) {
+  font-variation-settings: var(--lodge-font-variation) !important;
+}
+
+// Icons would otherwise inherit those axes (opsz 50 thins them out); zero specificity, so
+// m3-icon's own FILL/weight settings still apply.
+:where(mat-icon, .mat-icon, .material-symbols-outlined, .material-symbols-rounded, .material-symbols-sharp) {
+  font-variation-settings: normal;
+}
+
+// Kept for the templates that still name it; the rule above already applies it everywhere.
 .branded-font {
-  font-variation-settings: (
-    'wdth' 100,
-    'opsz' 50,
-    'GRAD' 0,
-    'slnt' 0,
-    'XTRA' 500,
-    'YTLC' 500,
-    'YOPQ' 80,
-    'YTAS' 750,
-    'YTDE' -230,
-    'YTLC' 500,
-    'XOPQ' 92
-  ) !important;
+  font-variation-settings: var(--lodge-font-variation) !important;
 }
 
 h1,
@@ -94,6 +114,11 @@ h1 {
   font-weight: 600 !important;
 }
 
+// Page titles share one rhythm; the gutter around pages comes from the shell.
+.page-title {
+  margin: 0 0 16px;
+}
+
 h2,
 h3 {
   font-weight: 500 !important;
@@ -102,7 +127,6 @@ h3 {
 button,
 input {
   font-family: inherit !important;
-  font-variation-settings: inherit !important;
 }
 
 a {

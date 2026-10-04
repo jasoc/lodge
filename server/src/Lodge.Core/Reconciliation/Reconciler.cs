@@ -20,7 +20,7 @@ public static class Reconciler
 
         // --- Confirmed-state history projections -------------------------------------
         // lastSuccess: most recent SUCCEEDED per identity (satisfaction of STATE/ADD).
-        // lastConfirmed: most recent SUCCEEDED per (signal, item key) across runbooks —
+        // lastConfirmed: most recent SUCCEEDED per (signal, item key) across action keys —
         // its trigger says whether the item is confirmed present or absent.
         var lastSuccess = new Dictionary<ActionIdentity, SucceededRecord>();
         var lastConfirmed = new Dictionary<(string SignalPath, string ItemKey), SucceededRecord>();
@@ -51,7 +51,9 @@ public static class Reconciler
 
         // --- Evaluate the catalog against the current desired state ------------------
         var evaluation = new Evaluation(input, lastSuccess, lastConfirmed, lastDelete, errors);
+        // Views have nothing to reconcile: they're rendered straight from the inventory.
         var capabilities = input.Catalog.Capabilities
+            .Where(c => !c.IsView)
             .Select(evaluation.EvaluateCapability)
             .ToList();
 
@@ -79,9 +81,12 @@ public static class Reconciler
                 // The executor config is part of the snapshot: a row approved against one
                 // image/playbook fingerprint must never run a different one, so a changed
                 // playbook folder re-queues the action for a fresh confirmation.
+                // Same for who may approve it: a row emitted for anyone must not stay
+                // confirmable by anyone once the catalog restricts it to a group.
                 var snapshotMatches =
                     string.Equals(live.DesiredValueJson, required.DesiredValueJson, StringComparison.Ordinal) &&
-                    string.Equals(live.ExecutorConfigJson, ExecutorConfigJson.Serialize(required.DockerConfig), StringComparison.Ordinal);
+                    string.Equals(live.ExecutorConfigJson, required.ExecutorConfigJson, StringComparison.Ordinal) &&
+                    string.Equals(live.Requires, required.Requires, StringComparison.Ordinal);
                 if (live.Status == ActionStatus.RUNNING || snapshotMatches)
                 {
                     // A RUNNING row is never superseded mid-flight even if its snapshot
@@ -580,9 +585,9 @@ public static class Reconciler
             var adoptOnFaith = neverSucceeded && CoveredByPastHistory(identity);
 
             var required = new RequiredAction(
-                identity, trigger, capability.Code, template.Label, template.Runbook, template.Policy,
+                identity, trigger, capability.Code, template.Label, template.Requires, template.Policy,
                 desiredValueJson, resolved, prompts, secretInputs, template.ExecutorKind, template.Docker,
-                satisfied, adoptOnFaith)
+                template.Http, satisfied, adoptOnFaith)
             {
                 SucceededActionId = satisfied && _lastSuccess.TryGetValue(identity, out var succeededRow) ? succeededRow.Id : null
             };
@@ -885,7 +890,7 @@ public static class Reconciler
     // ---------------------------------------------------------------------------------
 
     /// <summary>Walks a dotted path through parsed-YAML dictionaries. Found means the path exists, whatever its value.</summary>
-    private static (bool Found, object? Node) ResolvePath(object? root, string path)
+    internal static (bool Found, object? Node) ResolvePath(object? root, string path)
     {
         if (root is null || string.IsNullOrEmpty(path))
         {

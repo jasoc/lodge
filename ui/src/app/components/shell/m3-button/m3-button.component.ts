@@ -29,6 +29,8 @@ export class M3ButtonComponent {
 
   readonly Text = input<string | null>(null);
   readonly Icon = input<string | null>(null);
+  /** Shown on hover when the button has no text (a collapsed drawer). */
+  readonly Tooltip = input<string | null>(null);
   readonly Ripple = input(true);
   readonly Type = input<'fab' | 'thin' | 'sidenav-left'>('fab');
   readonly iconFilled = input(false, { alias: 'icon-filled' });

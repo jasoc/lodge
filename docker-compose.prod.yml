@@ -1,0 +1,124 @@
+# Production stack: Lodge server (API + SPA, self-migrating), its Postgres, and Keycloak
+# for SSO (with its own Postgres). Configured entirely by .env.prod — copy
+# .env.prod.example and fill in every CHANGEME:
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Meant to sit behind a TLS-terminating reverse proxy (Caddy, nginx, Traefik, ...) that
+# routes LODGE_HOSTNAME to the server and KEYCLOAK_HOSTNAME to Keycloak; both publish on
+# loopback only by default (see *_BIND below). A homelab NoAuth deployment can skip SSO
+# entirely: set Auth__Mode=NoAuth and start only `postgres server`.
+#
+# Nothing here touches the dev database (./data/postgres, docker-compose.yml): all state
+# lives in named volumes of the `lodge-prod` project.
+name: lodge-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lodge}
+      POSTGRES_USER: ${POSTGRES_USER:-lodge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    # PLACEHOLDER: no published image yet. Until there is one, build it locally under this
+    # same tag (./scripts/prod-test.sh does):
+    #   docker build -t "$LODGE_SERVER_IMAGE" -f server/src/Lodge.Server/Dockerfile .
+    image: ${LODGE_SERVER_IMAGE:-ghcr.io/CHANGEME/lodge-server:CHANGEME}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # App config (Auth__*, Git__*, secrets for Secrets:Provider=Env, ...) — every variable
+    # in .env.prod reaches the container as-is; see .env.example for what each one means.
+    env_file: .env.prod
+    environment:
+      # Inside the compose network Postgres is reached by service name.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      # Honour X-Forwarded-Proto/Host from the reverse proxy, so the OIDC callback URL the
+      # server builds is https://LODGE_HOSTNAME/..., not the container's plain http.
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+    volumes:
+      # The SSOT stays external to the image. With Git__Provider=GitHub the inventory is
+      # read from GitHub instead and this mount is unused.
+      - ${LODGE_INVENTORY_DIR:-./inventory}:/repo/inventory:ro
+      - ${LODGE_SCHEMAS_DIR:-./schemas}:/repo/schemas:ro
+      - lodge-data:/repo/data
+      # The host's docker daemon, for `executor: docker` actions: Lodge pulls/builds
+      # playbook images and runs them as sibling containers. Root-equivalent on the host —
+      # anyone who can merge to the inventory can run arbitrary containers here. To narrow
+      # that, put a socket proxy in front and set DOCKER_HOST on this service instead.
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "${LODGE_BIND:-127.0.0.1}:${SERVER_PORT:-8080}:8080"
+    healthcheck:
+      # The aspnet runtime image ships neither curl nor wget, and its /bin/sh is dash
+      # (no /dev/tcp) — bash it is.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"ok\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  keycloak-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env.prod}
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:${KEYCLOAK_VERSION:-26.4}
+    restart: unless-stopped
+    command: start
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      # Public URL users and Lodge reach Keycloak at (through the reverse proxy). Lodge's
+      # Auth__Oidc__Authority is ${KEYCLOAK_HOSTNAME}/realms/<realm>.
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:?set KEYCLOAK_HOSTNAME in .env.prod}
+      # TLS ends at the reverse proxy; Keycloak itself speaks plain HTTP behind it.
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      # Only used to create the initial admin on first boot — change it in the admin
+      # console afterwards (or replace it with a permanent admin user).
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env.prod}
+    ports:
+      - "${KEYCLOAK_BIND:-127.0.0.1}:${KEYCLOAK_PORT:-8081}:8080"
+    healthcheck:
+      # Health lives on the management port (9000); the image has bash but no curl.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+volumes:
+  postgres-data:
+  lodge-data:
+  keycloak-db-data:

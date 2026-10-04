@@ -15,17 +15,21 @@ public enum RunbookRunState
 }
 
 /// <summary>
-/// A request to execute the runbook bound to an operational action. Lodge decides and
-/// supervises; the executor (Octopus) actually runs the operation.
+/// A request to run one action. <see cref="ActionRef"/> (<c>capability/action_key</c>) only
+/// names it in logs and status messages. <see cref="SecretNames"/> lists which
+/// <see cref="Parameters"/> hold resolved secrets, so an executor that echoes what it sends
+/// (the HTTP one) can mask them.
 /// </summary>
 public sealed record RunbookExecutionRequest(
     string KindCode,
     string InstanceCode,
-    string RunbookRef,
+    string ActionRef,
     Guid ActionId,
     IReadOnlyDictionary<string, string?> Parameters,
-    ExecutorKind ExecutorKind = ExecutorKind.Shell,
-    DockerExecutorConfig? DockerConfig = null);
+    ExecutorKind ExecutorKind,
+    DockerExecutorConfig? DockerConfig = null,
+    HttpExecutorConfig? HttpConfig = null,
+    IReadOnlyCollection<string>? SecretNames = null);
 
 /// <summary>Handle returned when a runbook run is started.</summary>
 public sealed record RunbookRunHandle(string RunId, RunbookRunState State);
@@ -34,10 +38,8 @@ public sealed record RunbookRunHandle(string RunId, RunbookRunState State);
 public sealed record RunbookRunStatus(string RunId, RunbookRunState State, string? Message, DateTimeOffset UpdatedAt);
 
 /// <summary>
-/// The single, abstracted path to runbook execution. Octopus-ready: the POC ships a
-/// mock implementation that simulates a run; an <c>OctopusRunbookExecutor</c> is a
-/// future drop-in with no domain logic changes. Lodge never executes operations
-/// itself — it starts and supervises them.
+/// The single, abstracted path to running an action. Lodge never executes operations
+/// itself — it starts and supervises them (a container, an HTTP call).
 /// </summary>
 public interface IRunbookExecutor
 {
@@ -57,8 +59,7 @@ public sealed record RunbookLogChunk(string Text, long NextOffset);
 
 /// <summary>
 /// Optional executor capability: reading back what a run printed. Executors that keep a
-/// local log (shell, docker) implement it; ones whose output lives elsewhere (a webhook
-/// target) don't, and their runs simply have no log to show.
+/// local log implement it; a run without one simply has no log to show.
 /// </summary>
 public interface IRunbookLogReader
 {

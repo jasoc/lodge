@@ -3,7 +3,7 @@ using Lodge.Core.Domain.Enums;
 
 namespace Lodge.Core.Catalog;
 
-/// <summary>How the value of a runbook input is sourced when an action is generated.</summary>
+/// <summary>How the value of an action input is sourced when an action is generated.</summary>
 public enum RuleInputKind
 {
     /// <summary>Bound from the reconciliation context (<c>instance</c>, <c>kind</c>, <c>path</c>, <c>key</c>, <c>item</c>, <c>item.&lt;field&gt;</c>, <c>value</c>).</summary>
@@ -23,7 +23,7 @@ public enum RuleInputKind
     Secret
 }
 
-/// <summary>A single declared input to a runbook.</summary>
+/// <summary>A single declared input to an action.</summary>
 public sealed class RuleInput
 {
     public string Name { get; set; } = string.Empty;
@@ -57,8 +57,7 @@ public sealed record SecretInputRef(string Name, string SecretRef);
 /// the inventory (exactly one of the two), plus an optional entrypoint override and fixed
 /// command argv. Parameter values never get templated into <see cref="Entrypoint"/>/<see
 /// cref="Command"/> — they flow in purely as <c>LODGE_PARAM_*</c> environment variables
-/// (plus the whole map as <c>LODGE_PARAMS_JSON</c>), the same convention the shell
-/// executor already uses.
+/// (plus the whole map as <c>LODGE_PARAMS_JSON</c>).
 /// </summary>
 public sealed record DockerExecutorConfig(
     string? Image,
@@ -94,46 +93,90 @@ public sealed record DockerBuildConfig(
     string? Fingerprint = null);
 
 /// <summary>
+/// Config for <see cref="ExecutorKind.Http"/>: one HTTP request per run. Every string —
+/// <see cref="Url"/>, header and query values, body leaves — may reference parameters as
+/// <c>{{ name }}</c> (an input, a secret, a prompt, or <c>instance</c>/<c>kind</c>),
+/// substituted at run time; nothing is resolved at catalog load. <see cref="Body"/> is
+/// either a text template (<see cref="BodyIsJson"/> false, sent as-is once substituted) or
+/// the canonical JSON of a YAML mapping/list (true): its string leaves are substituted,
+/// and a leaf that is exactly <c>{{ name }}</c> whose value is itself JSON (e.g.
+/// <c>from: item</c>) is embedded structured rather than as a string. The run succeeds on
+/// a status in <see cref="ExpectStatus"/>, or any 2xx when that is null.
+/// </summary>
+public sealed record HttpExecutorConfig(
+    string Method,
+    string Url,
+    IReadOnlyDictionary<string, string>? Headers = null,
+    IReadOnlyDictionary<string, string>? Query = null,
+    string? Body = null,
+    bool BodyIsJson = false,
+    int TimeoutSeconds = 60,
+    IReadOnlyList<int>? ExpectStatus = null);
+
+/// <summary>
 /// The one canonical JSON encoding of an action's executor config — used both to persist
 /// it on the action row and to compare a live row's snapshot against the current catalog,
-/// so the two never disagree on formatting.
+/// so the two never disagree on formatting. Which type it decodes to follows the row's
+/// <see cref="ExecutorKind"/>.
 /// </summary>
 public static class ExecutorConfigJson
 {
-    public static string? Serialize(DockerExecutorConfig? config)
-        => config is null ? null : JsonSerializer.Serialize(config);
+    public static string? Serialize(DockerExecutorConfig? docker, HttpExecutorConfig? http = null)
+        => docker is not null ? JsonSerializer.Serialize(docker)
+         : http is not null ? JsonSerializer.Serialize(http)
+         : null;
 
-    public static DockerExecutorConfig? Deserialize(string? json)
+    public static DockerExecutorConfig? DeserializeDocker(string? json)
         => string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<DockerExecutorConfig>(json);
 
+    public static HttpExecutorConfig? DeserializeHttp(string? json)
+        => string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<HttpExecutorConfig>(json);
 }
 
-/// <summary>
-/// One action a rule requires when it matches: a direct Octopus runbook reference plus
-/// the inputs it needs. Lodge governs; Octopus executes.
-/// </summary>
+/// <summary>Who may confirm, retry or revoke an action.</summary>
+public static class ActionAccess
+{
+    /// <summary>The <c>requires</c> value meaning "anyone" — the same as leaving it out.</summary>
+    public const string Nobody = "nobody";
+
+    /// <summary>Normalizes a catalog <c>requires</c> value: null for anyone, else the group name.</summary>
+    public static string? Normalize(string? requires)
+    {
+        var value = requires?.Trim();
+        return string.IsNullOrEmpty(value) || string.Equals(value, Nobody, StringComparison.OrdinalIgnoreCase) ? null : value;
+    }
+
+    /// <summary>True when an action that requires <paramref name="requires"/> may be run by a member of <paramref name="groups"/>.</summary>
+    public static bool Allows(string? requires, IEnumerable<string> groups)
+        => Normalize(requires) is not { } group || groups.Contains(group, StringComparer.Ordinal);
+}
+
+/// <summary>One action a rule requires when it matches: what runs it, and the inputs it needs.</summary>
 public sealed class ActionTemplate
 {
-    /// <summary>
-    /// Explicit, signal-unique identity of this action template — independent of
-    /// <see cref="Runbook"/>, since the same runbook may be invoked by more than one
-    /// conceptually distinct action.
-    /// </summary>
+    /// <summary>Explicit, signal-unique identity of this action template.</summary>
     public string Key { get; set; } = string.Empty;
-
-    /// <summary>Direct Octopus runbook reference, e.g. <c>acme-instance-ops/configure-sso</c>.</summary>
-    public string Runbook { get; set; } = string.Empty;
 
     /// <summary>Human-facing label shown on the capability card.</summary>
     public string Label { get; set; } = string.Empty;
 
     public ActionPolicy Policy { get; set; } = ActionPolicy.MANUAL_REQUIRED;
 
-    /// <summary>Which executor runs this action's runbook — declared explicitly, never inferred.</summary>
-    public ExecutorKind ExecutorKind { get; set; } = ExecutorKind.Shell;
+    /// <summary>
+    /// The user group whose members alone may confirm, retry or revoke this action; null
+    /// (catalog: omitted, or <c>nobody</c>) means anyone may. AUTO actions start on their
+    /// own regardless — this gates humans, not the reconciler.
+    /// </summary>
+    public string? Requires { get; set; }
+
+    /// <summary>Which executor runs this action — declared explicitly, never inferred.</summary>
+    public ExecutorKind ExecutorKind { get; set; } = ExecutorKind.Docker;
 
     /// <summary>Non-null only when <see cref="ExecutorKind"/> is <see cref="ExecutorKind.Docker"/>.</summary>
     public DockerExecutorConfig? Docker { get; set; }
+
+    /// <summary>Non-null only when <see cref="ExecutorKind"/> is <see cref="ExecutorKind.Http"/>.</summary>
+    public HttpExecutorConfig? Http { get; set; }
 
     public IReadOnlyList<RuleInput> Inputs { get; set; } = new List<RuleInput>();
 

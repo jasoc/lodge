@@ -7,7 +7,9 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 
 import { DynamicFormComponent } from '../../components/dynamic-form/dynamic-form.component';
@@ -15,7 +17,13 @@ import { DynamicFormRoot } from '../../components/dynamic-form/types/dynamic-for
 import { TextboxElement } from '../../components/dynamic-form/types/dynamic-form-element-textbox';
 import { M3TabComponent } from '../../components/m3-tabs/m3-tab/m3-tab.component';
 import { M3TabsComponent } from '../../components/m3-tabs/m3-tabs.component';
-import { ActionModel, CapabilityCatalogModel, InstanceDetailModel } from '../../domain';
+import {
+  ActionModel,
+  CapabilityCatalogModel,
+  CapabilityViewModel,
+  InstanceDetailModel,
+} from '../../domain';
+import { AuthService } from '../../services/auth.service';
 import { autoRefresh } from '../../services/auto-refresh';
 import { LodgeService } from '../../services/lodge.service';
 import { RunLogDialogComponent, RunLogDialogData } from './run-log-dialog/run-log-dialog.component';
@@ -56,6 +64,19 @@ interface CapabilityCard {
 
 type CardSection = 'todo' | 'optional' | 'applied' | 'history';
 
+/**
+ * Consecutive rows of one section that belong to the same collection item, so a card with
+ * many items reads item by item instead of repeating the key on every row. `item` is null
+ * for actions on a plain (non-collection) signal; for a nested item (`vm/file`) `parent`
+ * is the outer key and `name` the inner one.
+ */
+interface ItemGroup<T> {
+  item: string | null;
+  parent: string | null;
+  name: string;
+  rows: T[];
+}
+
 /** How many rows a section shows before "Show all". */
 const SECTION_PREVIEW = 6;
 
@@ -81,6 +102,8 @@ interface InventoryNode {
     MatChipsModule,
     MatSnackBarModule,
     MatDialogModule,
+    MatFormFieldModule,
+    MatInputModule,
     M3TabsComponent,
     M3TabComponent,
     DynamicFormComponent,
@@ -95,6 +118,7 @@ export class InstanceDetailComponent {
   private readonly lodgeService = inject(LodgeService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly dialog = inject(MatDialog);
+  readonly authService = inject(AuthService);
 
   // 'kind' belongs to the parent route (see app.routes.ts — nested one level per URL
   // segment, on purpose, so the breadcrumb trail shows each segment separately).
@@ -105,6 +129,7 @@ export class InstanceDetailComponent {
   readonly instance = signal<InstanceDetailModel | null>(null);
   readonly actions = signal<ActionModel[]>([]);
   readonly capabilities = signal<CapabilityCatalogModel | null>(null);
+  readonly views = signal<CapabilityViewModel[]>([]);
   /** Free-text filter over label / item key / action key, across every card. */
   readonly filter = signal('');
   /** Per card+section open/closed overrides; unset falls back to the section default. */
@@ -204,8 +229,12 @@ export class InstanceDetailComponent {
           applied.push(action);
         }
       }
-      for (const entry of optional.values()) {
-        if (entry.live?.status === 'RUNNING') {
+      // An OPTIONAL identity with no live row is one the inventory no longer calls for
+      // (its item was removed): only its history remains, nothing to run.
+      for (const [key, entry] of optional) {
+        if (!entry.live) {
+          optional.delete(key);
+        } else if (entry.live.status === 'RUNNING') {
           running.push(entry.live);
         }
       }
@@ -275,14 +304,17 @@ export class InstanceDetailComponent {
       this.loading.set(true);
     }
     try {
-      const [instance, actions, capabilities] = await Promise.all([
+      const [instance, actions, capabilities, views] = await Promise.all([
         this.lodgeService.getInstance(this.kindCode, this.instanceCode),
         this.lodgeService.getActions(this.kindCode, this.instanceCode),
         this.lodgeService.getCapabilities(this.kindCode),
+        // Views are decoration: a failure there must not take the action cards down.
+        this.lodgeService.getViews(this.kindCode, this.instanceCode).catch(() => []),
       ]);
       this.instance.set(instance);
       this.actions.set(actions);
       this.capabilities.set(capabilities);
+      this.views.set(views);
     } finally {
       this.loading.set(false);
     }
@@ -428,6 +460,37 @@ export class InstanceDetailComponent {
 
   expandSection(card: CapabilityCard, section: CardSection) {
     this.sectionExpanded.update((s) => ({ ...s, [`${card.code}:${section}`]: true }));
+  }
+
+  /** Groups consecutive rows by collection item (rows arrive already in display order). */
+  byItem<T extends { item_key: string | null }>(rows: T[]): ItemGroup<T>[] {
+    const groups: ItemGroup<T>[] = [];
+    const index = new Map<string, ItemGroup<T>>();
+    for (const row of rows) {
+      const key = row.item_key ?? '';
+      let group = index.get(key);
+      if (!group) {
+        const slash = row.item_key?.indexOf('/') ?? -1;
+        group = {
+          item: row.item_key,
+          parent: slash > 0 ? row.item_key!.slice(0, slash) : null,
+          name: slash > 0 ? row.item_key!.slice(slash + 1) : (row.item_key ?? ''),
+          rows: [],
+        };
+        index.set(key, group);
+        groups.push(group);
+      }
+      group.rows.push(row);
+    }
+    // Plain-signal actions first, then items in their display order.
+    return groups.sort((a, b) => Number(a.item !== null) - Number(b.item !== null));
+  }
+
+  /** Why the current user can't run an action, or null when they can. */
+  lockedReason(action: ActionModel): string | null {
+    return this.authService.canRun(action.requires)
+      ? null
+      : `Only members of '${action.requires}' can run this`;
   }
 
   /** "3m ago" style, coarse on purpose — refreshed with every poll. */

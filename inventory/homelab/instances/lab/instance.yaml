@@ -6,7 +6,7 @@
 # !! is always MANUAL: don't confirm those, or set `import_id` on the item to adopt the
 # !! existing resource instead (only once Lodge's state is the one in charge — two states
 # !! managing the same resource will fight).
-display_name: "Homelab"
+display_name: "Paride Homelab"
 
 proxmox:
   # images:
@@ -32,6 +32,17 @@ proxmox:
       # import_id: "proxmox/100"
       compose:
         - woodpecker.yml
+        - gitlab.yml
+
+    another-node:
+      node: proxmox
+      cores: 4
+      cpu_type: x86-64-v3
+      memory_mb: 4096
+      disk_gb: 128
+      image: "vault:import/AlmaLinux-10-GenericCloud-10.2-20260817.0.x86_64.qcow2"
+      ip: 192.168.178.115/24
+      gateway: 192.168.178.1
 
 cloudflare:
   zones:

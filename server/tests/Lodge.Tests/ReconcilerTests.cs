@@ -8,6 +8,10 @@ namespace Lodge.Tests;
 
 public class ReconcilerTests
 {
+    /// <summary>The executor snapshot SsoCatalog's actions are emitted with — what a live row of theirs carries.</summary>
+    private static string SsoConfig(string path)
+        => ExecutorConfigJson.Serialize(null, new HttpExecutorConfig("POST", $"https://ops.test/{path}"))!;
+
     private static readonly DateTimeOffset T0 = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private static DateTimeOffset T(int minutes) => T0.AddMinutes(minutes);
 
@@ -41,14 +45,16 @@ public class ReconcilerTests
                   - when: true
                     actions:
                       - key: configure_sso
-                        runbook: acme/configure-sso
+                        executor: http
+                        http: { url: "https://ops.test/acme/configure-sso" }
                         label: "Configure SSO"
                         policy: AUTO
                         inputs:
                           instance: { from: instance }
                           mode: { const: "enable" }
                       - key: redeploy
-                        runbook: acme/redeploy
+                        executor: http
+                        http: { url: "https://ops.test/acme/redeploy" }
                         label: "Redeploy"
                         policy: {{redeployPolicy}}
                         inputs:
@@ -56,13 +62,15 @@ public class ReconcilerTests
                   - when: false
                     actions:
                       - key: configure_sso
-                        runbook: acme/configure-sso
+                        executor: http
+                        http: { url: "https://ops.test/acme/configure-sso" }
                         label: "Disable SSO"
                         policy: AUTO
                         inputs:
                           mode: { const: "disable" }
                       - key: redeploy
-                        runbook: acme/redeploy
+                        executor: http
+                        http: { url: "https://ops.test/acme/redeploy" }
                         label: "Redeploy"
                         policy: MANUAL_REQUIRED
             """);
@@ -81,7 +89,8 @@ public class ReconcilerTests
                   - on: add
                     actions:
                       - key: provision_vm
-                        runbook: acme/provision-vm
+                        executor: http
+                        http: { url: "https://ops.test/acme/provision-vm" }
                         label: "Provision VM"
                         policy: MANUAL_REQUIRED
                         inputs:
@@ -90,7 +99,8 @@ public class ReconcilerTests
                   - on: modify
                     actions:
                       - key: update_vm
-                        runbook: acme/update-vm
+                        executor: http
+                        http: { url: "https://ops.test/acme/update-vm" }
                         label: "Update VM"
                         policy: MANUAL_REQUIRED
                         inputs:
@@ -99,7 +109,8 @@ public class ReconcilerTests
                   - on: delete
                     actions:
                       - key: destroy_vm
-                        runbook: acme/destroy-vm
+                        executor: http
+                        http: { url: "https://ops.test/acme/destroy-vm" }
                         label: "Destroy VM"
                         policy: MANUAL_REQUIRED
                         inputs:
@@ -120,14 +131,16 @@ public class ReconcilerTests
                   - on: add
                     actions:
                       - key: provision_vm
-                        runbook: acme/provision-vm
+                        executor: http
+                        http: { url: "https://ops.test/acme/provision-vm" }
                         policy: MANUAL_REQUIRED
                         inputs:
                           vm_name: { from: key }
                   - on: modify
                     actions:
                       - key: update_vm
-                        runbook: acme/update-vm
+                        executor: http
+                        http: { url: "https://ops.test/acme/update-vm" }
                         policy: MANUAL_REQUIRED
                         depends_on: [ "virtual_machines.provision_vm" ]
                         inputs:
@@ -148,7 +161,8 @@ public class ReconcilerTests
                   - on: add
                     actions:
                       - key: investigate_quirk
-                        runbook: acme/investigate-quirk
+                        executor: http
+                        http: { url: "https://ops.test/acme/investigate-quirk" }
                         label: "Investigate"
                         policy: OPTIONAL
                         inputs:
@@ -156,7 +170,8 @@ public class ReconcilerTests
                   - on: delete
                     actions:
                       - key: log_quirk_resolved
-                        runbook: acme/log-quirk-resolved
+                        executor: http
+                        http: { url: "https://ops.test/acme/log-quirk-resolved" }
                         label: "Log resolved"
                         policy: AUTO
                         inputs:
@@ -357,7 +372,7 @@ public class ReconcilerTests
         // The row was queued back when redeploy was MANUAL_REQUIRED.
         var live = new[]
         {
-            new LiveActionRow(Guid.NewGuid(), Id("features.sso_login", null, "redeploy"), SignalTrigger.STATE, ActionStatus.QUEUED, "true")
+            new LiveActionRow(Guid.NewGuid(), Id("features.sso_login", null, "redeploy"), SignalTrigger.STATE, ActionStatus.QUEUED, "true", SsoConfig("acme/redeploy"))
         };
 
         var result = Reconciler.Reconcile(Input(
@@ -548,10 +563,28 @@ public class ReconcilerTests
     // --- FAILED parking -------------------------------------------------------------------
 
     [Fact]
+    public void A_live_row_is_requeued_when_the_catalog_changes_who_may_run_it()
+    {
+        var live = new LiveActionRow(
+            Guid.NewGuid(), Id("features.sso_login", null, "configure_sso"), SignalTrigger.STATE, ActionStatus.FAILED, "true",
+            SsoConfig("acme/configure-sso"), Requires: null);
+        var catalog = SsoCatalog(redeployPolicy: "OPTIONAL");
+        foreach (var action in catalog.Capabilities[0].Signals[0].Rules.SelectMany(r => r.Actions))
+        {
+            action.Requires = "ops";
+        }
+
+        var result = Reconciler.Reconcile(Input(catalog, "features:\n  sso_login: true", live: new[] { live }));
+
+        Assert.Contains(live.Id, result.ToSupersede);
+        Assert.Contains(result.ToCreate, a => a.Identity.ActionKey == "configure_sso" && a.Requires == "ops");
+    }
+
+    [Fact]
     public void Failed_row_parks_the_drift_without_recreation_or_auto_retry()
     {
         var failed = new LiveActionRow(
-            Guid.NewGuid(), Id("features.sso_login", null, "configure_sso"), SignalTrigger.STATE, ActionStatus.FAILED, "true");
+            Guid.NewGuid(), Id("features.sso_login", null, "configure_sso"), SignalTrigger.STATE, ActionStatus.FAILED, "true", SsoConfig("acme/configure-sso"));
 
         var result = Reconciler.Reconcile(Input(SsoCatalog(redeployPolicy: "OPTIONAL"), "features:\n  sso_login: true", live: new[] { failed }));
 
@@ -604,7 +637,8 @@ public class ReconcilerTests
                     item_key: vm-quirky
                     actions:
                       - key: apply_quirk_profile
-                        runbook: acme/apply-quirk-profile
+                        executor: http
+                        http: { url: "https://ops.test/acme/apply-quirk-profile" }
                         label: "Apply quirk profile"
                         policy: MANUAL_REQUIRED
                         inputs:
@@ -719,7 +753,7 @@ public class ReconcilerTests
 
         // Materialize ToCreate as live QUEUED rows, exactly as the runner does.
         var live = input.ToCreate
-            .Select(a => new LiveActionRow(Guid.NewGuid(), a.Identity, a.Trigger, ActionStatus.QUEUED, a.DesiredValueJson))
+            .Select(a => new LiveActionRow(Guid.NewGuid(), a.Identity, a.Trigger, ActionStatus.QUEUED, a.DesiredValueJson, a.ExecutorConfigJson, a.Requires))
             .ToList();
 
         var second = Reconciler.Reconcile(Input(
@@ -746,7 +780,6 @@ public class ReconcilerTests
                   - on: add
                     actions:
                       - key: run_ansible_profile
-                        runbook: homelab-ops/ansible-profile
                         policy: MANUAL_REQUIRED
                         executor: docker
                         docker:
@@ -784,13 +817,14 @@ public class ReconcilerTests
     }
 
     [Fact]
-    public void Shell_actions_default_to_shell_executor_with_no_docker_config()
+    public void Http_actions_carry_their_http_config_and_no_docker_config()
     {
         var result = Reconciler.Reconcile(Input(SsoCatalog(), "features:\n  sso_login: true"));
 
         Assert.All(result.ToCreate, a =>
         {
-            Assert.Equal(ExecutorKind.Shell, a.ExecutorKind);
+            Assert.Equal(ExecutorKind.Http, a.ExecutorKind);
+            Assert.NotNull(a.HttpConfig);
             Assert.Null(a.DockerConfig);
             Assert.Empty(a.SecretInputs);
         });
@@ -809,7 +843,6 @@ public class ReconcilerTests
                   - on: add
                     actions:
                       - key: probe
-                        runbook: homelab-ops/probe
                         executor: docker
                         docker:
                           build:
@@ -878,21 +911,25 @@ public class ReconcilerTests
                   - on: add
                     actions:
                       - key: apply_vm
-                        runbook: ops/apply
+                        executor: http
+                        http: { url: "https://ops.test/ops/apply" }
                         inputs:
                           vm: { from: item }
                           vms: { from: collection }
                       - key: configure_vm
-                        runbook: ops/configure
+                        executor: http
+                        http: { url: "https://ops.test/ops/configure" }
                         depends_on: [ "proxmox.vms.apply_vm" ]
                   - on: modify
                     actions:
                       - key: resize_vm
-                        runbook: ops/resize
+                        executor: http
+                        http: { url: "https://ops.test/ops/resize" }
                   - on: delete
                     actions:
                       - key: destroy_vm
-                        runbook: ops/destroy
+                        executor: http
+                        http: { url: "https://ops.test/ops/destroy" }
             """);
         var containers = CapabilityCatalogLoader.LoadCapability("""
             capability: containers
@@ -903,7 +940,8 @@ public class ReconcilerTests
                   - on: add
                     actions:
                       - key: deploy
-                        runbook: ops/deploy
+                        executor: http
+                        http: { url: "https://ops.test/ops/deploy" }
                         depends_on: [ "proxmox.vms.configure_vm" ]
                         inputs:
                           name: { from: key }
@@ -912,11 +950,13 @@ public class ReconcilerTests
                   - on: modify
                     actions:
                       - key: update
-                        runbook: ops/update
+                        executor: http
+                        http: { url: "https://ops.test/ops/update" }
                   - on: delete
                     actions:
                       - key: remove
-                        runbook: ops/remove
+                        executor: http
+                        http: { url: "https://ops.test/ops/remove" }
                         inputs:
                           host: { from: parent.ip }
             """);
@@ -1032,7 +1072,8 @@ public class ReconcilerTests
                   - on: add
                     actions:
                       - key: deploy
-                        runbook: ops/deploy
+                        executor: http
+                        http: { url: "https://ops.test/ops/deploy" }
                         inputs:
                           file: { from: item.file }
                           content: { from: item.content }
@@ -1040,11 +1081,13 @@ public class ReconcilerTests
                   - on: modify
                     actions:
                       - key: update
-                        runbook: ops/update
+                        executor: http
+                        http: { url: "https://ops.test/ops/update" }
                   - on: delete
                     actions:
                       - key: remove
-                        runbook: ops/remove
+                        executor: http
+                        http: { url: "https://ops.test/ops/remove" }
                         inputs:
                           content: { from: item.content }
             """);

@@ -1,4 +1,3 @@
-@use 'theme' as theme;
 @use 'tokens' as tokens;
 
 :host {
@@ -56,17 +55,13 @@
         width: 30%;
         border-top-right-radius: 100px;
         border-top-left-radius: 100px;
-        // background: map.get($lodge-accent-palette, 400);
-        @include theme.background-themed(50);
-        // background: var(--lodge-accent-color-400);
+        background: var(--mat-sys-primary, var(--lodge-accent-color-300));
         bottom: 0;
       }
     }
 
     .showed {
-      // background: map.get($lodge-accent-palette, 400);
-      @include theme.color-themed(50);
-      // color: var(--lodge-accent-color-400);
+      color: var(--mat-sys-primary, var(--lodge-accent-color-300));
     }
   }
 

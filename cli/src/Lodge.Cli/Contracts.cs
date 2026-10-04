@@ -15,7 +15,7 @@ public sealed record InstanceDetailDto(InstanceDto Instance, string? LatestYaml)
 public sealed record PendingPromptDto(string Name, string Prompt, bool Required);
 
 public sealed record ActionDto(
-    Guid Id, string CapabilityCode, string SignalPath, string? ItemKey, string RunbookRef,
+    Guid Id, string CapabilityCode, string SignalPath, string? ItemKey, string? Requires,
     string Trigger, string Label, string Policy, string Status, bool Synthetic,
     IReadOnlyList<PendingPromptDto> PendingPrompts, DateTimeOffset CreatedAt, DateTimeOffset? CompletedAt);
 

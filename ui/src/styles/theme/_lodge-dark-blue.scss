@@ -1,0 +1,15 @@
+@use '../tokens' as *;
+
+// Dark, blue accent: deep navy surfaces, bright blue primary.
+[data-theme='lodge-dark-blue'] {
+  --lodge-background-color: #0b1020;
+
+  --lodge-main-ui-text-color: #{$lodge-light-primary-text};
+  --lodge-main-ui-text-color-light: #9aa6bf;
+
+  --lodge-background-shader: #9fb8ff1f;
+  --lodge-background-shader-lighter: #9fb8ff0d;
+  --lodge-background-shader-stronger: #9fb8ff4d;
+
+  --lodge-accent-color-300: #adc6ff;
+}

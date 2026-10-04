@@ -87,7 +87,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
     }
 
     private static RunbookExecutionRequest Request(DockerExecutorConfig? config, Dictionary<string, string?>? parameters = null)
-        => new("homelab", "personal", "homelab-ops/probe", Guid.NewGuid(),
+        => new("homelab", "personal", "probe/run", Guid.NewGuid(),
             parameters ?? new Dictionary<string, string?>(), ExecutorKind.Docker, config);
 
     private string[] Calls() => File.Exists(CallsFile) ? File.ReadAllLines(CallsFile) : Array.Empty<string>();
@@ -136,7 +136,7 @@ public sealed class DockerRunbookExecutorTests : IDisposable
         Assert.Contains("LODGE_PARAM_DOCKER_HOST=192.168.178.200", calls);
         Assert.Contains("LODGE_KIND_CODE=homelab", calls);
         Assert.Contains("LODGE_INSTANCE_CODE=personal", calls);
-        Assert.Contains("LODGE_RUNBOOK_REF=homelab-ops/probe", calls);
+        Assert.Contains("LODGE_ACTION_REF=probe/run", calls);
 
         // The whole map, with JSON-shaped values embedded structured.
         var paramsJson = calls.Single(l => l.StartsWith("LODGE_PARAMS_JSON=", StringComparison.Ordinal))["LODGE_PARAMS_JSON=".Length..];

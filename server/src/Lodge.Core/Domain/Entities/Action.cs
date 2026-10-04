@@ -28,8 +28,8 @@ public class Action
     /// <summary>Explicit, catalog-declared action key — part of this action's identity.</summary>
     public string ActionKey { get; set; } = string.Empty;
 
-    /// <summary>Direct Octopus runbook reference, e.g. <c>acme-instance-ops/configure-sso</c> — an execution detail, not part of identity.</summary>
-    public string RunbookRef { get; set; } = string.Empty;
+    /// <summary>The user group whose members alone may confirm, retry or revoke this row; null = anyone.</summary>
+    public string? Requires { get; set; }
 
     /// <summary>What reconciliation event this action responds to.</summary>
     public SignalTrigger Trigger { get; set; }
@@ -57,9 +57,9 @@ public class Action
     public string? PendingPromptsJson { get; set; }
 
     /// <summary>Historical record of which executor this row ran under. The live catalog decides current behavior.</summary>
-    public ExecutorKind ExecutorKind { get; set; } = ExecutorKind.Shell;
+    public ExecutorKind ExecutorKind { get; set; } = ExecutorKind.Docker;
 
-    /// <summary>JSON-encoded executor-specific config (currently only <c>DockerExecutorConfig</c>, when <see cref="ExecutorKind"/> is Docker); null otherwise.</summary>
+    /// <summary>JSON-encoded executor-specific config (<c>DockerExecutorConfig</c> or <c>HttpExecutorConfig</c>, following <see cref="ExecutorKind"/>).</summary>
     public string? ExecutorConfigJson { get; set; }
 
     /// <summary>JSON-encoded list of secret references (name -&gt; ref) still to be resolved to plaintext at execution time — never resolved here, never persisted resolved.</summary>

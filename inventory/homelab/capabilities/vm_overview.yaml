@@ -1,0 +1,14 @@
+# A view: signals and no rules. Nothing here is reconciled — it gives this slice of the
+# inventory a name and a card: every VM, sorted by name, with its size next to it.
+# `collection.*.field` signals sharing a collection become one table, one column each.
+capability: vm_overview
+title: "VM sizes"
+description: "Every VM with its CPU and memory."
+
+signals:
+  - path: proxmox.virtual_machines.*.cores
+    label: CPU
+  - path: proxmox.virtual_machines.*.memory_mb
+    label: RAM (MB)
+  - path: proxmox.virtual_machines.*.compose
+    label: Compose

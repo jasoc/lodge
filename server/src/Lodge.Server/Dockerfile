@@ -2,7 +2,7 @@
 # Lodge.Server itself, and Badgie.Migrator is bundled alongside it so the server can
 # migrate its own schema. Build context is the repo root (needs ui/, server/src/, and
 # migrations/ all at once). inventory/ and schemas/ (the SSOT) are NOT copied in: they're
-# bind-mounted at runtime (see docker-compose.yml) so the source of truth stays external
+# bind-mounted at runtime (see docker-compose.prod.yml) so the source of truth stays external
 # to the image.
 
 # ---- SPA build ----
@@ -29,7 +29,7 @@ RUN dotnet tool install --tool-path /app/publish/tools Badgie.Migrator
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.0 AS runtime
 WORKDIR /app
 # docker.io + docker-buildx: client-only usage — no daemon ever runs in here.
-# DockerRunbookExecutor talks to the HOST's daemon through the socket docker-compose.yml
+# DockerRunbookExecutor talks to the HOST's daemon through the socket docker-compose.prod.yml
 # mounts at /var/run/docker.sock (or whatever DOCKER_HOST points at), pulling images and
 # building inventory playbook folders as sibling containers. buildx makes `docker build`
 # use BuildKit instead of the deprecated legacy builder.
@@ -49,8 +49,7 @@ COPY migrations/ /repo/migrations/
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
 ENV GitSnapshot__RepoRoot=/repo
-ENV ShellExecutor__WorkingDirectory=/repo
-ENV ShellExecutor__LogDirectory=/repo/data/runbook-logs
+ENV HttpExecutor__LogDirectory=/repo/data/http-run-logs
 ENV DockerExecutor__LogDirectory=/repo/data/docker-runbook-logs
 
 ENTRYPOINT ["dotnet", "Lodge.Server.dll"]

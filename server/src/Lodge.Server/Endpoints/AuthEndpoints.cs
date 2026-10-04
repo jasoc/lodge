@@ -1,3 +1,4 @@
+using Lodge.Core.Abstractions;
 using Lodge.Core.Domain.Entities;
 using Lodge.Infrastructure.Auth;
 using Lodge.Server.Contracts;
@@ -9,8 +10,9 @@ namespace Lodge.Server.Endpoints;
 
 /// <summary>
 /// Login is the only place the two auth planes actually differ: in the no-auth profile
-/// this unconditionally mints a personal token bound to an implicit local-admin identity;
-/// a later OIDC profile mints the same kind of token from a real SSO redirect instead.
+/// this unconditionally mints a personal token for an implicit local admin; the OIDC
+/// profile mints the same kind of token from a real SSO redirect instead, mirroring the
+/// user and their groups into the <see cref="UserDirectory"/> on the way.
 /// Everything downstream of a minted token — how a request authenticates — is identical
 /// either way, via <see cref="LodgeBearerAuthenticationHandler"/>.
 /// </summary>
@@ -24,10 +26,11 @@ public static class AuthEndpoints
             if (!string.Equals(authOptions.Value.Mode, "NoAuth", StringComparison.OrdinalIgnoreCase))
             {
                 return Results.Problem(
-                    detail: $"Auth mode '{authOptions.Value.Mode}' has no login flow implemented yet.",
+                    detail: $"Auth mode '{authOptions.Value.Mode}' signs in through its own flow, not this endpoint.",
                     statusCode: StatusCodes.Status501NotImplemented);
             }
 
+            // No auth, no users: one implicit admin, who may run every action.
             var (raw, record) = await tokens.IssueAsync(
                 ApiTokenKind.Personal,
                 subjectId: "local-admin",
@@ -38,6 +41,12 @@ public static class AuthEndpoints
 
             return Results.Ok(new LoginResponseDto(raw, record.SubjectId, record.ExpiresAt));
         }).AllowAnonymous();
+
+        app.MapGet("/api/v1/auth/me", (ICurrentUserAccessor currentUser) =>
+        {
+            var user = currentUser.GetCurrentUser();
+            return Results.Ok(new MeDto(user.Id, user.DisplayName, user.Groups, user.IsAdmin, user.IsServiceToken));
+        }).RequireAuthorization();
 
         // Public: lets the CLI and SPA discover which login flow to use before they
         // have a token to authenticate with.
@@ -84,7 +93,7 @@ public static class AuthEndpoints
         // token from the validated ID token's claims, and hands it to whichever caller
         // started the flow.
         app.MapGet("/api/v1/auth/oidc/callback", async (
-            OidcClient oidc, PendingOidcLoginStore pendingStore, ApiTokenService tokens,
+            OidcClient oidc, PendingOidcLoginStore pendingStore, ApiTokenService tokens, UserDirectory users,
             HttpRequest request, string? code, string? state, string? error,
             CancellationToken ct) =>
         {
@@ -99,6 +108,7 @@ public static class AuthEndpoints
 
             var callbackUri = $"{request.Scheme}://{request.Host}/api/v1/auth/oidc/callback";
             var identity = await oidc.ExchangeCodeAsync(code, callbackUri, pending.CodeVerifier, ct);
+            await users.SyncFromIdentityProviderAsync(identity.Subject, identity.DisplayName, identity.Groups, ct);
 
             var (raw, record) = await tokens.IssueAsync(
                 ApiTokenKind.Personal,

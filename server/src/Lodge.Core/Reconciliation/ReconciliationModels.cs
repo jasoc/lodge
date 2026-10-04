@@ -6,9 +6,7 @@ namespace Lodge.Core.Reconciliation;
 /// <summary>
 /// The reconciliation identity of an action: which action key confirms which signal (and,
 /// for collection signals, which item). At most one live action row exists per identity,
-/// and the most recent SUCCEEDED row per identity is the last confirmed state. The
-/// underlying runbook is an execution detail, not part of identity — the same runbook may
-/// back more than one conceptually distinct action key.
+/// and the most recent SUCCEEDED row per identity is the last confirmed state.
 /// </summary>
 public sealed record ActionIdentity(string SignalPath, string? ItemKey, string ActionKey);
 
@@ -28,7 +26,8 @@ public sealed record SucceededRecord(
 /// <summary>
 /// Projection of one live (QUEUED/RUNNING/FAILED) action row. <see cref="ExecutorConfigJson"/>
 /// is the executor config snapshot the row was emitted (and possibly approved) with, in
-/// <see cref="Catalog.ExecutorConfigJson"/>'s canonical encoding.
+/// <see cref="Catalog.ExecutorConfigJson"/>'s canonical encoding; <see cref="Requires"/> the
+/// group it was emitted with.
 /// </summary>
 public sealed record LiveActionRow(
     Guid Id,
@@ -36,11 +35,12 @@ public sealed record LiveActionRow(
     SignalTrigger Trigger,
     ActionStatus Status,
     string? DesiredValueJson,
-    string? ExecutorConfigJson = null);
+    string? ExecutorConfigJson = null,
+    string? Requires = null);
 
 /// <summary>
 /// One action the current desired state calls for (or, when <see cref="Satisfied"/>,
-/// has already confirmed). Policy/label/runbook/inputs always come from the live catalog.
+/// has already confirmed). Policy/label/requires/inputs always come from the live catalog.
 /// <see cref="LiveRowId"/>/<see cref="LiveStatus"/> are filled in by the live-row
 /// matching pass when an existing row covers this identity. <see cref="AdoptOnFaith"/>
 /// marks an identity that has never succeeded but is explicitly covered by a
@@ -53,7 +53,7 @@ public sealed record RequiredAction(
     SignalTrigger Trigger,
     string CapabilityCode,
     string Label,
-    string Runbook,
+    string? Requires,
     ActionPolicy Policy,
     string? DesiredValueJson,
     IReadOnlyDictionary<string, string?> ResolvedInputs,
@@ -61,9 +61,13 @@ public sealed record RequiredAction(
     IReadOnlyList<SecretInputRef> SecretInputs,
     ExecutorKind ExecutorKind,
     DockerExecutorConfig? DockerConfig,
+    HttpExecutorConfig? HttpConfig,
     bool Satisfied,
     bool AdoptOnFaith = false)
 {
+    /// <summary>The executor config snapshot in its canonical, persisted encoding.</summary>
+    public string? ExecutorConfigJson => Catalog.ExecutorConfigJson.Serialize(DockerConfig, HttpConfig);
+
     public Guid? LiveRowId { get; set; }
 
     public ActionStatus? LiveStatus { get; set; }

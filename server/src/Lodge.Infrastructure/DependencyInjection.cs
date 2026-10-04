@@ -25,8 +25,7 @@ public static class DependencyInjection
     {
         services.Configure<GitSnapshotOptions>(configuration.GetSection(GitSnapshotOptions.SectionName));
         services.Configure<GitOptions>(configuration.GetSection(GitOptions.SectionName));
-        services.Configure<ShellExecutorOptions>(configuration.GetSection(ShellExecutorOptions.SectionName));
-        services.Configure<WebhookExecutorOptions>(configuration.GetSection(WebhookExecutorOptions.SectionName));
+        services.Configure<HttpExecutorOptions>(configuration.GetSection(HttpExecutorOptions.SectionName));
         services.Configure<DockerExecutorOptions>(configuration.GetSection(DockerExecutorOptions.SectionName));
         services.Configure<PassCliOptions>(configuration.GetSection(PassCliOptions.SectionName));
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
@@ -63,15 +62,15 @@ public static class DependencyInjection
         services.AddSingleton<ICapabilityCatalogProvider, FileCapabilityCatalogProvider>();
         services.AddScoped<ActionExecutionService>();
 
-        // Auth + RBAC seams. Personal and service bearer tokens both authenticate through
+        // Auth. Personal and service bearer tokens both authenticate through
         // ApiTokenService/LodgeBearerAuthenticationHandler; TokenCurrentUserAccessor reads
-        // the resulting identity per-request. An OidcCurrentUserAccessor-equivalent is a
-        // drop-in later — it only changes how a token gets minted, not how requests
-        // authenticate. FilePermissionResolver stays the RBAC seam unchanged.
+        // the resulting identity per-request. Users and their groups live in UserDirectory
+        // (mirrored from the IdP with OIDC, edited in Lodge locally); an action's
+        // `requires` is checked against them.
         services.AddHttpContextAccessor();
         services.AddScoped<ApiTokenService>();
+        services.AddScoped<UserDirectory>();
         services.AddScoped<ICurrentUserAccessor, TokenCurrentUserAccessor>();
-        services.AddSingleton<IPermissionResolver, FilePermissionResolver>();
 
         // OIDC (Auth:Mode = Oidc): the server performs the Authorization Code + PKCE
         // flow itself — the CLI and SPA only ever talk to Lodge's own
@@ -84,24 +83,16 @@ public static class DependencyInjection
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("oidc"),
             sp.GetRequiredService<IOptions<OidcOptions>>()));
 
-        // Runbook execution: each action declares its executor explicitly
-        // (ExecutorKind: Shell/Webhook/Docker — see Lodge.Core.Domain.Enums.ExecutorKind),
-        // dispatched by CompositeRunbookExecutor, the one registered as IRunbookExecutor.
-        // All concrete executors stay singletons so run state persists across requests for
-        // status polling. MockRunbookExecutor remains available for demos and tests but
-        // isn't registered by default.
-        services.AddSingleton<ShellCommandRunbookExecutor>();
+        // Execution: each action declares its executor explicitly (docker | http — see
+        // Lodge.Core.Domain.Enums.ExecutorKind), dispatched by CompositeRunbookExecutor, the
+        // one registered as IRunbookExecutor. Concrete executors are singletons so run state
+        // persists across requests for status polling; the HTTP one over a named client
+        // (AddHttpClient<T> would make it transient and drop that state).
         services.AddSingleton<DockerRunbookExecutor>();
-        // AddHttpClient<T>() registers T as transient, which would drop
-        // WebhookRunbookExecutor's in-flight-run state on every injection — build it as a
-        // singleton over a named client from IHttpClientFactory instead.
-        services.AddHttpClient("webhook");
-        services.AddSingleton(sp => new WebhookRunbookExecutor(
-            sp.GetRequiredService<IHttpClientFactory>().CreateClient("webhook"),
-            sp.GetRequiredService<IOptions<WebhookExecutorOptions>>()));
-        // Registered under both its own type and the interface, resolving to the same
-        // instance — the execution-status callback endpoint needs the concrete type to
-        // reach TryReportWebhookStatus, which isn't part of the IRunbookExecutor contract.
+        services.AddHttpClient("http-executor");
+        services.AddSingleton(sp => new HttpRunbookExecutor(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("http-executor"),
+            sp.GetRequiredService<IOptions<HttpExecutorOptions>>()));
         services.AddSingleton<CompositeRunbookExecutor>();
         services.AddSingleton<IRunbookExecutor>(sp => sp.GetRequiredService<CompositeRunbookExecutor>());
         services.AddSingleton<IRunbookLogReader>(sp => sp.GetRequiredService<CompositeRunbookExecutor>());

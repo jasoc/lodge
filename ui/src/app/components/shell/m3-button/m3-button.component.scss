@@ -1,76 +1,93 @@
-$MARGIN: 16px;
-$TRANSLUCENT_COLOR: #ffffffc9;
-
+// One layout for every variant: [padding][icon 24][gap][text]. Icon-only centers the
+// icon in the button instead, so a collapsed drawer's icons sit exactly in the middle of
+// its rail — no per-state margins to drift out of sync.
 :host {
-  min-width: 38px;
+  display: block;
 }
 
 .m3-button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 12px;
   border: none;
   background: transparent;
   color: var(--lodge-main-ui-text-color);
-  min-width: 38px;
-  font-weight: 500;
   font-size: 14px;
-  text-wrap: nowrap;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
   user-select: none;
   cursor: pointer;
-  width: 100%;
-  transition: cubic-bezier(0.2, 0, 0, 1) 200ms;
+  transition:
+    background 200ms ease,
+    box-shadow 200ms ease,
+    color 200ms ease;
 
-  &:hover {
-    border-radius: 10px !important;
+  &.m3-button-icon-only {
+    justify-content: center;
+    gap: 0;
+    padding: 0;
   }
 
   &.m3-button-active {
     color: var(--lodge-accent-color-300, var(--lodge-main-ui-text-color));
   }
-
-  .m3-button__inner {
-    cursor: pointer;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    height: 24px;
-
-    .m3-icon {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-  }
 }
 
-.thin {
-  border-radius: 100px;
-  height: 36px;
-  transition:
-    background 200ms ease,
-    box-shadow 200ms ease;
-  &:hover {
-    box-shadow: 0px 0px 0px 2px var(--lodge-background-shader);
-  }
-  &.m3-button-active {
-    background: var(--lodge-background-shader);
-  }
-  .m3-button__inner {
-    justify-content: flex-start !important;
-  }
+.m3-button__icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
 }
 
+.m3-button__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// Drawer entries.
 .sidenav-left {
-  height: 40px;
+  height: 44px;
   border-radius: 12px;
-  justify-content: flex-start;
-  background: transparent;
-  transition:
-    background 200ms ease,
-    box-shadow 200ms ease;
+
   &:hover {
     background: var(--lodge-background-shader);
   }
+
   &.m3-button-active {
     background: var(--lodge-background-shader-stronger);
+  }
+}
+
+// Drawer sub-entries: a little lower and lighter than their parent.
+.thin {
+  height: 36px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  color: var(--lodge-main-ui-text-color-light);
+
+  .m3-button__icon {
+    width: 20px;
+    height: 20px;
+    font-size: 20px;
+  }
+
+  &:hover {
+    color: var(--lodge-main-ui-text-color);
+    background: var(--lodge-background-shader-lighter);
+  }
+
+  &.m3-button-active {
+    color: var(--lodge-accent-color-300, var(--lodge-main-ui-text-color));
+    background: var(--lodge-background-shader);
   }
 }
 

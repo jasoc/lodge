@@ -14,7 +14,6 @@ signals:
       - on: add
         actions:
           - key: download_image
-            runbook: homelab/terraform-apply
             label: "Download image (Terraform)"
             policy: MANUAL_REQUIRED
             executor: docker
@@ -32,7 +31,6 @@ signals:
       - on: modify
         actions:
           - key: update_image
-            runbook: homelab/terraform-apply-changes
             label: "Apply image changes (Terraform)"
             policy: MANUAL_REQUIRED
             executor: docker
@@ -50,7 +48,6 @@ signals:
       - on: delete
         actions:
           - key: delete_image
-            runbook: homelab/terraform-destroy
             label: "Delete image (Terraform)"
             policy: MANUAL_REQUIRED
             executor: docker

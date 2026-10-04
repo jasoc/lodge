@@ -17,46 +17,42 @@ public sealed record ActionExecutionResult(
     bool Denied = false);
 
 /// <summary>
-/// Governs execution of actions (runbook invocations). Used by two callers: the
-/// reconciliation loop starts AUTO drift immediately (<see cref="StartAutoAsync"/>);
-/// the confirm endpoint starts QUEUED (or re-runs FAILED) actions after an RBAC check
-/// and merging any human-supplied prompt values (<see cref="ConfirmAsync"/>). Lodge
-/// supervises; the executor runs the runbook. Every transition is audited.
+/// Governs execution of actions. Used by two callers: the reconciliation loop starts AUTO
+/// drift immediately (<see cref="StartAutoAsync"/>); the confirm endpoint starts QUEUED
+/// (or re-runs FAILED) actions after checking the caller against the action's
+/// <c>requires</c> group and merging any human-supplied prompt values
+/// (<see cref="ConfirmAsync"/>). Lodge supervises; the executor runs the action. Every
+/// transition is audited.
 /// </summary>
 public sealed class ActionExecutionService
 {
     private readonly LodgeDbContext _db;
     private readonly IRunbookExecutor _executor;
-    private readonly IPermissionResolver _permissions;
     private readonly ICurrentUserAccessor _currentUser;
     private readonly ISecretProvider _secrets;
 
     public ActionExecutionService(
         LodgeDbContext db,
         IRunbookExecutor executor,
-        IPermissionResolver permissions,
         ICurrentUserAccessor currentUser,
         ISecretProvider secrets)
     {
         _db = db;
         _executor = executor;
-        _permissions = permissions;
         _currentUser = currentUser;
         _secrets = secrets;
     }
 
     /// <summary>
     /// Start an AUTO action the reconciler queued this cycle. Assumes no pending prompts
-    /// (the reconciler guarantees it) and runs on behalf of the system, so no RBAC gate
-    /// applies. Does not persist; the caller's unit of work saves.
+    /// (the reconciler guarantees it) and runs on behalf of the system, so no
+    /// <c>requires</c> gate applies. Does not persist; the caller's unit of work saves.
     /// </summary>
     public async Task StartAutoAsync(
         ActionEntity action, string kindCode, string instanceCode, CancellationToken cancellationToken = default)
     {
-        var parameters = await BuildParametersAsync(action, promptValues: null, kindCode, instanceCode, cancellationToken);
-        var handle = await _executor.StartAsync(new RunbookExecutionRequest(
-            kindCode, instanceCode, action.RunbookRef, action.Id, parameters,
-            action.ExecutorKind, ExecutorConfigJson.Deserialize(action.ExecutorConfigJson)), cancellationToken);
+        var handle = await _executor.StartAsync(
+            await BuildRequestAsync(action, promptValues: null, kindCode, instanceCode, cancellationToken), cancellationToken);
 
         action.Status = ActionStatus.RUNNING;
         action.ExecutionRef = handle.RunId;
@@ -65,15 +61,15 @@ public sealed class ActionExecutionService
         AddAudit(action.InstanceId, kindCode, "action.confirmed", "system", new
         {
             action.Id,
-            action.RunbookRef,
+            action.ActionKey,
             runId = handle.RunId,
             auto = true
         });
     }
 
     /// <summary>
-    /// Human confirmation of a MANUAL_REQUIRED action: RBAC-check the current user against
-    /// the runbook, merge supplied prompt values, then start the runbook.
+    /// Human confirmation of an action: check the current user against its <c>requires</c>
+    /// group, merge supplied prompt values, then start it.
     /// </summary>
     public async Task<ActionExecutionResult?> ConfirmAsync(
         string kindCode, string instanceCode, Guid actionId, string actor,
@@ -98,24 +94,13 @@ public sealed class ActionExecutionService
                 "Action is not awaiting confirmation.");
         }
 
-        var user = _currentUser.GetCurrentUser();
-        if (!_permissions.CanRun(user, action.RunbookRef))
+        if (await DenyUnlessAllowedAsync(action, kindCode, actor, "run", cancellationToken) is { } denied)
         {
-            AddAudit(action.InstanceId, kindCode, "action.denied", actor, new
-            {
-                action.Id,
-                action.RunbookRef,
-                user = user.Id
-            });
-            await _db.SaveChangesAsync(cancellationToken);
-            return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
-                $"User '{user.DisplayName}' is not permitted to run '{action.RunbookRef}'.", Denied: true);
+            return denied;
         }
 
-        var parameters = await BuildParametersAsync(action, promptValues, kindCode, instanceCode, cancellationToken);
-        var handle = await _executor.StartAsync(new RunbookExecutionRequest(
-            kindCode, instanceCode, action.RunbookRef, action.Id, parameters,
-            action.ExecutorKind, ExecutorConfigJson.Deserialize(action.ExecutorConfigJson)), cancellationToken);
+        var handle = await _executor.StartAsync(
+            await BuildRequestAsync(action, promptValues, kindCode, instanceCode, cancellationToken), cancellationToken);
 
         action.Status = ActionStatus.RUNNING;
         action.ExecutionRef = handle.RunId;
@@ -125,22 +110,22 @@ public sealed class ActionExecutionService
         AddAudit(action.InstanceId, kindCode, "action.confirmed", actor, new
         {
             action.Id,
-            action.RunbookRef,
+            action.ActionKey,
             runId = handle.RunId
         });
 
         await _db.SaveChangesAsync(cancellationToken);
 
         return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
-            $"Runbook '{action.RunbookRef}' started.");
+            $"'{action.Label}' started.");
     }
 
     /// <summary>
     /// UI-only invalidation of a SUCCEEDED action (real or synthetic): marks it no longer
     /// valid from now, so the identity reverts to "never succeeded" on the next
     /// reconciliation cycle and real drift (or a fresh past_history adoption) resumes.
-    /// There is no YAML path to this — it is a permission-gated operator action, RBAC
-    /// checked the same way as <see cref="ConfirmAsync"/>.
+    /// There is no YAML path to this — it is an operator action, gated by the action's
+    /// <c>requires</c> group the same way as <see cref="ConfirmAsync"/>.
     /// </summary>
     public async Task<ActionExecutionResult?> InvalidateAsync(
         string kindCode, string instanceCode, Guid actionId, string actor, CancellationToken cancellationToken = default)
@@ -157,19 +142,9 @@ public sealed class ActionExecutionService
                 "Only a currently-valid SUCCEEDED action can be invalidated.");
         }
 
-        var user = _currentUser.GetCurrentUser();
-        if (!_permissions.CanRun(user, action.RunbookRef))
+        if (await DenyUnlessAllowedAsync(action, kindCode, actor, "invalidate", cancellationToken) is { } denied)
         {
-            AddAudit(action.InstanceId, kindCode, "action.denied", actor, new
-            {
-                action.Id,
-                action.RunbookRef,
-                user = user.Id,
-                operation = "invalidate"
-            });
-            await _db.SaveChangesAsync(cancellationToken);
-            return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
-                $"User '{user.DisplayName}' is not permitted to invalidate '{action.RunbookRef}'.", Denied: true);
+            return denied;
         }
 
         action.InvalidatedAt = DateTimeOffset.UtcNow;
@@ -180,7 +155,6 @@ public sealed class ActionExecutionService
         {
             action.Id,
             action.ActionKey,
-            action.RunbookRef,
             action.SignalPath,
             action.ItemKey
         });
@@ -295,7 +269,7 @@ public sealed class ActionExecutionService
             SignalPath = done.SignalPath,
             ItemKey = done.ItemKey,
             ActionKey = done.ActionKey,
-            RunbookRef = done.RunbookRef,
+            Requires = done.Requires,
             Trigger = done.Trigger,
             Label = done.Label,
             Policy = done.Policy,
@@ -311,7 +285,47 @@ public sealed class ActionExecutionService
         };
         _db.Actions.Add(next);
         AddAudit(done.InstanceId, kindCode, "action.generated", "system",
-            new { next.Id, next.RunbookRef, next.SignalPath, next.ItemKey, policy = next.Policy.ToString(), requeuedAfter = done.Id });
+            new { next.Id, next.ActionKey, next.SignalPath, next.ItemKey, policy = next.Policy.ToString(), requeuedAfter = done.Id });
+    }
+
+    /// <summary>
+    /// A denied result (audited) when the current user isn't in the action's <c>requires</c>
+    /// group; null when they may go ahead.
+    /// </summary>
+    private async Task<ActionExecutionResult?> DenyUnlessAllowedAsync(
+        ActionEntity action, string kindCode, string actor, string operation, CancellationToken cancellationToken)
+    {
+        // Admins (the no-auth local admin, or the OIDC AdminGroup) may run everything.
+        var user = _currentUser.GetCurrentUser();
+        if (user.IsAdmin || ActionAccess.Allows(action.Requires, user.Groups))
+        {
+            return null;
+        }
+
+        AddAudit(action.InstanceId, kindCode, "action.denied", actor, new
+        {
+            action.Id,
+            action.ActionKey,
+            action.Requires,
+            user = user.Id,
+            operation
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
+            $"'{action.Label}' requires the '{action.Requires}' group, and {user.DisplayName} isn't in it.", Denied: true);
+    }
+
+    private async Task<RunbookExecutionRequest> BuildRequestAsync(
+        ActionEntity action, IReadOnlyDictionary<string, string?>? promptValues,
+        string kindCode, string instanceCode, CancellationToken cancellationToken)
+    {
+        var (parameters, secretNames) = await BuildParametersAsync(action, promptValues, kindCode, instanceCode, cancellationToken);
+        return new RunbookExecutionRequest(
+            kindCode, instanceCode, $"{action.CapabilityCode}/{action.ActionKey}", action.Id, parameters,
+            action.ExecutorKind,
+            action.ExecutorKind == ExecutorKind.Docker ? ExecutorConfigJson.DeserializeDocker(action.ExecutorConfigJson) : null,
+            action.ExecutorKind == ExecutorKind.Http ? ExecutorConfigJson.DeserializeHttp(action.ExecutorConfigJson) : null,
+            secretNames);
     }
 
     /// <summary>
@@ -321,7 +335,7 @@ public sealed class ActionExecutionService
     /// the executor. The resolved secret values live only in this local dictionary: they
     /// are never written back to <c>action.*Json</c> and never passed to <c>AddAudit</c>.
     /// </summary>
-    private async Task<IReadOnlyDictionary<string, string?>> BuildParametersAsync(
+    private async Task<(IReadOnlyDictionary<string, string?> Parameters, IReadOnlyCollection<string> SecretNames)> BuildParametersAsync(
         ActionEntity action, IReadOnlyDictionary<string, string?>? promptValues,
         string kindCode, string instanceCode, CancellationToken cancellationToken)
     {
@@ -351,6 +365,7 @@ public sealed class ActionExecutionService
             }
         }
 
+        var secretNames = new List<string>();
         if (!string.IsNullOrWhiteSpace(action.SecretInputsJson))
         {
             var secretRefs = JsonSerializer.Deserialize<List<SecretInputRef>>(action.SecretInputsJson);
@@ -359,11 +374,12 @@ public sealed class ActionExecutionService
                 foreach (var secretRef in secretRefs)
                 {
                     parameters[secretRef.Name] = await _secrets.GetSecretAsync(secretRef.SecretRef, cancellationToken);
+                    secretNames.Add(secretRef.Name);
                 }
             }
         }
 
-        return parameters;
+        return (parameters, secretNames);
     }
 
     private async Task<ActionEntity?> LoadAsync(

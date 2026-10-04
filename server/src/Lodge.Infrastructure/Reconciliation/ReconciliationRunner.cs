@@ -358,7 +358,7 @@ public sealed class ReconciliationRunner
                 row.UpdatedAt = now;
                 row.CompletedAt = now;
                 AddAudit(instance.Id, kindCode, "action.superseded", "system",
-                    new { row.Id, row.RunbookRef, row.SignalPath, row.ItemKey });
+                    new { row.Id, row.ActionKey, row.SignalPath, row.ItemKey });
             }
             await _db.SaveChangesAsync(cancellationToken);
             messages.Add($"{kindCode}/{instance.InstanceCode}: superseded {stale.Count} stale action(s)");
@@ -375,7 +375,7 @@ public sealed class ReconciliationRunner
             row.CompletedAt = row.CreatedAt;
             _db.Actions.Add(row);
             AddAudit(instance.Id, kindCode, "action.adopted", "system",
-                new { row.Id, row.ActionKey, row.RunbookRef, row.SignalPath, row.ItemKey, row.DesiredValueJson });
+                new { row.Id, row.ActionKey, row.SignalPath, row.ItemKey, row.DesiredValueJson });
         }
         if (result.ToAdopt.Count > 0)
         {
@@ -390,7 +390,7 @@ public sealed class ReconciliationRunner
             _db.Actions.Add(row);
             createdByIdentity[create.Identity] = row;
             AddAudit(instance.Id, kindCode, "action.generated", "system",
-                new { row.Id, row.RunbookRef, row.SignalPath, row.ItemKey, policy = create.Policy.ToString() });
+                new { row.Id, row.ActionKey, row.SignalPath, row.ItemKey, policy = create.Policy.ToString() });
         }
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -452,7 +452,7 @@ public sealed class ReconciliationRunner
             .Where(a => a.Status is ActionStatus.QUEUED or ActionStatus.RUNNING or ActionStatus.FAILED)
             .Select(a => new LiveActionRow(
                 a.Id, new ActionIdentity(a.SignalPath, a.ItemKey, a.ActionKey),
-                a.Trigger, a.Status, a.DesiredValueJson, a.ExecutorConfigJson))
+                a.Trigger, a.Status, a.DesiredValueJson, a.ExecutorConfigJson, a.Requires))
             .ToList();
 
         var input = new ReconciliationInput(
@@ -501,7 +501,7 @@ public sealed class ReconciliationRunner
             SignalPath = required.Identity.SignalPath,
             ItemKey = required.Identity.ItemKey,
             ActionKey = required.Identity.ActionKey,
-            RunbookRef = required.Runbook,
+            Requires = required.Requires,
             Trigger = required.Trigger,
             Label = required.Label,
             Policy = required.Policy,
@@ -509,7 +509,7 @@ public sealed class ReconciliationRunner
             ResolvedInputsJson = JsonSerializer.Serialize(required.ResolvedInputs),
             PendingPromptsJson = JsonSerializer.Serialize(required.PendingPrompts),
             ExecutorKind = required.ExecutorKind,
-            ExecutorConfigJson = ExecutorConfigJson.Serialize(required.DockerConfig),
+            ExecutorConfigJson = required.ExecutorConfigJson,
             SecretInputsJson = JsonSerializer.Serialize(required.SecretInputs),
             CreatedAt = now,
             UpdatedAt = now

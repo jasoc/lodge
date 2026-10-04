@@ -1,5 +1,5 @@
 #!/bin/bash
-# Zero-touch local dev: runs Postgres (the docker-compose.yml `postgres` service), Lodge.Server
+# Local dev: runs Postgres (docker-compose.yml), Lodge.Server
 # and the Angular dev server under process-compose (process-compose.yaml at the repo root),
 # with a TUI showing each one's status and its own scrollable log.
 #
@@ -9,6 +9,10 @@
 # deletes it). The only file this can create on its own is a root .env, copied from
 # .env.example on first run.
 #
+# It never installs tools: it checks that docker, process-compose, the .NET SDK pinned in
+# global.json and the Node pinned in ui/.nvmrc are available, and stops with a pointer to
+# the README's Prerequisites if one isn't.
+#
 # Usage: ./scripts/run.sh [--stop]
 set -euo pipefail
 
@@ -17,6 +21,8 @@ SOCKET="$ROOT/.run/process-compose.sock"
 
 # shellcheck source=lib/env.sh
 source "$ROOT/scripts/lib/env.sh"
+# shellcheck source=lib/docker.sh
+source "$ROOT/scripts/lib/docker.sh"
 # shellcheck source=lib/dotnet.sh
 source "$ROOT/scripts/lib/dotnet.sh"
 # shellcheck source=lib/node.sh
@@ -51,6 +57,7 @@ rm -f "$SOCKET"
 lodge_load_env "$ROOT"
 
 echo "== Toolchain =="
+lodge_ensure_docker
 lodge_ensure_dotnet "$ROOT"
 lodge_ensure_node "$ROOT/ui"
 

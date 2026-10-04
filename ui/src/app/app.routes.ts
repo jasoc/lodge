@@ -72,6 +72,15 @@ export const routes: Routes = [
         ],
       },
 
+      // RECONCILIATION — latest cycles and the inventory validation errors they found.
+      {
+        path: 'reconciliation',
+        loadComponent: () =>
+          import('./modules/reconciliation/reconciliation.component').then(
+            (m) => m.ReconciliationComponent,
+          ),
+      },
+
       // DRIFT — global filtered view over live (QUEUED) actions across every instance.
       {
         path: 'drift',
@@ -111,6 +120,13 @@ export const routes: Routes = [
               ),
           },
         ],
+      },
+
+      // USERS & GROUPS — who may run actions that `requires` a group.
+      {
+        path: 'users',
+        loadComponent: () =>
+          import('./modules/users/users.component').then((m) => m.UsersComponent),
       },
 
       // SETTINGS

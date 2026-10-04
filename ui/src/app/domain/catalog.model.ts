@@ -10,9 +10,10 @@ export interface RuleInputModel {
 
 export interface ActionTemplateModel {
   key: string;
-  runbook: string;
   label: string;
   policy: 'AUTO' | 'MANUAL_REQUIRED' | 'OPTIONAL';
+  requires: string | null;
+  executor: 'docker' | 'http';
   inputs: RuleInputModel[];
   depends_on: string[];
 }
@@ -27,6 +28,7 @@ export interface SignalRuleModel {
 export interface SignalDefinitionModel {
   path: string;
   kind: 'Scalar' | 'KeyedCollection' | 'ScalarList';
+  label: string | null;
   rules: SignalRuleModel[];
 }
 
@@ -34,10 +36,44 @@ export interface CapabilityDefinitionModel {
   code: string;
   title: string;
   description: string;
+  /** Signals and no rules: rendered as a card from the inventory, never reconciled. */
+  is_view: boolean;
   signals: SignalDefinitionModel[];
 }
 
 export interface CapabilityCatalogModel {
   kind_code: string;
   capabilities: CapabilityDefinitionModel[];
+}
+
+/** Mirrors `Lodge.Core.Reconciliation.CapabilityViewData` — a view capability rendered
+ * against one instance's inventory. */
+export interface ViewColumnModel {
+  label: string;
+  field: string;
+}
+
+export interface ViewRowModel {
+  key: string;
+  values: (string | null)[];
+}
+
+export interface ViewTableModel {
+  collection: string;
+  columns: ViewColumnModel[];
+  rows: ViewRowModel[];
+}
+
+export interface ViewValueModel {
+  label: string;
+  path: string;
+  value: string | null;
+}
+
+export interface CapabilityViewModel {
+  code: string;
+  title: string;
+  description: string;
+  tables: ViewTableModel[];
+  values: ViewValueModel[];
 }

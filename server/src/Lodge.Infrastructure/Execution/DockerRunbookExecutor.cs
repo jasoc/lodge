@@ -10,7 +10,7 @@ using Microsoft.Extensions.Options;
 namespace Lodge.Infrastructure.Execution;
 
 /// <summary>
-/// Runs a runbook inside a container via the docker CLI against the local daemon (the
+/// Runs an action inside a container via the docker CLI against the local daemon (the
 /// host's socket mounted into Lodge's container, or whatever <c>DOCKER_HOST</c> points
 /// at) — for tooling Lodge's own minimal server container doesn't bundle (ansible,
 /// terraform, ...). What runs comes from the catalog-declared <see
@@ -20,11 +20,11 @@ namespace Lodge.Infrastructure.Execution;
 ///
 /// Parameter contract (identical for both variants, runtime only — never build args):
 /// <list type="bullet">
-/// <item><c>LODGE_PARAM_&lt;NAME&gt;</c> per parameter, the shell executor's convention;</item>
+/// <item><c>LODGE_PARAM_&lt;NAME&gt;</c> per parameter;</item>
 /// <item><c>LODGE_PARAMS_JSON</c>, the whole map as one JSON object (values that are
 /// themselves JSON objects/arrays, like <c>from: item</c>, are embedded structured);</item>
 /// <item><c>LODGE_ACTION_ID</c>, <c>LODGE_KIND_CODE</c>, <c>LODGE_INSTANCE_CODE</c>,
-/// <c>LODGE_RUNBOOK_REF</c>.</item>
+/// <c>LODGE_ACTION_REF</c>.</item>
 /// </list>
 /// Values travel as <c>-e NAME</c> (name only) with the value in the docker CLI's own
 /// environment, so resolved secrets never appear in any process argv.
@@ -34,7 +34,7 @@ namespace Lodge.Infrastructure.Execution;
 /// instead of building different code — the next reconciliation cycle then supersedes it
 /// with a fresh action to confirm.
 ///
-/// Run-state tracking mirrors <see cref="ShellCommandRunbookExecutor"/>: an in-memory run
+/// Run-state tracking: an in-memory run
 /// dict for the common case plus a JSON sidecar file so a run survives being asked about
 /// after a restart in a *degraded but honest* way — outcome reported as unknown rather
 /// than guessed.
@@ -58,13 +58,13 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
         if (request.DockerConfig is null)
         {
             throw new InvalidOperationException(
-                $"Action '{request.RunbookRef}' is routed to the Docker executor but carries no DockerExecutorConfig — " +
+                $"Action '{request.ActionRef}' is routed to the Docker executor but carries no DockerExecutorConfig — " +
                 "this is a catalog/persistence bug, not a user error (the loader guarantees a docker config for 'executor: docker').");
         }
 
         var runId = $"docker-{Guid.NewGuid():N}";
         var state = new RunState(
-            request.RunbookRef,
+            request.ActionRef,
             Path.Combine(_options.LogDirectory, $"{runId}.log"),
             Path.Combine(_options.LogDirectory, $"{runId}.json"),
             DateTimeOffset.UtcNow);
@@ -83,7 +83,7 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
             if (state.Completion is not { IsCompleted: true } completion)
             {
                 return Task.FromResult(new RunbookRunStatus(runId, RunbookRunState.Running,
-                    $"Runbook '{state.RunbookRef}': {state.Phase}.", DateTimeOffset.UtcNow));
+                    $"Action '{state.ActionRef}': {state.Phase}.", DateTimeOffset.UtcNow));
             }
 
             var outcome = completion.Result;
@@ -119,13 +119,13 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
             state.Phase = "running";
             var exitCode = await RunDockerAsync(BuildRunArgs(request, config, image!, out var environment), environment, state.LogPath);
             outcome = exitCode == 0
-                ? new RunOutcome(true, 0, $"Runbook '{state.RunbookRef}' completed (exit 0). Log: {state.LogPath}")
-                : new RunOutcome(false, exitCode, $"Runbook '{state.RunbookRef}' failed (exit {exitCode}). Log: {state.LogPath}");
+                ? new RunOutcome(true, 0, $"Action '{state.ActionRef}' completed (exit 0). Log: {state.LogPath}")
+                : new RunOutcome(false, exitCode, $"Action '{state.ActionRef}' failed (exit {exitCode}). Log: {state.LogPath}");
         }
         catch (Exception ex)
         {
             AppendLog(state.LogPath, $"[lodge] {ex.Message}");
-            outcome = new RunOutcome(false, null, $"Runbook '{state.RunbookRef}' failed: {ex.Message}");
+            outcome = new RunOutcome(false, null, $"Action '{state.ActionRef}' failed: {ex.Message}");
         }
 
         return Finish(state, outcome);
@@ -210,7 +210,7 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
             if (exitCode != 0)
             {
                 return (null, new RunOutcome(false, exitCode,
-                    $"Runbook '{state.RunbookRef}': building {image} failed (exit {exitCode}). Log: {state.LogPath}"));
+                    $"Action '{state.ActionRef}': building {image} failed (exit {exitCode}). Log: {state.LogPath}"));
             }
 
             await PruneOldImagesAsync(kindCode, build.Context, keep: image, state.LogPath);
@@ -225,7 +225,7 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
     private RunOutcome Fail(RunState state, string message)
     {
         AppendLog(state.LogPath, $"[lodge] {message}");
-        return new RunOutcome(false, null, $"Runbook '{state.RunbookRef}' refused: {message}");
+        return new RunOutcome(false, null, $"Action '{state.ActionRef}' refused: {message}");
     }
 
     /// <summary>Best-effort: keeps the newest <see cref="DockerExecutorOptions.KeepImagesPerPlaybook"/> images of one playbook, never the one just built.</summary>
@@ -271,7 +271,7 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
             ["LODGE_ACTION_ID"] = request.ActionId.ToString(),
             ["LODGE_KIND_CODE"] = request.KindCode,
             ["LODGE_INSTANCE_CODE"] = request.InstanceCode,
-            ["LODGE_RUNBOOK_REF"] = request.RunbookRef
+            ["LODGE_ACTION_REF"] = request.ActionRef
         };
 
         var paramsJson = new JsonObject();
@@ -454,24 +454,24 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
                 : new RunbookRunStatus(runId, RunbookRunState.Failed, sidecar.Message, completedAt);
         }
 
-        // Same restart caveat as ShellCommandRunbookExecutor: a non-child process's exit
+        // After a restart the container is no longer our child process: its exit
         // code isn't reliably recoverable, so report the outcome as unknown rather than
         // guessing.
         return new RunbookRunStatus(runId, RunbookRunState.Failed,
-            $"Runbook '{sidecar.RunbookRef}' outcome unknown: the server restarted while this run was in progress.",
+            $"Action '{sidecar.ActionRef}' outcome unknown: the server restarted while this run was in progress.",
             DateTimeOffset.UtcNow);
     }
 
     private static void WriteSidecar(RunState state, RunOutcome? outcome, DateTimeOffset? completedAt)
     {
-        var sidecar = new Sidecar(state.RunbookRef, state.StartedAt, completedAt,
+        var sidecar = new Sidecar(state.ActionRef, state.StartedAt, completedAt,
             outcome?.Succeeded ?? false, outcome?.ExitCode, outcome?.Message);
         File.WriteAllText(state.SidecarPath, JsonSerializer.Serialize(sidecar));
     }
 
-    private sealed class RunState(string runbookRef, string logPath, string sidecarPath, DateTimeOffset startedAt)
+    private sealed class RunState(string actionRef, string logPath, string sidecarPath, DateTimeOffset startedAt)
     {
-        public string RunbookRef { get; } = runbookRef;
+        public string ActionRef { get; } = actionRef;
         public string LogPath { get; } = logPath;
         public string SidecarPath { get; } = sidecarPath;
         public DateTimeOffset StartedAt { get; } = startedAt;
@@ -483,5 +483,5 @@ public sealed class DockerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
     private sealed record RunOutcome(bool Succeeded, int? ExitCode, string Message);
 
     private sealed record Sidecar(
-        string RunbookRef, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, bool Succeeded, int? ExitCode, string? Message);
+        string ActionRef, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, bool Succeeded, int? ExitCode, string? Message);
 }

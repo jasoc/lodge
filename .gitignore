@@ -27,3 +27,4 @@ server/src/Lodge.Server/wwwroot/
 # Env
 .env
 .env.local
+.env.prod

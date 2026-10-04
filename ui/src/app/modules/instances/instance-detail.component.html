@@ -121,22 +121,88 @@
 
   <ng-template #capabilityCardsTpl>
     <div class="capability-toolbar">
-      <label class="capability-filter">
-        <mat-icon fontSet="material-symbols-outlined">search</mat-icon>
+      <mat-form-field class="capability-filter" appearance="outline" subscriptSizing="dynamic">
+        <mat-icon matPrefix fontSet="material-symbols-outlined">search</mat-icon>
+        <mat-label>Filter actions</mat-label>
         <input
+          matInput
           type="search"
-          placeholder="Filter actions by name or item…"
+          placeholder="name or item"
           [value]="filter()"
           (input)="filter.set($any($event.target).value)"
         />
-      </label>
+        @if (filter()) {
+          <button matSuffix mat-icon-button aria-label="Clear filter" (click)="filter.set('')">
+            <mat-icon fontSet="material-symbols-outlined">close</mat-icon>
+          </button>
+        }
+      </mat-form-field>
+      @if (authService.me(); as me) {
+        <span class="whoami" [title]="me.groups.length ? 'Groups: ' + me.groups.join(', ') : 'In no group'">
+          <mat-icon fontSet="material-symbols-outlined">person</mat-icon>
+          {{ me.display_name }}
+          @for (group of me.groups; track group) {
+            <span class="tag">{{ group }}</span>
+          }
+        </span>
+      }
     </div>
 
-    @if (capabilityCards().length === 0) {
+    @if (capabilityCards().length === 0 && views().length === 0) {
       <p class="empty">{{ filter() ? 'No action matches the filter.' : 'No actions yet.' }}</p>
     }
 
     <div class="capability-grid">
+      <!-- Views: a named slice of the inventory, nothing to run. -->
+      @for (view of views(); track view.code) {
+        <div class="capability-panel">
+          <div class="capability-panel-header">
+            <h3>{{ view.title }}</h3>
+            <span class="view-badge">
+              <mat-icon fontSet="material-symbols-outlined">visibility</mat-icon>
+              view
+            </span>
+          </div>
+          @if (view.description) {
+            <p class="view-description">{{ view.description }}</p>
+          }
+          @for (table of view.tables; track table.collection) {
+            @if (table.rows.length === 0) {
+              <p class="all-clear">Nothing under <code>{{ table.collection }}</code>.</p>
+            } @else {
+              <table class="view-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    @for (column of table.columns; track column.field) {
+                      <th class="num">{{ column.label }}</th>
+                    }
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of table.rows; track row.key) {
+                    <tr>
+                      <td class="view-key">{{ row.key }}</td>
+                      @for (value of row.values; track $index) {
+                        <td class="num">{{ value ?? '—' }}</td>
+                      }
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+          }
+          @if (view.values.length) {
+            <dl class="view-values">
+              @for (value of view.values; track value.path) {
+                <dt>{{ value.label }}</dt>
+                <dd>{{ value.value ?? '—' }}</dd>
+              }
+            </dl>
+          }
+        </div>
+      }
+
       @for (card of capabilityCards(); track card.code) {
         <div class="capability-panel">
           <div class="capability-panel-header">
@@ -166,48 +232,52 @@
             ></ng-container>
             @if (isSectionOpen(card, 'todo')) {
               <div class="todo-list">
-                @for (action of visibleRows(card, 'todo', card.todo); track action.id) {
-                  <div
-                    class="todo-row"
-                    [class.todo-row-failed]="action.status === 'FAILED'"
-                    [class.row-highlighted]="highlightedSignalPath() === action.signal_path"
-                  >
-                    <div class="todo-row-text">
-                      <span class="todo-row-label">
-                        @if (action.status === 'FAILED') {
-                          <mat-icon fontSet="material-symbols-outlined" class="todo-row-failed-icon">error</mat-icon>
-                        }
-                        {{ action.label }}
-                      </span>
-                      @if (action.item_key) {
-                        <span class="mono">{{ action.item_key }}</span>
-                      }
-                      @if (action.status === 'FAILED') {
-                        <span class="todo-row-note">failed {{ ago(action.completed_at) }}</span>
-                      } @else if (action.policy === 'AUTO') {
-                        <span class="todo-row-note">automatic · waiting for input</span>
-                      }
-                    </div>
-                    <div class="todo-row-buttons">
-                      @if (hasLog(action)) {
-                        <button mat-icon-button aria-label="Logs" title="Logs" (click)="openLog(action)">
-                          <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
-                        </button>
-                      }
-                      <button
-                        mat-flat-button
-                        [color]="action.status === 'FAILED' ? 'warn' : 'primary'"
-                        [disabled]="busyActionId() === action.id"
-                        (click)="startConfirm(action)"
+                @for (group of byItem(visibleRows(card, 'todo', card.todo)); track group.item) {
+                  <div class="item-group" [class.item-group-plain]="group.item === null">
+                    <ng-container [ngTemplateOutlet]="itemHeader" [ngTemplateOutletContext]="{ group }"></ng-container>
+                    @for (action of group.rows; track action.id) {
+                      <div
+                        class="todo-row"
+                        [class.todo-row-failed]="action.status === 'FAILED'"
+                        [class.row-highlighted]="highlightedSignalPath() === action.signal_path"
                       >
-                        <mat-icon fontSet="material-symbols-outlined">{{
-                          action.status === 'FAILED' ? 'replay' : 'check'
-                        }}</mat-icon>
-                        {{ action.status === 'FAILED' ? 'Retry' : 'Confirm' }}
-                      </button>
-                    </div>
-                    @if (promptingActionId() === action.id) {
-                      <ng-container [ngTemplateOutlet]="promptFormTpl" [ngTemplateOutletContext]="{ action }"></ng-container>
+                        <div class="todo-row-text">
+                          <span class="todo-row-label">
+                            @if (action.status === 'FAILED') {
+                              <mat-icon fontSet="material-symbols-outlined" class="todo-row-failed-icon">error</mat-icon>
+                            }
+                            {{ action.label }}
+                            <ng-container [ngTemplateOutlet]="lockTag" [ngTemplateOutletContext]="{ action }"></ng-container>
+                          </span>
+                          @if (action.status === 'FAILED') {
+                            <span class="todo-row-note">failed {{ ago(action.completed_at) }}</span>
+                          } @else if (action.policy === 'AUTO') {
+                            <span class="todo-row-note">automatic · waiting for input</span>
+                          }
+                        </div>
+                        <div class="todo-row-buttons">
+                          @if (hasLog(action)) {
+                            <button mat-icon-button aria-label="Logs" title="Logs" (click)="openLog(action)">
+                              <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+                            </button>
+                          }
+                          <button
+                            mat-flat-button
+                            [color]="action.status === 'FAILED' ? 'warn' : 'primary'"
+                            [disabled]="busyActionId() === action.id || !!lockedReason(action)"
+                            [title]="lockedReason(action) ?? ''"
+                            (click)="startConfirm(action)"
+                          >
+                            <mat-icon fontSet="material-symbols-outlined">{{
+                              lockedReason(action) ? 'lock' : action.status === 'FAILED' ? 'replay' : 'check'
+                            }}</mat-icon>
+                            {{ action.status === 'FAILED' ? 'Retry' : 'Confirm' }}
+                          </button>
+                        </div>
+                        @if (promptingActionId() === action.id) {
+                          <ng-container [ngTemplateOutlet]="promptFormTpl" [ngTemplateOutletContext]="{ action }"></ng-container>
+                        }
+                      </div>
                     }
                   </div>
                 }
@@ -232,54 +302,60 @@
             ></ng-container>
             @if (isSectionOpen(card, 'optional')) {
               <div class="check-list">
-                @for (entry of visibleRows(card, 'optional', card.optional); track entry.key) {
-                  <div class="check-row" [class.row-highlighted]="highlightedSignalPath() === entry.signal_path">
-                    @if (entry.live?.status === 'RUNNING') {
-                      <button mat-stroked-button class="check-run" disabled>
-                        <mat-icon fontSet="material-symbols-outlined" class="spin">progress_activity</mat-icon>
-                        Running
-                      </button>
-                    } @else if (entry.live; as live) {
-                      <button
-                        mat-stroked-button
-                        class="check-run"
-                        [disabled]="busyActionId() === live.id"
-                        (click)="startConfirm(live)"
-                      >
-                        <mat-icon fontSet="material-symbols-outlined">play_arrow</mat-icon>
-                        Run
-                      </button>
-                    } @else {
-                      <button mat-stroked-button class="check-run" disabled title="Queued again on the next reconcile">
-                        <mat-icon fontSet="material-symbols-outlined">schedule</mat-icon>
-                        Soon
-                      </button>
-                    }
-                    <div class="check-text">
-                      <span class="check-label">{{ entry.label }}</span>
-                      @if (entry.item_key) {
-                        <span class="mono">{{ entry.item_key }}</span>
-                      }
-                    </div>
-                    @if (entry.last; as last) {
-                      <button
-                        type="button"
-                        class="check-result"
-                        [class.check-result-failed]="last.status === 'FAILED'"
-                        [disabled]="!hasLog(last)"
-                        [title]="'Last run ' + last.status.toLowerCase() + ' — open its logs'"
-                        (click)="openLog(last)"
-                      >
-                        <mat-icon fontSet="material-symbols-outlined">{{
-                          last.status === 'FAILED' ? 'cancel' : 'check_circle'
-                        }}</mat-icon>
-                        {{ ago(last.completed_at) }}
-                      </button>
-                    } @else {
-                      <span class="check-result check-result-never">never run</span>
-                    }
-                    @if (entry.live && promptingActionId() === entry.live.id) {
-                      <ng-container [ngTemplateOutlet]="promptFormTpl" [ngTemplateOutletContext]="{ action: entry.live }"></ng-container>
+                @for (group of byItem(visibleRows(card, 'optional', card.optional)); track group.item) {
+                  <div class="item-group" [class.item-group-plain]="group.item === null">
+                    <ng-container [ngTemplateOutlet]="itemHeader" [ngTemplateOutletContext]="{ group }"></ng-container>
+                    @for (entry of group.rows; track entry.key) {
+                      <div class="check-row" [class.row-highlighted]="highlightedSignalPath() === entry.signal_path">
+                        @if (entry.live?.status === 'RUNNING') {
+                          <button mat-stroked-button class="check-run" disabled>
+                            <mat-icon fontSet="material-symbols-outlined" class="spin">progress_activity</mat-icon>
+                            Running
+                          </button>
+                        } @else if (entry.live; as live) {
+                          <button
+                            mat-stroked-button
+                            class="check-run"
+                            [disabled]="busyActionId() === live.id || !!lockedReason(live)"
+                            [title]="lockedReason(live) ?? ''"
+                            (click)="startConfirm(live)"
+                          >
+                            <mat-icon fontSet="material-symbols-outlined">{{ lockedReason(live) ? 'lock' : 'play_arrow' }}</mat-icon>
+                            Run
+                          </button>
+                        } @else {
+                          <button mat-stroked-button class="check-run" disabled title="Queued again on the next reconcile">
+                            <mat-icon fontSet="material-symbols-outlined">schedule</mat-icon>
+                            Soon
+                          </button>
+                        }
+                        <span class="check-label">
+                          {{ entry.label }}
+                          @if (entry.live) {
+                            <ng-container [ngTemplateOutlet]="lockTag" [ngTemplateOutletContext]="{ action: entry.live }"></ng-container>
+                          }
+                        </span>
+                        @if (entry.last; as last) {
+                          <button
+                            type="button"
+                            class="check-result"
+                            [class.check-result-failed]="last.status === 'FAILED'"
+                            [disabled]="!hasLog(last)"
+                            [title]="'Last run ' + last.status.toLowerCase() + ' — open its logs'"
+                            (click)="openLog(last)"
+                          >
+                            <mat-icon fontSet="material-symbols-outlined">{{
+                              last.status === 'FAILED' ? 'cancel' : 'check_circle'
+                            }}</mat-icon>
+                            {{ ago(last.completed_at) }}
+                          </button>
+                        } @else {
+                          <span class="check-result check-result-never">never run</span>
+                        }
+                        @if (entry.live && promptingActionId() === entry.live.id) {
+                          <ng-container [ngTemplateOutlet]="promptFormTpl" [ngTemplateOutletContext]="{ action: entry.live }"></ng-container>
+                        }
+                      </div>
                     }
                   </div>
                 }
@@ -299,34 +375,37 @@
             ></ng-container>
             @if (isSectionOpen(card, 'applied')) {
               <div class="compact-list">
-                @for (action of visibleRows(card, 'applied', card.applied); track action.id) {
-                  <div class="compact-row" [class.row-highlighted]="highlightedSignalPath() === action.signal_path">
-                    <span class="compact-row-label">{{ action.label }}</span>
-                    @if (action.item_key) {
-                      <span class="mono">{{ action.item_key }}</span>
-                    }
-                    @if (action.synthetic) {
-                      <span class="tag" title="Adopted via past_history — never run by Lodge">adopted</span>
-                    } @else if (action.policy === 'AUTO') {
-                      <span class="tag">auto</span>
-                    }
-                    <span class="compact-row-time">{{ ago(action.completed_at ?? action.created_at) }}</span>
-                    @if (hasLog(action)) {
-                      <button mat-icon-button aria-label="Logs" title="Logs" (click)="openLog(action)">
-                        <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
-                      </button>
-                    }
-                    @if (canInvalidate(action)) {
-                      <button
-                        mat-icon-button
-                        class="revoke"
-                        aria-label="Revoke"
-                        title="Revoke — treat as never done, so it's required again on the next reconcile"
-                        [disabled]="busyActionId() === action.id"
-                        (click)="invalidate(action)"
-                      >
-                        <mat-icon fontSet="material-symbols-outlined">undo</mat-icon>
-                      </button>
+                @for (group of byItem(visibleRows(card, 'applied', card.applied)); track group.item) {
+                  <div class="item-group" [class.item-group-plain]="group.item === null">
+                    <ng-container [ngTemplateOutlet]="itemHeader" [ngTemplateOutletContext]="{ group }"></ng-container>
+                    @for (action of group.rows; track action.id) {
+                      <div class="compact-row" [class.row-highlighted]="highlightedSignalPath() === action.signal_path">
+                        <span class="compact-row-label">{{ action.label }}</span>
+                        @if (action.synthetic) {
+                          <span class="tag" title="Adopted via past_history — never run by Lodge">adopted</span>
+                        } @else if (action.policy === 'AUTO') {
+                          <span class="tag">auto</span>
+                        }
+                        <ng-container [ngTemplateOutlet]="lockTag" [ngTemplateOutletContext]="{ action }"></ng-container>
+                        <span class="compact-row-time">{{ ago(action.completed_at ?? action.created_at) }}</span>
+                        @if (hasLog(action)) {
+                          <button mat-icon-button aria-label="Logs" title="Logs" (click)="openLog(action)">
+                            <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+                          </button>
+                        }
+                        @if (canInvalidate(action)) {
+                          <button
+                            mat-icon-button
+                            class="revoke"
+                            aria-label="Revoke"
+                            [title]="lockedReason(action) ?? 'Revoke — treat as never done, so it is required again on the next reconcile'"
+                            [disabled]="busyActionId() === action.id || !!lockedReason(action)"
+                            (click)="invalidate(action)"
+                          >
+                            <mat-icon fontSet="material-symbols-outlined">undo</mat-icon>
+                          </button>
+                        }
+                      </div>
                     }
                   </div>
                 }
@@ -372,6 +451,34 @@
         </div>
       }
     </div>
+  </ng-template>
+
+  <ng-template #itemHeader let-group="group">
+    @if (group.item !== null) {
+      <div class="item-header" [title]="group.item">
+        <mat-icon fontSet="material-symbols-outlined">{{ group.parent ? 'subdirectory_arrow_right' : 'deployed_code' }}</mat-icon>
+        @if (group.parent) {
+          <span class="item-header-parent">{{ group.parent }}</span>
+          <span class="item-header-sep">›</span>
+        }
+        <span class="item-header-name">{{ group.name }}</span>
+        @if (group.rows.length > 1) {
+          <span class="item-header-count">{{ group.rows.length }}</span>
+        }
+      </div>
+    }
+  </ng-template>
+
+  <ng-template #lockTag let-action="action">
+    @if (action.requires) {
+      <span
+        class="lock-tag"
+        [class.lock-tag-locked]="!authService.canRun(action.requires)"
+        [title]="'Only members of ' + action.requires + ' can run this'"
+      >
+        <mat-icon fontSet="material-symbols-outlined">lock</mat-icon>{{ action.requires }}
+      </span>
+    }
   </ng-template>
 
   <ng-template #sectionHeader let-card="card" let-section="section" let-icon="icon" let-title="title" let-count="count">

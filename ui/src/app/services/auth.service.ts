@@ -1,14 +1,14 @@
 import { inject, Injectable, signal } from '@angular/core';
 
-import { AuthConfigModel, LoginResponseModel } from '../domain';
+import { AuthConfigModel, GroupModel, LoginResponseModel, MeModel, UserModel } from '../domain';
 import { BackendService } from './backend.service';
 import { TokenStorageService } from './token-storage.service';
 
 /**
  * The only place the two auth planes actually differ (see `POST /api/v1/auth/login` and
  * `GET /api/v1/auth/config` on the server): in the no-auth homelab profile, `login()`
- * succeeds unconditionally with no credentials and mints a token for an implicit
- * local-admin identity — so `ensureSession()` just silently establishes one. In the Oidc
+ * succeeds with no credentials and mints a token for an implicit local admin — so
+ * `ensureSession()` just silently establishes one. In the Oidc
  * profile there is no unconditional mint; `ensureSession()` leaves the caller logged out
  * and `PermissionsService`'s route guard sends them to `/auth/login` instead, which
  * navigates the whole browser to the server's own `/api/v1/auth/oidc/login` (the server
@@ -20,6 +20,8 @@ export class AuthService extends BackendService {
   private readonly tokenStorage = inject(TokenStorageService);
 
   readonly subjectId = signal<string | null>(this.tokenStorage.get()?.subjectId ?? null);
+  /** Who the current session belongs to and their groups; null until loaded. */
+  readonly me = signal<MeModel | null>(null);
 
   private configPromise: Promise<AuthConfigModel> | null = null;
   private renewal: Promise<boolean> | null = null;
@@ -78,6 +80,33 @@ export class AuthService extends BackendService {
     const res = await this.post<LoginResponseModel>('/auth/login');
     const body = res.body!;
     this.setSession(body.token, body.subject_id);
+    // Identity details only decide which buttons are live; a failure here must not
+    // block signing in.
+    await this.loadMe().catch(() => null);
+  }
+
+  async loadMe(): Promise<MeModel | null> {
+    if (!this.userLogged()) {
+      this.me.set(null);
+      return null;
+    }
+    const res = await this.get<MeModel>('/auth/me');
+    this.me.set(res.body!);
+    return res.body!;
+  }
+
+  /** True when the current user may run an action that `requires` this group. */
+  canRun(requires: string | null): boolean {
+    const me = this.me();
+    return !requires || !!me?.is_admin || (me?.groups.includes(requires) ?? false);
+  }
+
+  async getUsers(): Promise<UserModel[]> {
+    return (await this.get<UserModel[]>('/users')).body!;
+  }
+
+  async getGroups(): Promise<GroupModel[]> {
+    return (await this.get<GroupModel[]>('/groups')).body!;
   }
 
   /** Called by the `/auth/callback` route after the server's OIDC redirect hands back a
@@ -86,6 +115,7 @@ export class AuthService extends BackendService {
   setSession(token: string, subjectId: string): void {
     this.tokenStorage.set({ token, subjectId });
     this.subjectId.set(subjectId);
+    this.me.set(null);
   }
 
   ssoLoginUrl(): string {
@@ -96,5 +126,6 @@ export class AuthService extends BackendService {
   logout(): void {
     this.tokenStorage.clear();
     this.subjectId.set(null);
+    this.me.set(null);
   }
 }

@@ -13,7 +13,6 @@ signals:
       - on: add
         actions:
           - key: create_record
-            runbook: homelab/terraform-apply
             label: "Create DNS record (Terraform)"
             policy: MANUAL_REQUIRED
             executor: docker
@@ -32,7 +31,6 @@ signals:
       - on: modify
         actions:
           - key: update_record
-            runbook: homelab/terraform-apply-changes
             label: "Update DNS record (Terraform)"
             policy: MANUAL_REQUIRED
             executor: docker
@@ -51,7 +49,6 @@ signals:
       - on: delete
         actions:
           - key: delete_record
-            runbook: homelab/terraform-destroy
             label: "Delete DNS record (Terraform)"
             policy: MANUAL_REQUIRED
             executor: docker

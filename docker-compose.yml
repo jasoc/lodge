@@ -1,8 +1,12 @@
-# Production-shaped local test: one Lodge container (API + SPA + self-migration) plus
-# Postgres. Native dev (./scripts/run.sh) runs only the `postgres` service from here, with
-# docker-compose.dev.yml layered on top, and runs the server + SPA natively — so both
-# share the same database in ./data/postgres. Fixed project name so the container is the
-# same one no matter what the checkout folder is called.
+# Development Postgres — the only container native dev needs. The server and the SPA run
+# natively (./scripts/run.sh, or ./scripts/dev-db-up.sh + your IDE) and reach it on
+# localhost; the server migrates its own schema on startup. Reads the root .env.
+#
+# The production stack (server image, Postgres, Keycloak) is docker-compose.prod.yml — it
+# shares nothing with this file, not even the data directory.
+#
+# Fixed project name so the container is the same one no matter what the checkout folder
+# is called.
 name: lodge
 
 services:
@@ -12,33 +16,11 @@ services:
     env_file: .env
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
+    ports:
+      # Loopback only — the dev database is never exposed beyond this machine.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
-
-  server:
-    build:
-      context: .
-      dockerfile: server/src/Lodge.Server/Dockerfile
-    depends_on:
-      postgres:
-        condition: service_healthy
-    env_file: .env
-    environment:
-      # The one thing that has to differ from .env's own default: inside the compose
-      # network Postgres is reachable by service name, not localhost.
-      POSTGRES_HOST: postgres
-    volumes:
-      # Bind-mount the SSOT read-only so it stays external to the image.
-      - ./inventory:/repo/inventory:ro
-      - ./schemas:/repo/schemas:ro
-      - ./data/runbooks:/repo/data
-      # The host's docker daemon, for `executor: docker` actions: Lodge pulls/builds
-      # playbook images and runs them as sibling containers. Root-equivalent on the host —
-      # anyone who can merge to the inventory can run arbitrary containers here. To narrow
-      # that, put a socket proxy in front and set DOCKER_HOST on this service instead.
-      - /var/run/docker.sock:/var/run/docker.sock
-    ports:
-      - "${SERVER_PORT}:8080"

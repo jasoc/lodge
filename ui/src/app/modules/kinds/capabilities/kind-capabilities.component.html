@@ -13,7 +13,12 @@
         <mat-icon fontSet="material-symbols-outlined">bolt</mat-icon>
         <div>
           <h2>{{ capability.title }}</h2>
-          <p class="capability-code">{{ capability.code }}</p>
+          <p class="capability-code">
+            {{ capability.code }}
+            @if (capability.is_view) {
+              · view — shown on each instance, never reconciled
+            }
+          </p>
         </div>
       </div>
       @if (capability.description) {
@@ -25,6 +30,9 @@
           <div class="signal-header">
             <mat-icon fontSet="material-symbols-outlined">sensors</mat-icon>
             <code>{{ signal.path }}</code>
+            @if (signal.label) {
+              <span class="rule-detail">"{{ signal.label }}"</span>
+            }
             <mat-chip>{{ signal.kind }}</mat-chip>
           </div>
 
@@ -45,7 +53,12 @@
                     action.policy
                   }}</mat-chip>
                   <span class="action-label">{{ action.label }}</span>
-                  <code class="action-runbook">{{ action.runbook }}</code>
+                  <code class="action-runbook">{{ action.key }} · {{ action.executor }}</code>
+                  @if (action.requires) {
+                    <span class="action-requires" title="Only members of this group may run it">
+                      <mat-icon fontSet="material-symbols-outlined">lock</mat-icon>{{ action.requires }}
+                    </span>
+                  }
                 </div>
               }
             </div>

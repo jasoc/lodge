@@ -2,11 +2,6 @@
 
 :host {
   display: block;
-  padding: 0 1.5rem;
-
-  .page-title {
-    margin: 0.75rem 0 1rem;
-  }
 
   .capability-card {
     position: relative;
@@ -113,6 +108,20 @@
           .action-runbook {
             color: var(--lodge-main-ui-text-color-light);
             font-size: 0.8rem;
+          }
+
+          .action-requires {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            font-size: 0.8rem;
+            color: var(--lodge-main-ui-text-color-light);
+
+            mat-icon {
+              font-size: 16px;
+              width: 16px;
+              height: 16px;
+            }
           }
         }
       }

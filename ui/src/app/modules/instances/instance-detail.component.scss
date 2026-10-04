@@ -1,20 +1,23 @@
 @use 'tokens' as tokens;
+@use '@angular/material' as mat;
 
 :host {
   display: block;
-  padding: 0 1.5rem;
 
   .instance-header {
     display: flex;
+    flex-wrap: wrap;
+    gap: tokens.$lodge-space-3;
     justify-content: space-between;
     align-items: center;
+    margin-bottom: tokens.$lodge-space-4;
 
     h1 {
-      margin: 0.75rem 0 0;
+      margin: 0;
     }
     .instance-subtitle {
       color: var(--lodge-main-ui-text-color-light);
-      margin: 0 0 1rem;
+      margin: 2px 0 0;
     }
 
     .instance-header-actions {
@@ -157,41 +160,48 @@
 
   .capability-toolbar {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: tokens.$lodge-space-2;
     margin-top: tokens.$lodge-space-2;
   }
 
-  .capability-filter {
-    display: flex;
+  .whoami {
+    display: inline-flex;
     align-items: center;
-    gap: tokens.$lodge-space-2;
-    flex: 1;
-    max-width: 420px;
-    padding: 6px 12px;
-    border-radius: 999px;
-    background: var(--lodge-background-shader);
+    gap: tokens.$lodge-space-1;
+    font-size: 0.85rem;
     color: var(--lodge-main-ui-text-color-light);
 
-    input {
-      flex: 1;
-      min-width: 0;
-      border: none;
-      outline: none;
-      background: transparent;
-      font: inherit;
-      color: var(--lodge-main-ui-text-color);
+    mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
     }
+  }
+
+  .capability-filter {
+    flex: 1;
+    max-width: 420px;
+    @include mat.form-field-density(-4);
   }
 
   .empty {
     color: var(--lodge-main-ui-text-color-light);
   }
 
+  // Masonry by CSS columns: each card takes only its own height, so a tall card never
+  // leaves a row of empty space next to shorter ones.
   .capability-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
-    align-items: start;
-    gap: tokens.$lodge-space-4;
+    columns: 420px;
+    column-gap: tokens.$lodge-space-4;
     margin-top: tokens.$lodge-space-3;
+
+    > .capability-panel {
+      break-inside: avoid;
+      margin-bottom: tokens.$lodge-space-4;
+    }
   }
 
   .capability-panel {
@@ -372,14 +382,9 @@
     min-width: 88px;
   }
 
-  .check-text {
-    display: flex;
-    flex-direction: column;
+  .check-label {
     flex: 1;
     min-width: 0;
-  }
-
-  .check-label {
     font-size: 0.9rem;
   }
 
@@ -408,7 +413,7 @@
       font-size: 16px;
       width: 16px;
       height: 16px;
-      color: var(--mat-sys-primary, inherit);
+      color: var(--lodge-main-ui-text-color);
     }
 
     &-failed mat-icon {
@@ -454,6 +459,152 @@
 
     .revoke {
       color: var(--mat-sys-error, inherit);
+    }
+  }
+
+  // One collection item inside a section: a thin labelled divider, then its rows.
+  .item-group {
+    display: flex;
+    flex-direction: column;
+    gap: tokens.$lodge-space-1;
+
+    & + .item-group {
+      margin-top: tokens.$lodge-space-2;
+    }
+  }
+
+  .item-header {
+    display: flex;
+    align-items: center;
+    gap: tokens.$lodge-space-1;
+    padding: 2px 4px 2px 0;
+    border-bottom: 1px dashed var(--lodge-background-shader-stronger);
+    font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
+    font-size: 0.78rem;
+    color: var(--lodge-main-ui-text-color-light);
+    min-width: 0;
+
+    mat-icon {
+      flex: none;
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+    }
+
+    &-parent {
+      opacity: 0.75;
+    }
+
+    &-sep {
+      opacity: 0.5;
+    }
+
+    &-name {
+      font-weight: 600;
+      color: var(--lodge-main-ui-text-color);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &-count {
+      margin-left: auto;
+      font-family: inherit;
+      opacity: 0.7;
+    }
+  }
+
+  .lock-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    margin-left: tokens.$lodge-space-1;
+    font-size: 0.72rem;
+    font-weight: 500;
+    vertical-align: middle;
+    color: var(--lodge-main-ui-text-color-light);
+
+    mat-icon {
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+    }
+
+    &-locked {
+      color: var(--mat-sys-error, #c62828);
+    }
+  }
+
+  .view-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--lodge-main-ui-text-color-light);
+
+    mat-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  .view-description {
+    margin: 0 0 tokens.$lodge-space-2;
+    font-size: 0.85rem;
+    color: var(--lodge-main-ui-text-color-light);
+  }
+
+  .view-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+
+    th {
+      text-align: left;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--lodge-main-ui-text-color-light);
+      padding: 4px tokens.$lodge-space-2;
+      border-bottom: 1px solid var(--lodge-background-shader-stronger);
+    }
+
+    td {
+      padding: 6px tokens.$lodge-space-2;
+      border-bottom: 1px solid var(--lodge-background-shader);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    .num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .view-key {
+      font-weight: 500;
+    }
+  }
+
+  .view-values {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px tokens.$lodge-space-3;
+    margin: tokens.$lodge-space-2 0 0;
+    font-size: 0.9rem;
+
+    dt {
+      color: var(--lodge-main-ui-text-color-light);
+    }
+
+    dd {
+      margin: 0;
     }
   }
 

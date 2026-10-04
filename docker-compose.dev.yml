@@ -1,9 +1,0 @@
-# Native-dev overlay for docker-compose.yml: publishes Postgres on the host so the
-# natively running server (./scripts/dev-server.sh) can reach it on localhost. Loopback
-# only — the dev database is never exposed beyond this machine. Used via
-# COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml (see scripts/lib/db.sh and
-# process-compose.yaml); the production-shaped stack never includes it.
-services:
-  postgres:
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"

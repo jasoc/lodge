@@ -25,6 +25,8 @@ public class LodgeDbContext : DbContext
     public DbSet<SyncCycle> SyncCycles => Set<SyncCycle>();
     public DbSet<Setting> Settings => Set<Setting>();
     public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
+    public DbSet<User> Users => Set<User>();
+    public DbSet<UserGroup> UserGroups => Set<UserGroup>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -80,7 +82,7 @@ public class LodgeDbContext : DbContext
             e.Property(x => x.SignalPath).HasColumnName("signal_path").HasMaxLength(512).IsRequired();
             e.Property(x => x.ItemKey).HasColumnName("item_key").HasMaxLength(512);
             e.Property(x => x.ActionKey).HasColumnName("action_key").HasMaxLength(256).IsRequired();
-            e.Property(x => x.RunbookRef).HasColumnName("runbook_ref").HasMaxLength(256).IsRequired();
+            e.Property(x => x.Requires).HasColumnName("requires").HasMaxLength(256);
             e.Property(x => x.Trigger).HasColumnName("trigger").HasConversion<string>().HasMaxLength(16);
             e.Property(x => x.Label).HasColumnName("label").HasMaxLength(256);
             e.Property(x => x.Policy).HasColumnName("policy").HasConversion<string>().HasMaxLength(32);
@@ -179,6 +181,26 @@ public class LodgeDbContext : DbContext
             e.Property(x => x.LastUsedAt).HasColumnName("last_used_at");
             e.HasIndex(x => x.TokenHash).IsUnique();
             e.HasIndex(x => x.SubjectId);
+        });
+
+        b.Entity<User>(e =>
+        {
+            e.ToTable("users");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("id").HasMaxLength(128);
+            e.Property(x => x.DisplayName).HasColumnName("display_name").HasMaxLength(256);
+            e.Property(x => x.Source).HasColumnName("source").HasMaxLength(16);
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.LastLoginAt).HasColumnName("last_login_at");
+            e.HasMany(x => x.Groups).WithOne().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<UserGroup>(e =>
+        {
+            e.ToTable("user_groups");
+            e.HasKey(x => new { x.UserId, x.GroupName });
+            e.Property(x => x.UserId).HasColumnName("user_id").HasMaxLength(128);
+            e.Property(x => x.GroupName).HasColumnName("group_name").HasMaxLength(256);
         });
     }
 }

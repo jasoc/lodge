@@ -75,6 +75,7 @@ public static class CapabilityCatalogLoader
                 Exclude = s.Exclude,
                 Files = s.Files,
                 FileIndex = s.FileIndex,
+                Label = s.Label,
                 Rules = s.Rules.ToList()
             }).ToList<SignalDefinition>()
         }).ToList();
@@ -108,6 +109,16 @@ public static class CapabilityCatalogLoader
             foreach (var signal in capability.Signals)
             {
                 ValidateSignalInvariants(capability.Code, signal);
+            }
+
+            // A per-item value (`collection.*.field`) is only something to show, never
+            // something to reconcile: it belongs to a view, a capability with no rules.
+            if (!capability.IsView &&
+                capability.Signals.FirstOrDefault(s => s.Kind == SignalKind.Scalar && s.IsNested) is { } perItem)
+            {
+                throw new CatalogFormatException(
+                    $"capability '{capability.Code}', signal '{perItem.Path}': a scalar '*' path is only valid in a view " +
+                    "(a capability whose signals have no rules).");
             }
         }
 
@@ -234,12 +245,14 @@ public static class CapabilityCatalogLoader
         var where = $"{Location(sourceFile, capabilityCode)}, signal '{path}'";
         var segments = path.Split('.');
         var wildcards = segments.Count(s => s == "*");
+        // A scalar '*' path (one value per item: 'proxmox.virtual_machines.*.cores') is a
+        // view column — only meaningful without rules; Merge rejects it outside a view.
         if (wildcards > 0 &&
-            (kind == SignalKind.Scalar || wildcards > 1 || segments[0] == "*" || segments[^1] == "*"))
+            ((kind == SignalKind.Scalar && rules.Count > 0) || wildcards > 1 || segments[0] == "*" || segments[^1] == "*"))
         {
             throw new CatalogFormatException(
                 $"{where}: a '*' segment is only valid once, in the middle of a collection path " +
-                "(e.g. 'proxmox.virtual_machines.*.compose').");
+                "(e.g. 'proxmox.virtual_machines.*.compose'), or in a rule-less view signal ('proxmox.virtual_machines.*.cores').");
         }
         if (segments.Any(s => s.Length == 0))
         {
@@ -262,7 +275,15 @@ public static class CapabilityCatalogLoader
             files = NormalizeRelativePath(dto.Files, "files", where);
         }
 
-        var signal = new SignalDefinition { Path = path, Kind = kind, Exclude = exclude, Files = files, Rules = rules };
+        var signal = new SignalDefinition
+        {
+            Path = path,
+            Kind = kind,
+            Exclude = exclude,
+            Files = files,
+            Label = string.IsNullOrWhiteSpace(dto.Label) ? null : dto.Label.Trim(),
+            Rules = rules
+        };
         ValidateSignalInvariants(capabilityCode, signal, sourceFile);
         return signal;
     }
@@ -290,13 +311,16 @@ public static class CapabilityCatalogLoader
         var actions = new List<ActionTemplate>();
         foreach (var a in dto.Actions ?? new List<ActionDto>())
         {
-            if (string.IsNullOrWhiteSpace(a.Runbook))
-            {
-                throw new CatalogFormatException($"{where}: an action is missing its 'runbook'.");
-            }
             if (string.IsNullOrWhiteSpace(a.Key))
             {
-                throw new CatalogFormatException($"{where}: action '{a.Runbook}' is missing its required 'key'.");
+                throw new CatalogFormatException($"{where}: an action is missing its required 'key'.");
+            }
+            var key = a.Key.Trim();
+            var at = $"{where}, action '{key}'";
+            if (a.Runbook is not null)
+            {
+                throw new CatalogFormatException(
+                    $"{at}: 'runbook' is retired — what runs is the executor block (docker/http), who may run it is 'requires'. Remove it.");
             }
 
             var inputs = ParseInputs(a.Inputs);
@@ -304,29 +328,28 @@ public static class CapabilityCatalogLoader
             if (policy == ActionPolicy.AUTO && inputs.Any(i => i.Kind == RuleInputKind.Prompt))
             {
                 throw new CatalogFormatException(
-                    $"{where}: action '{a.Runbook}' is AUTO but declares prompt inputs — AUTO runs unattended with nobody to answer them.");
+                    $"{at}: AUTO but declares prompt inputs — AUTO runs unattended with nobody to answer them.");
             }
 
-            var executorKind = ParseExecutor(a.Executor, where);
-            DockerExecutorConfig? dockerConfig = null;
-            if (executorKind == ExecutorKind.Docker)
+            var executorKind = ParseExecutor(a.Executor, at);
+            if (executorKind != ExecutorKind.Docker && a.Docker is not null)
             {
-                dockerConfig = ParseDocker(a.Docker, $"{where}, action '{a.Key}'");
+                throw new CatalogFormatException($"{at}: declares a 'docker' block but 'executor' is not 'docker'.");
             }
-            else if (a.Docker is not null)
+            if (executorKind != ExecutorKind.Http && a.Http is not null)
             {
-                throw new CatalogFormatException(
-                    $"{where}: action '{a.Key}' declares a 'docker' block but 'executor' is not 'docker'.");
+                throw new CatalogFormatException($"{at}: declares an 'http' block but 'executor' is not 'http'.");
             }
 
             actions.Add(new ActionTemplate
             {
-                Key = a.Key!.Trim(),
-                Runbook = a.Runbook!,
-                Label = a.Label ?? a.Runbook!,
+                Key = key,
+                Label = a.Label ?? key,
                 Policy = policy,
+                Requires = ActionAccess.Normalize(a.Requires),
                 ExecutorKind = executorKind,
-                Docker = dockerConfig,
+                Docker = executorKind == ExecutorKind.Docker ? ParseDocker(a.Docker, at) : null,
+                Http = executorKind == ExecutorKind.Http ? ParseHttp(a.Http, at) : null,
                 Inputs = inputs,
                 DependsOn = (a.DependsOn ?? new List<string>()).Select(d => d.Trim()).ToList()
             });
@@ -343,7 +366,7 @@ public static class CapabilityCatalogLoader
 
     /// <summary>
     /// An identity's SUCCEEDED history is keyed by (signal, item key, action key); the
-    /// same runbook or action key appearing under two different non-STATE triggers of one
+    /// same action key appearing under two different non-STATE triggers of one
     /// signal would merge those histories and corrupt satisfaction checks, so the catalog
     /// rejects it outright. STATE rules are exempt by design: a scalar signal's "when:
     /// true"/"when: false" branches intentionally reuse the same key for the same
@@ -366,20 +389,11 @@ public static class CapabilityCatalogLoader
             }
         }
 
-        var triggersByRunbook = new Dictionary<string, SignalTrigger>(StringComparer.Ordinal);
         var triggersByKey = new Dictionary<string, SignalTrigger>(StringComparer.Ordinal);
         foreach (var rule in signal.Rules.Where(r => r.Trigger != SignalTrigger.STATE))
         {
             foreach (var action in rule.Actions)
             {
-                if (triggersByRunbook.TryGetValue(action.Runbook, out var existingRunbookTrigger) && existingRunbookTrigger != rule.Trigger)
-                {
-                    throw new CatalogFormatException(
-                        $"{Location(sourceFile, capabilityCode)}, signal '{signal.Path}': runbook '{action.Runbook}' appears under both " +
-                        $"'{existingRunbookTrigger}' and '{rule.Trigger}' triggers — use a distinct runbook per trigger.");
-                }
-                triggersByRunbook[action.Runbook] = rule.Trigger;
-
                 if (triggersByKey.TryGetValue(action.Key, out var existingKeyTrigger) && existingKeyTrigger != rule.Trigger)
                 {
                     throw new CatalogFormatException(
@@ -534,13 +548,100 @@ public static class CapabilityCatalogLoader
     private static ExecutorKind ParseExecutor(string? executor, string where)
         => executor?.Trim().ToLowerInvariant() switch
         {
-            null or "" or "shell" => ExecutorKind.Shell,
-            "webhook" => ExecutorKind.Webhook,
             "docker" => ExecutorKind.Docker,
-            "octopus" or "kubernetes" => throw new CatalogFormatException(
-                $"{where}: executor '{executor}' is reserved for a future release and not yet supported."),
-            _ => throw new CatalogFormatException($"{where}: unknown executor '{executor}' (expected shell, webhook, or docker).")
+            "http" => ExecutorKind.Http,
+            null or "" => throw new CatalogFormatException($"{where}: missing 'executor' (docker or http)."),
+            _ => throw new CatalogFormatException($"{where}: unknown executor '{executor}' (expected docker or http).")
         };
+
+    private static readonly HashSet<string> HttpMethods = new(StringComparer.Ordinal)
+    {
+        "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"
+    };
+
+    /// <summary>
+    /// <c>url</c> is required (absolute http/https once its leading template, if any, is
+    /// substituted — checked again at run time); <c>method</c> defaults to POST. A mapping or
+    /// list <c>body</c> is kept as canonical JSON, a scalar one as a text template.
+    /// Parameter references (<c>{{ name }}</c>) are left untouched here.
+    /// </summary>
+    private static HttpExecutorConfig ParseHttp(HttpDto? dto, string where)
+    {
+        if (dto is null)
+        {
+            throw new CatalogFormatException($"{where}: declares 'executor: http' but has no 'http' block.");
+        }
+
+        var url = dto.Url?.Trim();
+        if (string.IsNullOrEmpty(url))
+        {
+            throw new CatalogFormatException($"{where}: the 'http' block is missing its 'url'.");
+        }
+        if (!url.StartsWith("{{", StringComparison.Ordinal) &&
+            !url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+            !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new CatalogFormatException($"{where}: 'http.url' must be an absolute http(s) URL.");
+        }
+
+        var method = (dto.Method ?? "POST").Trim().ToUpperInvariant();
+        if (!HttpMethods.Contains(method))
+        {
+            throw new CatalogFormatException($"{where}: unsupported 'http.method' '{dto.Method}' (expected one of {string.Join(", ", HttpMethods)}).");
+        }
+
+        string? body = null;
+        var bodyIsJson = false;
+        if (dto.Body is not null)
+        {
+            if (dto.Body is IDictionary<object, object> or IList<object>)
+            {
+                body = YamlFlattener.ToCanonicalJson(dto.Body);
+                bodyIsJson = true;
+            }
+            else
+            {
+                body = Convert.ToString(dto.Body, System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        if (dto.TimeoutSeconds is <= 0 or > 3600)
+        {
+            throw new CatalogFormatException($"{where}: 'http.timeout_seconds' must be between 1 and 3600.");
+        }
+        if (dto.ExpectStatus?.Any(code => code is < 100 or > 599) == true)
+        {
+            throw new CatalogFormatException($"{where}: 'http.expect_status' entries must be HTTP status codes.");
+        }
+
+        return new HttpExecutorConfig(
+            method,
+            url,
+            Sorted(dto.Headers, "http.headers", where),
+            Sorted(dto.Query, "http.query", where),
+            body,
+            bodyIsJson,
+            dto.TimeoutSeconds ?? 60,
+            dto.ExpectStatus is { Count: > 0 } ? dto.ExpectStatus : null);
+    }
+
+    private static SortedDictionary<string, string>? Sorted(Dictionary<string, string?>? raw, string field, string where)
+    {
+        if (raw is null || raw.Count == 0)
+        {
+            return null;
+        }
+        var sorted = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (name, value) in raw)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new CatalogFormatException($"{where}: '{field}' has an empty name.");
+            }
+            sorted[name.Trim()] = value ?? string.Empty;
+        }
+        return sorted;
+    }
 
     private static List<RuleInput> ParseInputs(Dictionary<string, InputDto>? inputs)
     {
@@ -595,6 +696,7 @@ public static class CapabilityCatalogLoader
         public string? Kind { get; set; }
         public List<string>? Exclude { get; set; }
         public string? Files { get; set; }
+        public string? Label { get; set; }
         public List<RuleDto>? Rules { get; set; }
     }
 
@@ -612,8 +714,10 @@ public static class CapabilityCatalogLoader
         public string? Runbook { get; set; }
         public string? Label { get; set; }
         public string? Policy { get; set; }
+        public string? Requires { get; set; }
         public string? Executor { get; set; }
         public DockerDto? Docker { get; set; }
+        public HttpDto? Http { get; set; }
         public Dictionary<string, InputDto>? Inputs { get; set; }
         public List<string>? DependsOn { get; set; }
     }
@@ -626,6 +730,17 @@ public static class CapabilityCatalogLoader
         public List<string>? Command { get; set; }
         public List<string>? Mounts { get; set; }
         public Dictionary<string, string?>? Env { get; set; }
+    }
+
+    private sealed class HttpDto
+    {
+        public string? Method { get; set; }
+        public string? Url { get; set; }
+        public Dictionary<string, string?>? Headers { get; set; }
+        public Dictionary<string, string?>? Query { get; set; }
+        public object? Body { get; set; }
+        public int? TimeoutSeconds { get; set; }
+        public List<int>? ExpectStatus { get; set; }
     }
 
     private sealed class DockerBuildDto

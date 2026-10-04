@@ -36,3 +36,26 @@ $dark-theme: mat.define-theme(
     ),
   )
 );
+
+// Accent variants built on Angular Material's own M3 palettes (no generated file needed).
+@function _lodge-theme($type, $primary, $tertiary) {
+  @return mat.define-theme(
+    (
+      color: (
+        theme-type: $type,
+        primary: $primary,
+        tertiary: $tertiary,
+      ),
+      typography: (
+        brand-family: 'Roboto Flex Variable',
+        plain-family: 'Roboto Flex Variable',
+      ),
+      density: (
+        scale: -1,
+      ),
+    )
+  );
+}
+
+$light-red-theme: _lodge-theme(light, mat.$red-palette, mat.$orange-palette);
+$dark-blue-theme: _lodge-theme(dark, mat.$blue-palette, mat.$cyan-palette);

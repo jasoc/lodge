@@ -1,0 +1,132 @@
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Reconciliation</h1>
+    @if (data(); as d) {
+      <p class="page-subtitle">
+        @if (d.loop_enabled) {
+          Runs every {{ d.interval_seconds }} s
+        } @else {
+          Automatic loop paused — runs only on demand
+        }
+        @if (latest(); as last) {
+          · last {{ ago(last.completed_at!) }}
+        }
+      </p>
+    }
+  </div>
+  <button mat-flat-button color="primary" [disabled]="reconciling()" (click)="reconcileNow()">
+    <mat-icon fontSet="material-symbols-outlined" [class.spin]="reconciling()">sync</mat-icon>
+    {{ reconciling() ? 'Reconciling…' : 'Reconcile now' }}
+  </button>
+</div>
+
+@if (data(); as d) {
+  <section class="errors-panel" [class.errors-panel-ok]="(latest()?.validation_errors?.length ?? 0) === 0">
+    @if (latest(); as last) {
+      @if (!last.success) {
+        <div class="errors-head">
+          <mat-icon fontSet="material-symbols-outlined">dangerous</mat-icon>
+          <h2>The last cycle crashed</h2>
+        </div>
+        <pre class="crash">{{ last.error }}</pre>
+      } @else if (last.validation_errors.length === 0) {
+        <div class="errors-head">
+          <mat-icon fontSet="material-symbols-outlined">verified</mat-icon>
+          <h2>Inventory is valid</h2>
+        </div>
+        <p class="muted">The last cycle found no validation errors.</p>
+      } @else {
+        <div class="errors-head">
+          <mat-icon fontSet="material-symbols-outlined">error</mat-icon>
+          <h2>{{ last.validation_errors.length }} validation error{{ last.validation_errors.length === 1 ? '' : 's' }}</h2>
+        </div>
+        <p class="muted">
+          From the last cycle. What they point at is not reconciled until it's fixed.
+        </p>
+        <ul class="error-list">
+          @for (error of last.validation_errors; track $index) {
+            @let parts = splitSource(error);
+            <li>
+              @if (parts.source) {
+                <span class="error-source">{{ parts.source }}</span>
+              }
+              <span class="error-text">{{ parts.text }}</span>
+            </li>
+          }
+        </ul>
+      }
+    } @else {
+      <p class="muted">No cycle has completed yet.</p>
+    }
+  </section>
+
+  <h2 class="section-title">Recent cycles</h2>
+  <mat-accordion class="cycles" multi>
+    @for (cycle of d.cycles; track cycle.id) {
+      <mat-expansion-panel>
+        <mat-expansion-panel-header>
+          <mat-panel-title>
+            <mat-icon
+              fontSet="material-symbols-outlined"
+              class="cycle-icon"
+              [class.cycle-icon-bad]="!cycle.success || cycle.validation_errors.length"
+              [class.spin]="!cycle.completed_at"
+            >
+              {{
+                !cycle.completed_at
+                  ? 'progress_activity'
+                  : !cycle.success
+                    ? 'dangerous'
+                    : cycle.validation_errors.length
+                      ? 'error'
+                      : 'check_circle'
+              }}
+            </mat-icon>
+            <span class="cycle-time" [title]="cycle.started_at | date: 'medium'">{{ cycle.started_at | date: 'short' }}</span>
+          </mat-panel-title>
+          <mat-panel-description>
+            <span class="cycle-trigger">{{ cycle.triggered_by }}</span>
+            <span>{{ cycle.instances_reconciled }} instance{{ cycle.instances_reconciled === 1 ? '' : 's' }}</span>
+            <span>{{ cycle.drift_count }} drifting</span>
+            @if (cycle.validation_errors.length) {
+              <span class="bad">{{ cycle.validation_errors.length }} error{{ cycle.validation_errors.length === 1 ? '' : 's' }}</span>
+            }
+            <span class="cycle-duration">{{ duration(cycle) }}</span>
+          </mat-panel-description>
+        </mat-expansion-panel-header>
+
+        @if (cycle.error) {
+          <pre class="crash">{{ cycle.error }}</pre>
+        }
+        @if (cycle.validation_errors.length) {
+          <h3>Validation errors</h3>
+          <ul class="error-list">
+            @for (error of cycle.validation_errors; track $index) {
+              @let parts = splitSource(error);
+              <li>
+                @if (parts.source) {
+                  <span class="error-source">{{ parts.source }}</span>
+                }
+                <span class="error-text">{{ parts.text }}</span>
+              </li>
+            }
+          </ul>
+        }
+        <h3>Events</h3>
+        @if (cycle.messages.length) {
+          <ul class="event-list">
+            @for (message of cycle.messages; track $index) {
+              <li>{{ message }}</li>
+            }
+          </ul>
+        } @else {
+          <p class="muted">Nothing changed: every instance was already where it should be.</p>
+        }
+      </mat-expansion-panel>
+    } @empty {
+      <p class="muted">No cycles recorded yet.</p>
+    }
+  </mat-accordion>
+} @else {
+  <p>Loading…</p>
+}

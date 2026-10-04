@@ -1,13 +1,12 @@
 # Native dev stack, driven by ./scripts/run.sh (https://github.com/F1bonacc1/process-compose).
-# Postgres is the `postgres` service of docker-compose.yml (plus docker-compose.dev.yml to
-# publish it on localhost); the server and the Angular dev server run natively. Each
-# process gets its own scrollable log in the TUI.
+# Postgres is docker-compose.yml (the dev database, published on localhost); the server and
+# the Angular dev server run natively. Each process gets its own scrollable log in the TUI.
 version: "0.5"
 
 log_location: .run/process-compose.log
 
 environment:
-  - "COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml"
+  - "COMPOSE_FILE=docker-compose.yml"
 
 processes:
   postgres:

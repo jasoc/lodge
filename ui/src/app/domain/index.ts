@@ -1,4 +1,11 @@
-export type { LoginResponseModel, AuthConfigModel } from './auth.model';
+export type {
+  LoginResponseModel,
+  AuthConfigModel,
+  MeModel,
+  UserModel,
+  GroupModel,
+  GroupRequirementModel,
+} from './auth.model';
 export type {
   KindModel,
   InstanceModel,
@@ -11,6 +18,8 @@ export type {
   GlobalActionModel,
   GlobalAuditEventModel,
   CycleSummaryModel,
+  SyncCycleModel,
+  SyncCyclesModel,
 } from './lodge.model';
 export type {
   DashboardModel,
@@ -28,5 +37,8 @@ export type {
   SignalDefinitionModel,
   CapabilityDefinitionModel,
   CapabilityCatalogModel,
+  CapabilityViewModel,
+  ViewTableModel,
+  ViewValueModel,
 } from './catalog.model';
 export type { M3CardAction } from './m3-card.model';

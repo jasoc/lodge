@@ -1,7 +1,7 @@
 #!/bin/bash
 # Runs the Angular dev server (fast rebuild/HMR loop). Its proxy.conf.json forwards /api
 # to Lodge.Server on :8080 — start ./scripts/dev-server.sh first (or use ./scripts/run.sh
-# to get the whole stack under process-compose).
+# to get the whole stack under process-compose). Requires the Node pinned in ui/.nvmrc.
 # Usage: ./scripts/dev-spa.sh
 set -euo pipefail
 

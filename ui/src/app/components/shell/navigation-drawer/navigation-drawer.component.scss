@@ -1,140 +1,33 @@
 @use 'tokens' as tokens;
 @use '@angular/material' as mat;
 
+// Geometry, shared by the expanded and the collapsed drawer: entries sit in a 12px rail,
+// buttons pad their icon by 12px, so every first-level icon is centered 36px from the
+// drawer's left edge — under the menu button, and in the middle of the 72px collapsed rail.
+$rail: 12px;
+
 #navigation-drawer {
   height: 100vh;
-  width: 100px;
   display: flex;
   flex-direction: column;
-
-  p {
-    transition: cubic-bezier(0.2, 0, 0, 1) 300ms;
-  }
+  box-sizing: border-box;
+  overflow: hidden;
 
   .navigation-drawer__top {
     display: flex;
     align-items: center;
-    flex-direction: row;
-    justify-content: flex-start;
+    flex: none;
     height: 56px;
-    padding: 0 tokens.$lodge-shell-margin;
-    cursor: pointer;
+    // The 40px icon button's center lands on the 36px icon axis.
+    padding: 0 $rail 0 16px;
 
     p {
-      margin: 0 0 0 tokens.$lodge-space-3;
-      font-weight: 500;
+      margin: 0 0 0 tokens.$lodge-space-2;
+      font-weight: 600;
       font-size: 18px;
       color: var(--lodge-main-ui-text-color);
       user-select: none;
-    }
-  }
-
-  .user-widget-collapsed {
-    margin: tokens.$lodge-shell-margin;
-    p,
-    .user-widget-expand {
-      display: none;
-    }
-
-    &:hover {
-      img {
-        box-shadow: 0px 0px 0px 2px var(--lodge-background-shader-stronger);
-      }
-      cursor: pointer;
-    }
-  }
-
-  .user-widget {
-    background: linear-gradient(
-      128deg,
-      var(--lodge-background-shader) 0%,
-      var(--lodge-background-shader) 100%
-    );
-    border-radius: 16px;
-    margin: tokens.$lodge-shell-margin;
-    padding: tokens.$lodge-shell-margin;
-    display: flex;
-    justify-content: flex-start;
-    flex-direction: column;
-    align-items: flex-start;
-    transition: cubic-bezier(0.2, 0, 0, 1) 300ms;
-    user-select: none;
-
-    &:hover {
-      box-shadow: 0px 0px 0px 2px var(--lodge-background-shader) inset;
-      background: linear-gradient(
-        128deg,
-        var(--lodge-background-shader) 0%,
-        var(--lodge-background-shader-lighter) 100%
-      );
-      // background: var(--lodge-background-shader);
-
-      img {
-        box-shadow: 0px 0px 0px 2px var(--lodge-background-shader-stronger);
-      }
-
-      .user-widget-expand {
-        opacity: 1;
-        transform: none;
-      }
-    }
-
-    img {
-      display: block;
-      border-radius: 50%;
-      transition: cubic-bezier(0.2, 0, 0, 1) 300ms;
-    }
-
-    p {
-      font-weight: 500;
-      font-size: 16px;
-      text-wrap: nowrap;
-      color: var(--lodge-main-ui-text-color);
-      margin: auto auto auto tokens.$lodge-shell-margin;
-    }
-
-    .user-widget-expand {
-      color: var(--lodge-background-shader-stronger);
-      opacity: 0;
-      transform: translateX(10px) rotate(135deg);
-      transition: cubic-bezier(0.2, 0, 0, 1) 300ms;
-    }
-
-    .user-widget-content {
-      width: 100%;
-      display: flex;
-      flex-direction: row;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .user-widget-actions {
-      width: 100%;
-      margin-top: tokens.$lodge-shell-margin;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      justify-content: center;
-
-      @include mat.select-density(-3);
-
-      p {
-        font-size: 12px;
-        color: var(--lodge-main-ui-text-color-light);
-        margin: 0 0 tokens.$lodge-shell-margin tokens.$lodge-shell-margin;
-      }
-
-      .user-widget-actions-row {
-        width: 100%;
-        display: flex;
-        flex-direction: row;
-        justify-content: space-between;
-        align-items: center;
-      }
-    }
-
-    .marginated {
-      margin-bottom: calc(tokens.$lodge-shell-margin / 2);
+      white-space: nowrap;
     }
   }
 
@@ -143,98 +36,150 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    gap: 2px;
+    padding: 0 $rail tokens.$lodge-space-2;
     overflow-y: auto;
+    overflow-x: hidden;
 
     &::-webkit-scrollbar {
-      width: 15px;
+      width: 6px;
     }
 
     &::-webkit-scrollbar-thumb {
       background-color: var(--lodge-background-shader);
       border-radius: 20px;
-      box-shadow: inset 0px 0px 0px 5px var(--lodge-background-color);
+    }
+  }
+
+  // A section label ("Lodge"): a hairline with a small caption; just the line when collapsed.
+  .navigation-section {
+    display: flex;
+    align-items: center;
+    gap: tokens.$lodge-space-2;
+    height: 28px;
+    margin: tokens.$lodge-space-2 0 2px;
+    padding: 0 $rail;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--lodge-main-ui-text-color-light);
+    user-select: none;
+
+    &::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--lodge-background-shader-stronger);
     }
 
-    .navigation-entry {
+    &-collapsed {
+      padding: 0 tokens.$lodge-space-2;
+    }
+  }
+
+  .navigation-entry {
+    display: flex;
+    flex-direction: column;
+    border-radius: 14px;
+    transition: background 200ms ease;
+
+    &-expanded {
+      background: var(--lodge-background-shader-lighter);
+      padding-bottom: tokens.$lodge-space-1;
+    }
+  }
+
+  // Sub-entries hang off a guide line drawn under the parent's icon.
+  .navigation-sub {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 2px tokens.$lodge-space-1 0 23px;
+    padding-left: tokens.$lodge-space-2;
+    border-left: 2px solid var(--lodge-background-shader);
+  }
+
+  .user-widget,
+  .user-widget-collapsed {
+    flex: none;
+    margin: tokens.$lodge-space-2 $rail $rail;
+    border-radius: 16px;
+  }
+
+  .user-widget-collapsed {
+    .user-widget-content {
+      justify-content: center;
+    }
+
+    p,
+    .user-widget-expand {
+      display: none;
+    }
+  }
+
+  .user-widget {
+    background: var(--lodge-background-shader);
+    padding: tokens.$lodge-space-1 tokens.$lodge-space-2;
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+    transition: background 300ms cubic-bezier(0.2, 0, 0, 1);
+
+    &:hover .user-widget-expand {
+      opacity: 1;
+      transform: none;
+    }
+
+    p {
+      flex: 1;
+      min-width: 0;
+      margin: 0 0 0 tokens.$lodge-space-1;
+      font-weight: 500;
+      font-size: 15px;
+      color: var(--lodge-main-ui-text-color);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .user-widget-expand {
+      color: var(--lodge-main-ui-text-color-light);
+      opacity: 0;
+      transform: translateX(10px) rotate(135deg);
+      transition: 300ms cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    .user-widget-actions {
       display: flex;
       flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      transition: cubic-bezier(0.2, 0, 0, 1) 150ms;
+      gap: tokens.$lodge-space-2;
+      padding: tokens.$lodge-space-2 tokens.$lodge-space-1 tokens.$lodge-space-1;
 
-      @include mat.chips-density(-5);
-      mat-chip {
-        margin: 0 auto 0 16px;
-      }
+      @include mat.select-density(-3);
 
-      .navigation-separator {
-        width: 85%;
-        height: 2px;
-        background-color: var(--lodge-background-shader-lighter);
-      }
-
-      .navigation-entry-subelements {
-        display: flex;
-        flex-direction: row;
-        justify-content: space-between;
+      mat-form-field {
         width: 100%;
-        margin: 0 tokens.$lodge-space-1 tokens.$lodge-space-1 auto;
-
-        .navigation-entry-subelements-left {
-          width: 10%;
-          margin-left: auto;
-          margin-right: tokens.$lodge-space-1;
-          display: flex;
-          justify-content: flex-end;
-          align-items: center;
-
-          .navigation-entry-subelements-left-spacer {
-            height: calc(100% - 20px);
-            width: 2px;
-            background-color: var(--lodge-background-shader);
-          }
-        }
-        .navigation-entry-subelements-right {
-          display: flex;
-          width: 90%;
-          flex-direction: column;
-          m3-button {
-            margin: 0 tokens.$lodge-space-1 0 auto;
-          }
-        }
-      }
-    }
-
-    .navigation-entry-expanded {
-      background: linear-gradient(
-        128deg,
-        var(--lodge-background-shader) 0%,
-        var(--lodge-background-shader) 100%
-      );
-      border-radius: 14px;
-      width: 95%;
-      margin-top: tokens.$lodge-space-1;
-      margin-bottom: tokens.$lodge-space-1;
-      transition: cubic-bezier(0.2, 0, 0, 1) 300ms;
-
-      m3-button {
-        margin: tokens.$lodge-space-1 tokens.$lodge-space-2;
       }
 
-      &:hover {
-        background: linear-gradient(
-          128deg,
-          var(--lodge-background-shader) 0%,
-          var(--lodge-background-shader-lighter) 100%
-        );
+      p {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 400;
+        color: var(--lodge-main-ui-text-color-light);
+      }
+
+      .user-widget-actions-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
       }
     }
+  }
 
-    m3-button {
-      margin: tokens.$lodge-space-1;
-      width: calc(100% - #{tokens.$lodge-space-3});
-    }
+  .user-widget-content {
+    display: flex;
+    align-items: center;
+    width: 100%;
   }
 }

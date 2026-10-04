@@ -70,7 +70,14 @@ public sealed class ApiTokenService
         record.LastUsedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
 
-        var groups = JsonSerializer.Deserialize<string[]>(record.GroupsJson) ?? Array.Empty<string>();
+        // A person's groups are read live from the user directory, so a membership change
+        // applies to tokens already issued; service tokens keep what they were minted with.
+        IReadOnlyList<string> groups = JsonSerializer.Deserialize<string[]>(record.GroupsJson) ?? Array.Empty<string>();
+        if (record.Kind == ApiTokenKind.Personal &&
+            await new UserDirectory(_db).GroupsOfAsync(record.SubjectId, cancellationToken) is { } current)
+        {
+            groups = current;
+        }
         var scopes = JsonSerializer.Deserialize<string[]>(record.ScopesJson) ?? Array.Empty<string>();
         return new AuthenticatedUser(
             record.SubjectId, record.DisplayName, groups, record.IsAdmin,

@@ -1,4 +1,4 @@
-# Deployment scenario: company, multiple products, SSO, groups, RBAC
+# Deployment scenario: company, multiple products, SSO, groups
 
 The profile this project was originally built for: several SaaS products, each with many
 customer tenants, an SSO-driven support/ops team with tiered access, and automation
@@ -45,8 +45,8 @@ repo, not the box's local disk), and more than one `kind`.
 inventory/
   orbit/                                    # product #1
     capabilities/
-      sso.yaml                              # signal: sso.enabled → configure-sso runbook
-      compute.yaml                          # signal: compute.tier → resize runbook
+      sso.yaml                              # signal: sso.enabled → configure-sso (http)
+      compute.yaml                          # signal: compute.tier → resize (http, requires: orbit-support-l3)
     instances/
       northwind/
         instance.yaml                       # kind_code: orbit, instance: northwind
@@ -54,7 +54,6 @@ inventory/
       contoso/
         instance.yaml
         state.yaml
-    runbook-permissions.yaml                # who may run orbit's runbooks
 
   beacon/                                   # product #2 — its own capability vocabulary
     capabilities/
@@ -63,17 +62,16 @@ inventory/
       fabrikam/
         instance.yaml
         state.yaml
-    runbook-permissions.yaml
 ```
 
-Each product keeps its own `capabilities/*.yaml` (its signal/rule vocabulary) and its
-own `runbook-permissions.yaml` (its RBAC map) — `orbit`'s support tiers and `beacon`'s
-don't have to line up, because `FilePermissionResolver` scopes every grant per kind.
+Each product keeps its own `capabilities/*.yaml` (its signal/rule vocabulary), and each
+action in it says which group may run it with `requires:` — `orbit`'s support tiers and
+`beacon`'s don't have to line up.
 
 ## Auth: `Oidc`
 
 ```bash
-# .env (in prod, these come from your real secret manager, not a committed file)
+# .env.prod (in prod, these come from your real secret manager, not a committed file)
 Auth__Mode=Oidc
 Auth__Oidc__Authority=https://login.microsoftonline.com/<tenant-id>/v2.0
 Auth__Oidc__ClientId=<app registration client id>
@@ -82,6 +80,27 @@ Auth__Oidc__Scopes="openid profile email"
 Auth__Oidc__GroupsClaim=groups
 Auth__Oidc__AdminGroup=lodge-admins
 ```
+
+### Running Keycloak alongside Lodge
+
+`docker-compose.prod.yml` ships Keycloak (plus its own Postgres) next to the server, for
+when you don't already have an IdP. Set `KEYCLOAK_HOSTNAME` and the passwords in
+`.env.prod`, route both hostnames through your TLS reverse proxy, start the stack, then in
+the Keycloak admin console:
+
+1. Create a realm (e.g. `lodge`) — `Auth__Oidc__Authority` is
+   `${KEYCLOAK_HOSTNAME}/realms/lodge`.
+2. Create a confidential OpenID Connect client `lodge` (client authentication on, standard
+   flow only) with valid redirect URI `https://<lodge host>/api/v1/auth/oidc/callback`;
+   its credentials tab gives `Auth__Oidc__ClientSecret`.
+3. Create a client scope `groups` with a *Group Membership* mapper (claim name `groups`,
+   "Full group path" off, added to the ID token) and assign it to the client.
+4. Create the groups your actions `require` plus `lodge-admins` (`Auth__Oidc__AdminGroup`),
+   and put users in them.
+
+The server sends `X-Forwarded-*`-aware callback URLs
+(`ASPNETCORE_FORWARDEDHEADERS_ENABLED` is set in the compose file), so the proxy must
+forward `X-Forwarded-Proto` and `X-Forwarded-Host`.
 
 `Authority` works against any standard OIDC provider — Entra ID, Keycloak, Auth0, Okta —
 because Lodge discovers everything else (`authorization_endpoint`, `token_endpoint`,
@@ -104,28 +123,34 @@ the IdP directly (see `docs/AGENTS.md` invariant 10):
   that token, authentication is identical to the `NoAuth` profile — same bearer-token
   handler, same `AuthenticatedUser` shape.
 
-### Groups → RBAC
+### Groups → `requires`
 
-Whatever claim your IdP puts group membership in (`GroupsClaim`, default `groups`) lands
-on `AuthenticatedUser.Groups`. `FilePermissionResolver` checks those against
-`inventory/{kind}/runbook-permissions.yaml`:
+Whatever claim your IdP puts group membership in (`GroupsClaim`, default `groups`) is
+mirrored into Lodge at every sign-in: the user is upserted and their groups replaced, names
+1:1 (Entra ID groups → Lodge groups). The Users & groups page is a read-only view of them.
+An action that `requires` a group can then only be confirmed, retried or revoked by its
+members — and by `AdminGroup` members, who may run everything:
 
 ```yaml
-# inventory/orbit/runbook-permissions.yaml
-permissions:
-  - runbook: orbit-ops/configure-sso
-    allowed_groups:
-      - orbit-support-l2
-      - orbit-support-l3
-  - runbook: orbit-ops/resize-compute
-    allowed_groups:
-      - orbit-support-l3
+# inventory/orbit/capabilities/compute.yaml (excerpt)
+- key: resize
+  label: "Resize compute"
+  requires: orbit-support-l3
+  executor: http
+  http:
+    method: POST
+    url: "https://ops.internal/orbit/{{ instance }}/resize"
+    headers: { Authorization: "Bearer {{ ops_token }}" }
+    body: { tier: "{{ value }}" }
+  inputs:
+    ops_token: { secret: ORBIT_OPS_TOKEN }
+    instance: { from: instance }
+    value: { from: value }
 ```
 
-Fail-closed: a runbook with no entry here is denied to every non-admin, no matter their
-groups. `AdminGroup` (one group name, e.g. `lodge-admins`) grants full access across
-every product — reserve it for people who should bypass every per-product map, not for
-"senior support."
+No `requires` (or `requires: nobody`) means anyone signed in. The check runs on the server
+against the caller's current groups; the Users & groups page also lists every group some
+action requires, and warns when nobody is in it.
 
 ## Service tokens: CI/CD and scheduled automation
 
@@ -197,16 +222,16 @@ this scale. `ISecretProvider` is a two-method seam
 (`server/src/Lodge.Core/Abstractions/ISecretProvider.cs`); replace it in
 `Lodge.Infrastructure/DependencyInjection.cs` with an implementation backed by whatever
 you already run — Azure Key Vault, AWS Secrets Manager, Vault itself. Nothing above this
-seam (runbook executors, the GitHub inventory source) needs to change.
+seam (the executors, the GitHub inventory source) needs to change.
 
 ## What carries over unchanged from the homelab profile
 
 - Still one container for the server (API + SPA + self-migration); still only Postgres
   gets its own container/managed instance.
 - The CLI and the UI are still peer clients of the same API — a support engineer using
-  `lodge actions confirm` from a terminal hits the exact same RBAC check the UI's confirm
-  button does.
-- `IRunbookExecutor` is still the only thing allowed to touch the outside world — swap
-  `ShellCommandRunbookExecutor` for `WebhookRunbookExecutor` (or both, dispatched by
-  `CompositeRunbookExecutor`) to point runbooks at Octopus Deploy, an internal ops API, or
-  anything else that speaks HTTP, without touching the reconciliation engine at all.
+  `lodge actions confirm` from a terminal hits the exact same `requires` check the UI's
+  confirm button does.
+- `IRunbookExecutor` is still the only thing allowed to touch the outside world —
+  `executor: http` reaches Octopus Deploy, an internal ops API or anything else that speaks
+  HTTP, `executor: docker` runs anything that fits in a container, without touching the
+  reconciliation engine at all.

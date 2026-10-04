@@ -43,16 +43,19 @@
       border-radius: tokens.$lodge-shell-rounding;
       grid-column: 1 / 3;
       grid-row: 2;
-      padding: tokens.$lodge-shell-margin 0 0 tokens.$lodge-shell-margin;
+      padding: 0;
       position: relative;
       overflow: hidden;
-      width: calc(100% - tokens.$lodge-shell-margin * 2);
-      height: calc(100% - tokens.$lodge-shell-margin * 2);
+      width: 100%;
+      height: 100%;
       z-index: 9;
 
+      // The one place page margins live: every page gets the same gutter, none adds its own.
       #router_inner_scrollable {
+        box-sizing: border-box;
         height: 100%;
         width: 100%;
+        padding: tokens.$lodge-space-4 tokens.$lodge-space-5 tokens.$lodge-space-6;
         overflow-y: auto;
         overflow-x: hidden;
         z-index: 1;

@@ -49,9 +49,9 @@ literally what a pending action is doing: waiting on you.
 - Turns every drift into an auditable Action with resolved inputs, a policy, and — for
   `MANUAL_REQUIRED` actions that need more than the inventory already provides — pending
   prompts a human fills in at confirm time.
-- Executes confirmed/AUTO actions through a pluggable runbook executor (a shell command
-  today, or a webhook to something else entirely — Octopus Deploy, an internal ops API,
-  whatever already knows how to actually perform the operation). Lodge governs; it never
+- Executes confirmed/AUTO actions through a pluggable executor (a container on the local
+  docker daemon, or an HTTP call to something else entirely — Octopus Deploy, an internal
+  ops API, whatever already knows how to actually perform the operation). Lodge governs; it never
   performs the operation itself.
 - Records every state transition as an immutable audit event.
 - Gates who can run what by group membership, resolved identically whether the identity
@@ -75,7 +75,7 @@ literally what a pending action is doing: waiting on you.
   that range running on the identical codebase.
 - **The reconciler is pure.** Given a capability catalog and a current state, it's a
   deterministic function to a set of actions — no I/O, no side effects. Everything
-  imperative (the DB, the Git read, the runbook execution) is the shell around that pure
+  imperative (the DB, the Git read, the execution) is the shell around that pure
   core, which is what makes "what would this produce" answerable without actually
   running anything.
 

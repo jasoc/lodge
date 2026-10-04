@@ -13,26 +13,19 @@ var builder = WebApplication.CreateBuilder(args);
 var repoRoot = RepoRootLocator.Resolve(builder.Configuration["GitSnapshot:RepoRoot"]);
 builder.Configuration["GitSnapshot:RepoRoot"] = repoRoot;
 
-// Shell executor scripts/logs are addressed relative to the repo root too, so a runbook
-// alias like "scripts/ops/backup.sh" resolves the same way regardless of the process's own
+// Executor logs are addressed relative to the repo root, whatever the process's own
 // working directory.
-if (string.IsNullOrWhiteSpace(builder.Configuration["ShellExecutor:WorkingDirectory"]))
+foreach (var (key, fallback) in new[]
 {
-    builder.Configuration["ShellExecutor:WorkingDirectory"] = repoRoot;
-}
-if (string.IsNullOrWhiteSpace(builder.Configuration["ShellExecutor:LogDirectory"]) ||
-    !Path.IsPathRooted(builder.Configuration["ShellExecutor:LogDirectory"]))
+    ("DockerExecutor:LogDirectory", "data/docker-runbook-logs"),
+    ("HttpExecutor:LogDirectory", "data/http-run-logs")
+})
 {
-    var relative = builder.Configuration["ShellExecutor:LogDirectory"];
-    relative = string.IsNullOrWhiteSpace(relative) ? "data/runbook-logs" : relative;
-    builder.Configuration["ShellExecutor:LogDirectory"] = Path.Combine(repoRoot, relative);
-}
-if (string.IsNullOrWhiteSpace(builder.Configuration["DockerExecutor:LogDirectory"]) ||
-    !Path.IsPathRooted(builder.Configuration["DockerExecutor:LogDirectory"]))
-{
-    var relative = builder.Configuration["DockerExecutor:LogDirectory"];
-    relative = string.IsNullOrWhiteSpace(relative) ? "data/docker-runbook-logs" : relative;
-    builder.Configuration["DockerExecutor:LogDirectory"] = Path.Combine(repoRoot, relative);
+    var configured = builder.Configuration[key];
+    if (string.IsNullOrWhiteSpace(configured) || !Path.IsPathRooted(configured))
+    {
+        builder.Configuration[key] = Path.Combine(repoRoot, string.IsNullOrWhiteSpace(configured) ? fallback : configured);
+    }
 }
 
 builder.Services.AddLodgeInfrastructure(builder.Configuration);
@@ -68,7 +61,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapAuthEndpoints();
 app.MapTokenEndpoints();
 app.MapMigrationEndpoints();
-app.MapExecutionEndpoints();
+app.MapUserEndpoints();
 app.MapSyncEndpoints();
 app.MapReadEndpoints();
 app.MapActionEndpoints();

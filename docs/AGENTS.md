@@ -12,7 +12,7 @@ this file. For *why* the project exists and is shaped this way — not covered h
 Lodge is a **governance control plane**. Git (or a local working tree) is the single
 source of truth (SSOT) for declarative inventory. Lodge reads it, reconciles desired
 state against confirmed history, and turns each drift into an auditable **action** that
-invokes a runbook (a shell script or a webhook). Lodge governs; the runbook executes.
+runs a container or calls an HTTP API. Lodge governs; the executor executes.
 
 The whole thing runs as **one process, one container**: `Lodge.Server` serves the API,
 serves the built Angular SPA as static files, runs the reconciliation loop, and migrates
@@ -31,7 +31,10 @@ its own Postgres schema on startup. Only Postgres is a separate container.
   "tenant".)
 - **Capability** — a governed module of a Kind, defined by one file
   `inventory/{kind}/capabilities/{capability}.yaml`. It owns the signals it observes and
-  the rules that map their values to actions.
+  the rules that map their values to actions. A capability whose signals have **no rules**
+  is a **view**: it only gives a slice of the inventory a name and a card on each instance
+  (`collection.*.field` signals sharing a collection render as one table, sorted by item
+  key, one column per signal `label`), and is never reconciled.
 - **Signal** — inside a capability: a dotted path (`scalar`, `keyed_collection`, or
   `scalar_list`) plus rules that match its current value and emit actions. A keyed
   collection may be nested with one `*` segment (`proxmox.virtual_machines.*.containers`:
@@ -41,27 +44,39 @@ its own Postgres schema on startup. Only Postgres is a separate container.
   scalar list with `files: <folder>` names files of the inventory (paths or `*`/`**`
   globs): each file is an item whose body is `{file, sha256, content}`, so editing the
   file is a MODIFY and its content travels with the action.
-- **Action** — a concrete runbook invocation produced by a rule. Has a `runbook`, `label`,
-  `policy`, resolved inputs, and any pending prompts.
+- **Action** — a concrete run produced by a rule. Has a `key`, `label`, `policy`, an
+  explicit `executor` with its block, resolved inputs, any pending prompts, and an optional
+  `requires: <group>`.
+- **Requires** — who may confirm, retry or revoke an action: only members of that user
+  group, and admins (the no-auth local admin, or the OIDC `AdminGroup`). Omitted (or
+  `requires: nobody`) means anyone. AUTO runs ignore it (it gates humans, not the
+  reconciler). It is part of a live row's snapshot: changing it re-queues.
 - **Policy** — `AUTO` (runs immediately at reconciliation), `MANUAL_REQUIRED` (waits for a
   human to confirm), or `OPTIONAL` (available but never required). Unspecified defaults to
   `MANUAL_REQUIRED`.
 - **Status** — `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `SUPERSEDED`.
-- **Input** — a runbook parameter: `from` (resolved from the match context: `kind`,
+- **Input** — an action parameter: `from` (resolved from the match context: `kind`,
   `instance`, `path`, `key`, `item`, `item.<field>`, `value`; for collections `collection`,
   every current item as one JSON object; for nested ones `parent_key`, `parent`,
   `parent.<field>`), `const` (fixed), `secret` (resolved by `ISecretProvider` at run time),
   or `prompt` (supplied by a human at confirm time).
-- **Runbook** — an execution detail, not part of an action's identity: a shell command
-  (`ShellCommandRunbookExecutor`), an HTTP webhook (`WebhookRunbookExecutor`) or a container
-  (`DockerRunbookExecutor`), dispatched by `CompositeRunbookExecutor` on the action's
-  explicit `executor:` (default `shell`). An unrecognized shell `runbook` value is executed
-  as a literal command — so a capability can point straight at a script path with zero
-  extra config. A docker action runs either a ready-made `image` or a `build` folder of the
-  inventory (`inventory/{kind}/playbooks/...`), built on the local daemon and cached by
-  content fingerprint; the fingerprint is part of the action's snapshot, so editing a
-  playbook re-queues pending actions for fresh confirmation (see
-  `inventory/homelab/playbooks/terraform-vm/`).
+- **Executor** — what runs an action, declared explicitly (`executor: docker|http`) and
+  dispatched by `CompositeRunbookExecutor`. `docker` runs a ready-made `image` or a `build`
+  folder of the inventory (`inventory/{kind}/playbooks/...`), built on the local daemon and
+  cached by content fingerprint; parameters arrive as `LODGE_PARAM_*` env vars. `http`
+  sends one request described by its `http:` block (`method`, `url`, `headers`, `query`,
+  `body`, `timeout_seconds`, `expect_status`) with `{{ name }}` parameter references
+  substituted at run time; its log shows the request and response with secrets masked.
+  The executor config is part of the action's snapshot, so editing it (or a playbook
+  folder) re-queues pending actions for fresh confirmation.
+- **Users & groups** — `users`/`user_groups` tables, mirrored from the identity provider
+  only: each OIDC login upserts the user and replaces their groups with the token's group
+  claim, names 1:1. Lodge never edits them (the Users & groups page is a read-only view).
+  Without auth there are no users: everyone is the implicit local admin. A personal
+  token's groups are read live from here.
+- **Sync cycle** — one reconciliation pass, recorded in `sync_cycles` with its events and
+  every inventory/catalog validation error; the Reconciliation page shows the latest ones
+  (`GET /api/v1/reconcile/cycles`).
 - **past_history** — a tenant-YAML-equivalent, instance-YAML section declaring facts that
   already happened outside Lodge's governance (à la `terraform import`): the identity is
   adopted as a synthetic SUCCEEDED row instead of firing a real run for it.
@@ -74,10 +89,12 @@ its own Postgres schema on startup. Only Postgres is a separate container.
 2. **Lodge never executes operations itself** — only through `IRunbookExecutor`.
 3. **Every state transition is audited** (`audit_events`).
 4. **snake_case JSON everywhere**; `kind_code` on every kind-scoped row and DTO.
-5. **Seams are drop-in.** `IInventorySource`, `ICurrentUserAccessor`, `IPermissionResolver`,
-   `IRunbookExecutor`, `ISecretProvider` all have a homelab-appropriate default and are
-   swapped via DI only, in `Lodge.Infrastructure/DependencyInjection.cs`.
-6. **RBAC is fail-closed** for non-admins: a runbook with no explicit grant is denied.
+5. **Seams are drop-in.** `IInventorySource`, `ICurrentUserAccessor`, `IRunbookExecutor`,
+   `ISecretProvider` all have a homelab-appropriate default and are swapped via DI only,
+   in `Lodge.Infrastructure/DependencyInjection.cs`.
+6. **`requires` is checked on the action row**, against the caller's current groups (admins
+   pass), for every human confirm/retry/revoke (`ActionExecutionService`) — never in the
+   UI alone.
 7. **An `AUTO` action that carries a prompt is downgraded** to effectively
    `MANUAL_REQUIRED` (it cannot run unattended).
 8. **At most one live row per action identity**, enforced by a partial unique index in
@@ -92,7 +109,7 @@ its own Postgres schema on startup. Only Postgres is a separate container.
     Authorization Code + PKCE round trip the server drives itself (see
     `docs/deployment/company.md`). A service token additionally carries scopes
     (`ScopeEndpointExtensions.RequireScope`, e.g. `reconcile`, `actions`) — meaningless
-    for a personal token, which is instead gated by `IsAdmin` + RBAC like any human.
+    for a personal token, which is instead gated per action by `requires` like any human.
 
 ## File layout
 
@@ -100,7 +117,6 @@ its own Postgres schema on startup. Only Postgres is a separate container.
 inventory/{kind}/instances/{instance}/*.yaml   SSOT desired state (read-only to Lodge)
 inventory/{kind}/instances/{instance}/overrides.yaml  instance-scoped capability overrides
 inventory/{kind}/capabilities/*.yaml           capability definitions (signals → rules → actions)
-inventory/{kind}/runbook-permissions.yaml      runbook → allowed groups
 schemas/common/instance.base.schema.json       shared JSON Schema every kind composes
 schemas/kinds/{kind}.instance.schema.json      per-kind schema
 inventory/{kind}/playbooks/                    container playbooks for `executor: docker` actions
@@ -133,29 +149,34 @@ change is required — `FileCapabilityCatalogProvider` aggregates every capabili
 a kind at reconciliation time, and its cache is invalidated every cycle so edits apply
 live without a restart.
 
-### Add a runbook
-Reference it in a capability's `actions[].runbook`. For a local script: either add an
-alias in `ShellExecutor:Runbooks` config, or just use the script path directly as the
-`runbook` value — the shell executor runs an unrecognized `runbook` string as a literal
-command. For an external webhook: add an alias in `WebhookExecutor:Runbooks` pointing at
-the target URL. For a container: `executor: docker` plus a `docker:` block with `image:`
-or `build: { context: playbooks/<name> }` — no server config at all. Grant access by adding an entry to
-`inventory/{kind}/runbook-permissions.yaml` mapping the `runbook` to `allowed_groups`;
-missing entries are denied for non-admins.
+### Add an action
+Give a rule an action with a `key` and an executor — no server config either way:
+- a container: `executor: docker` plus a `docker:` block with `image:` or
+  `build: { context: playbooks/<name> }`;
+- an API call: `executor: http` plus an `http:` block, e.g.
+  `{ method: POST, url: "https://n8n.lan/webhook/{{ instance }}", headers: { Authorization: "Bearer {{ token }}" }, body: { vm: "{{ item }}" } }`
+  with `token: { secret: N8N_TOKEN }` and `item: { from: item }` among its inputs.
+Restrict it to a group with `requires: <group>`.
+
+### Add a view
+A capability with signals and no rules, e.g. `inventory/homelab/capabilities/vm_overview.yaml`
+(`proxmox.virtual_machines.*.cores` labelled CPU, `.memory_mb` labelled RAM). A scalar `*`
+path is only valid in a view.
 
 ### Plug real providers
 Replace the default implementation in
 `server/src/Lodge.Infrastructure/DependencyInjection.cs`:
 - **SSO** → set `Auth:Mode = Oidc` and fill in `Auth:Oidc:*` (`Authority`, `ClientId`,
-  `ClientSecret`, `GroupsClaim`, `AdminGroup`) — already implemented against any
+  `ClientSecret`, `GroupsClaim`, `AdminGroup`) — users and groups are then mirrored from
+  the IdP at each login — already implemented against any
   standard OIDC provider via its discovery document, no code change needed. See
   `docs/deployment/company.md` for a worked example. `TokenCurrentUserAccessor` and
   `LodgeBearerAuthenticationHandler` don't change between profiles — the token
   *validation* path is already identity-agnostic.
 - **Real vault** → implement `ISecretProvider` (replace `EnvSecretProvider`).
-- **Real runbook backends** → `IRunbookExecutor` already supports shell and webhook;
-  `OctopusRunbookExecutor` is an unimplemented scaffold for anyone who wants to wire
-  Octopus Deploy specifically.
+- **Another execution backend** → add an `ExecutorKind`, its config block in
+  `CapabilityCatalogLoader`, and an executor behind `CompositeRunbookExecutor`; most
+  external systems are already reachable with `executor: http`.
 - **GitHub inventory** → set `Git:Provider = GitHub` (already implemented,
   `GitHubInventorySource`); `Local` (the default) reads the working tree directly.
 
@@ -164,24 +185,27 @@ Replace the default implementation in
 `docs/deployment/homelab.md` and `docs/deployment/company.md` walk through the two
 profiles end to end — topology, `.env`, and what changes (and what deliberately doesn't)
 between a single-operator `NoAuth` box and a multi-product `Oidc` deployment with
-groups-based RBAC and service tokens for CI.
+IdP groups gating actions through `requires` and service tokens for CI.
 
 ## Run and test
 
 ```bash
-./scripts/run.sh            # zero-touch: compose Postgres + native server + SPA under process-compose
+./scripts/run.sh            # compose Postgres + native server + SPA under process-compose
 ./scripts/run.sh --stop     # stop the whole stack (data stays in ./data/postgres)
 ./scripts/dev-db-up.sh      # just the dev Postgres, e.g. to run the server from an IDE
 ./scripts/dev-db-down.sh    # remove the dev Postgres container (--wipe: and its data)
-./scripts/prod-test.sh      # build and run the single production container via docker compose
+./scripts/prod-test.sh      # build the server image, run docker-compose.prod.yml (server + Postgres + Keycloak)
 
 dotnet build server/Lodge.slnx   # expect 0 warnings / 0 errors
 dotnet test  server/Lodge.slnx
 ```
 
-`./scripts/run.sh` also installs nvm/Node, the pinned .NET SDK and process-compose (into
-`~/.local/bin`, via its official installer) if they're missing —
-see `scripts/lib/`. The only file any script creates unprompted is a root `.env`, copied
-from `.env.example` on first run; every variable in it is either what the official
+The scripts never install tools: `scripts/lib/` only checks that docker, process-compose,
+the .NET SDK satisfying `global.json` and the exact Node in `ui/.nvmrc` are available, and
+fails with a pointer to the README's Prerequisites (the only place install steps live)
+otherwise. `docker-compose.yml` is the dev Postgres and nothing else;
+`docker-compose.prod.yml` is the production stack, configured by `.env.prod`. The only
+file any script creates unprompted is a root `.env`, copied from `.env.example` on first
+run; every variable in it is either what the official
 Postgres image itself expects (`POSTGRES_*`) or the literal ASP.NET Core config key
 (`Auth__Mode`, `Git__Provider`, ...) — nothing gets renamed in between.

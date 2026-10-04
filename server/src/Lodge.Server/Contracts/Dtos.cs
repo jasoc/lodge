@@ -22,7 +22,7 @@ public sealed record ActionDto(
     string SignalPath,
     string? ItemKey,
     string ActionKey,
-    string RunbookRef,
+    string? Requires,
     string Trigger,
     string Label,
     string Policy,
@@ -36,8 +36,7 @@ public sealed record ActionDto(
 
 /// <summary>
 /// A slice of the action's latest run log (see <c>GET …/actions/{id}/log?offset=</c>).
-/// <see cref="Available"/> is false when the action never ran or its executor keeps no
-/// local log (webhooks). <see cref="Running"/> and <see cref="Message"/> are the executor's
+/// <see cref="Available"/> is false when the action never ran or its executor kept no log. <see cref="Running"/> and <see cref="Message"/> are the executor's
 /// live view of the run — fresher than the action row, which the loop updates per cycle.
 /// </summary>
 public sealed record ActionLogDto(
@@ -70,7 +69,7 @@ public sealed record GlobalActionDto(
     string SignalPath,
     string? ItemKey,
     string ActionKey,
-    string RunbookRef,
+    string? Requires,
     string Trigger,
     string Label,
     string Policy,
@@ -107,11 +106,13 @@ public sealed record CapabilityDefinitionDto(
     string Code,
     string Title,
     string Description,
+    bool IsView,
     IReadOnlyList<SignalDefinitionDto> Signals);
 
 public sealed record SignalDefinitionDto(
     string Path,
     string Kind,
+    string? Label,
     IReadOnlyList<SignalRuleDto> Rules);
 
 public sealed record SignalRuleDto(
@@ -122,9 +123,10 @@ public sealed record SignalRuleDto(
 
 public sealed record ActionTemplateDto(
     string Key,
-    string Runbook,
     string Label,
     string Policy,
+    string? Requires,
+    string Executor,
     IReadOnlyList<RuleInputDto> Inputs,
     IReadOnlyList<string> DependsOn);
 
@@ -165,3 +167,55 @@ public sealed record ApiTokenSummaryDto(
     DateTimeOffset? ExpiresAt,
     DateTimeOffset? RevokedAt,
     DateTimeOffset? LastUsedAt);
+
+/// <summary>The caller, as Lodge sees them: who they are, their groups, and whether
+/// they're an admin (the no-auth local admin, or a member of the OIDC AdminGroup) — admins
+/// may run every action whatever it `requires`.</summary>
+public sealed record MeDto(
+    string Id,
+    string DisplayName,
+    IReadOnlyList<string> Groups,
+    bool IsAdmin,
+    bool IsServiceToken);
+
+public sealed record UserDto(
+    string Id,
+    string DisplayName,
+    string Source,
+    IReadOnlyList<string> Groups,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? LastLoginAt);
+
+/// <summary>An action template that names a group in `requires`.</summary>
+public sealed record GroupRequirementDto(
+    string KindCode,
+    string CapabilityCode,
+    string ActionKey,
+    string Label);
+
+/// <summary>A group: its members, and which catalog actions require it. A group required
+/// by an action but with no members yet is listed too — only admins can run those actions.</summary>
+public sealed record GroupDto(
+    string Name,
+    IReadOnlyList<string> Members,
+    IReadOnlyList<GroupRequirementDto> RequiredBy);
+
+/// <summary>One reconciliation cycle as recorded in `sync_cycles`, for the Reconciliation page.</summary>
+public sealed record SyncCycleDto(
+    Guid Id,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? CompletedAt,
+    string TriggeredBy,
+    bool Success,
+    int KindsChecked,
+    int InstancesReconciled,
+    int DriftCount,
+    string? Error,
+    IReadOnlyList<string> Messages,
+    IReadOnlyList<string> ValidationErrors);
+
+/// <summary>The latest cycles, newest first, plus the loop's own schedule.</summary>
+public sealed record SyncCyclesDto(
+    bool LoopEnabled,
+    int IntervalSeconds,
+    IReadOnlyList<SyncCycleDto> Cycles);

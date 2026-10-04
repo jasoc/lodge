@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Lodge.Core.Abstractions;
 using Lodge.Core.Catalog;
+using Lodge.Core.Diff;
+using Lodge.Core.Reconciliation;
 using Lodge.Core.Domain.Entities;
 using Lodge.Core.Domain.Enums;
 using Lodge.Infrastructure.Execution;
@@ -40,18 +42,21 @@ public static class ReadEndpoints
                     c.Code,
                     c.Title,
                     c.Description,
+                    c.IsView,
                     c.Signals.Select(s => new SignalDefinitionDto(
                         s.Path,
                         s.Kind.ToString(),
+                        s.Label,
                         s.Rules.Select(r => new SignalRuleDto(
                             r.Trigger.ToString(),
                             r.WhenJson,
                             r.ItemKey,
                             r.Actions.Select(a => new ActionTemplateDto(
                                 a.Key,
-                                a.Runbook,
                                 a.Label,
                                 a.Policy.ToString(),
+                                a.Requires,
+                                a.ExecutorKind.ToString().ToLowerInvariant(),
                                 a.Inputs.Select(i => new RuleInputDto(
                                     i.Name, i.Kind.ToString(), i.Value, i.Required)).ToList(),
                                 a.DependsOn)).ToList())).ToList())).ToList())).ToList());
@@ -120,7 +125,7 @@ public static class ReadEndpoints
                 a.SignalPath,
                 a.ItemKey,
                 a.ActionKey,
-                a.RunbookRef,
+                a.Requires,
                 a.Trigger.ToString(),
                 a.Label,
                 a.Policy.ToString(),
@@ -171,6 +176,31 @@ public static class ReadEndpoints
                 chunk?.NextOffset ?? 0));
         });
 
+        // View capabilities (no rules) rendered against the instance's latest inventory.
+        group.MapGet("/kinds/{kindCode}/instances/{instanceId}/views", async (
+            string kindCode, string instanceId, LodgeDbContext db, ICapabilityCatalogProvider catalogs, CancellationToken ct) =>
+        {
+            var instance = await ResolveInstanceAsync(db, kindCode, instanceId, ct);
+            if (instance is null)
+            {
+                return Results.NotFound();
+            }
+
+            var yaml = await db.RegistryRevisions
+                .Where(r => r.InstanceId == instance.Id)
+                .OrderByDescending(r => r.CreatedAt)
+                .Select(r => r.YamlContent)
+                .FirstOrDefaultAsync(ct);
+            var catalog = await catalogs.GetCatalogAsync(kindCode, instance.InstanceCode, ct);
+            var root = YamlFlattener.Parse(yaml);
+
+            var views = catalog.Catalog.Capabilities
+                .Where(c => c.IsView)
+                .Select(c => ViewEvaluator.Evaluate(c, root))
+                .ToList();
+            return Results.Ok(views);
+        });
+
         group.MapGet("/kinds/{kindCode}/instances/{instanceId}/events", async (
             string kindCode, string instanceId, LodgeDbContext db, CancellationToken ct) =>
         {
@@ -217,7 +247,7 @@ public static class ReadEndpoints
                 r.Action.SignalPath,
                 r.Action.ItemKey,
                 r.Action.ActionKey,
-                r.Action.RunbookRef,
+                r.Action.Requires,
                 r.Action.Trigger.ToString(),
                 r.Action.Label,
                 r.Action.Policy.ToString(),

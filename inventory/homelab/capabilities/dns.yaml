@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../../schemas/capability.schema.json
 # Cloudflare DNS records, one per key under cloudflare.zones.<zone>.records (the zone
 # holds its zone_id). Same generic Terraform runner, module `cloudflare-dns-record`, one
 # state per record. An existing record can be adopted with `import_id: <zone_id>/<record_id>`

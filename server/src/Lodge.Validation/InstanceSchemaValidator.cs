@@ -29,6 +29,19 @@ public static class InstanceSchemaValidator
     }
 
     /// <summary>
+    /// What stops an instance's latest inventory revision from being reconciled: one
+    /// message per schema violation, empty when it may be (valid, or the kind has no schema).
+    /// The server checks every revision with this each cycle — an invalid one is a validation
+    /// error and the instance is not reconciled from it; fixing the file (or the schema) is
+    /// enough, no revision state is kept.
+    /// </summary>
+    public static IReadOnlyList<string> RevisionErrors(string repoRoot, string kindCode, string instanceCode, string mergedYaml)
+        => Validate(repoRoot, kindCode, mergedYaml)
+            .Select(v => $"{kindCode}/{instanceCode}: inventory does not satisfy the kind's schema" +
+                         $"{(v.Location.Length == 0 ? "" : $" at {v.Location}")} — {v.Message}; not reconciled.")
+            .ToList();
+
+    /// <summary>
     /// The violations of <paramref name="mergedYaml"/> against the kind's schema as
     /// (instance location, message) pairs — empty when valid or when the kind has no
     /// schema; a schema or YAML that can't be read is itself reported as a violation.
@@ -36,22 +49,28 @@ public static class InstanceSchemaValidator
     public static IReadOnlyList<SchemaViolation> Validate(string repoRoot, string kindCode, string mergedYaml)
     {
         var schemaPath = FindKindSchema(repoRoot, kindCode);
-        if (schemaPath is null)
-        {
-            return Array.Empty<SchemaViolation>();
-        }
+        return schemaPath is null
+            ? Array.Empty<SchemaViolation>()
+            : ValidateAgainst(schemaPath, Path.Combine(repoRoot, BaseSchemaRelativePath), mergedYaml);
+    }
 
+    /// <summary>
+    /// The violations of <paramref name="yaml"/> against one schema file. <paramref name="baseSchemaPath"/>,
+    /// when it exists, is registered first so the schema can <c>$ref</c> it by <c>$id</c>.
+    /// Also how the generated <c>schemas/capability.schema.json</c> is checked against capability files.
+    /// </summary>
+    public static IReadOnlyList<SchemaViolation> ValidateAgainst(string schemaPath, string? baseSchemaPath, string yaml)
+    {
         var registry = new SchemaRegistry();
         var buildOptions = new BuildOptions { SchemaRegistry = registry };
-        JsonSchema kindSchema;
+        JsonSchema schema;
         try
         {
-            var basePath = Path.Combine(repoRoot, BaseSchemaRelativePath);
-            if (File.Exists(basePath))
+            if (baseSchemaPath is not null && File.Exists(baseSchemaPath))
             {
-                JsonSchema.FromText(File.ReadAllText(basePath), buildOptions);
+                JsonSchema.FromText(File.ReadAllText(baseSchemaPath), buildOptions);
             }
-            kindSchema = JsonSchema.FromText(File.ReadAllText(schemaPath), buildOptions);
+            schema = JsonSchema.FromText(File.ReadAllText(schemaPath), buildOptions);
         }
         catch (Exception ex) when (ex is JsonException or JsonSchemaException or IOException)
         {
@@ -61,15 +80,15 @@ public static class InstanceSchemaValidator
         System.Text.Json.Nodes.JsonNode? instance;
         try
         {
-            instance = YamlToJson.Convert(mergedYaml);
+            instance = YamlToJson.Convert(yaml);
         }
         catch (Exception ex)
         {
-            return new[] { new SchemaViolation("", $"instance YAML could not be parsed: {ex.Message}") };
+            return new[] { new SchemaViolation("", $"YAML could not be parsed: {ex.Message}") };
         }
 
         using var doc = JsonDocument.Parse(instance?.ToJsonString() ?? "null");
-        var result = kindSchema.Evaluate(doc.RootElement, new EvaluationOptions { OutputFormat = OutputFormat.List });
+        var result = schema.Evaluate(doc.RootElement, new EvaluationOptions { OutputFormat = OutputFormat.List });
         if (result.IsValid)
         {
             return Array.Empty<SchemaViolation>();

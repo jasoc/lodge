@@ -202,4 +202,20 @@ public sealed class InventoryValidatorTests : IDisposable
         Assert.Equal("::error file=a%2Cb%3Ac.yaml,title=lodge validate (yaml)::line1%0Aline2 100%25" + Environment.NewLine,
             DiagnosticFormatter.Format(new[] { d }, ReportFormat.Github));
     }
+
+    [Fact]
+    public void An_instance_revision_violating_the_kind_schema_yields_not_reconciled_errors_and_a_fixed_one_none()
+    {
+        ValidInventory();
+        Write("inventory/demo/instance.schema.json",
+            """{ "type": "object", "required": ["vms"], "properties": { "vms": { "type": "object" } } }""");
+
+        var errors = InstanceSchemaValidator.RevisionErrors(_root, "demo", "lab", "other: 1\n");
+        Assert.NotEmpty(errors);
+        Assert.All(errors, e => Assert.StartsWith("demo/lab: inventory does not satisfy the kind's schema", e));
+        Assert.All(errors, e => Assert.EndsWith("not reconciled.", e));
+
+        Assert.Empty(InstanceSchemaValidator.RevisionErrors(_root, "demo", "lab", "vms: {}\n"));
+        Assert.Empty(InstanceSchemaValidator.RevisionErrors(_root, "nokind", "lab", "anything: 1\n"));   // no schema, no check
+    }
 }

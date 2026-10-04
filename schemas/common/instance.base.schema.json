@@ -2,30 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://lodge.dev/schemas/common/instance.base.schema.json",
   "title": "Lodge Instance Base",
-  "description": "Fields any kind's instance files may provide. None is required: the instance code comes from its folder name, and display_name/generation/region fall back to defaults when absent. When present, they must have these shapes.",
+  "description": "Fields every kind's instance files may provide. None is required: the instance code comes from its folder name, and display_name falls back to it. Everything else in an instance is the kind's own vocabulary, described by the kind's schema (inventory/<kind>/instance.schema.json).",
   "type": "object",
   "properties": {
-    "kind_code": {
-      "type": "string",
-      "minLength": 1,
-      "pattern": "^[a-z][a-z0-9_-]*$"
-    },
-    "instance": {
-      "type": "string",
-      "minLength": 1,
-      "pattern": "^[a-z][a-z0-9_-]*$"
-    },
     "display_name": {
       "type": "string",
-      "minLength": 1
-    },
-    "generation": {
-      "type": "integer",
-      "minimum": 1
-    },
-    "region": {
-      "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Name shown for the instance; defaults to its folder name."
     }
   }
 }

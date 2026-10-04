@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../../schemas/capability.schema.json
 # One Proxmox VM per key under proxmox.virtual_machines. Lifecycle:
 #   add    → apply_vm (Terraform creates it, MANUAL) → configure_vm (Ansible profile, AUTO)
 #   modify → apply_vm_changes (Terraform updates it in place, MANUAL)

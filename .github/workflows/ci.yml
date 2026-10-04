@@ -29,6 +29,16 @@ jobs:
         # into an annotation on the offending file.
         run: dotnet run --project cli/src/Lodge.Cli -- validate inventory --format github
 
+      - name: Generated schemas are up to date
+        # schemas/*.schema.json are generated from the catalog loader's document classes.
+        run: |
+          ./scripts/gen-schema.sh
+          git add --intent-to-add schemas
+          if ! git diff --exit-code schemas/; then
+            echo "::error::schemas/ is out of date with the loader's document classes (server/src/Lodge.Core/Catalog/Documents). Run ./scripts/gen-schema.sh and commit the result."
+            exit 1
+          fi
+
   ui:
     runs-on: ubuntu-latest
     defaults:

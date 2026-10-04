@@ -147,14 +147,18 @@ its own Postgres schema on startup. Only Postgres is a separate container.
 inventory/{kind}/instances/{instance}/*.yaml   SSOT desired state (read-only to Lodge)
 inventory/{kind}/instances/{instance}/overrides.yaml  instance-scoped capability overrides
 inventory/{kind}/capabilities/*.yaml           capability definitions (signals → rules → actions)
-schemas/common/instance.base.schema.json       shared JSON Schema every kind composes
-schemas/kinds/{kind}.instance.schema.json      per-kind schema
+schemas/capability.schema.json                 generated (scripts/gen-schema.sh) — editor support for capability files
+schemas/kind.schema.json                       generated — editor support for kind.yaml
+schemas/common/instance.base.schema.json       shared JSON Schema (display_name) a kind's schema may $ref
+inventory/{kind}/instance.schema.json          optional: the kind's instance schema — the server checks every revision against it
 inventory/{kind}/kind.yaml                     optional: display name, defaults for every action
 inventory/{kind}/playbooks/                    container playbooks for `executor: container` actions
 server/src/Lodge.Core/          domain entities, the pure reconciler, capability catalog + its loading from an inventory tree
                                 (`InventoryCatalogLoader`, `PlaybookContextResolver`: defaults, overrides, fingerprints, file index), seam interfaces
 server/src/Lodge.Infrastructure/ EF Core, git inventory sources, reconciliation loop, execution, auth, secrets
 server/src/Lodge.Server/        single ASP.NET Core host — minimal-API endpoints + serves the built SPA (wwwroot)
+server/tools/gen-schema/        generates schemas/capability.schema.json + kind.schema.json from the loader's
+                                document classes (Lodge.Core/Catalog/Documents); CI fails if they drift
 server/src/Lodge.Validation/    offline inventory validation (`InventoryValidator`) + JSON Schema check — used by `lodge validate`
 server/tests/Lodge.Tests/       xUnit tests
 cli/src/Lodge.Cli/              thin HTTP client (`lodge` binary) — a peer of the UI, not a wrapper around it.
@@ -174,6 +178,21 @@ Note: the `Action` entity collides with `System.Action`; files outside its names
 `using ActionEntity = Lodge.Core.Domain.Entities.Action;`.
 
 ## Extension points
+
+### Schemas
+
+`schemas/capability.schema.json` and `schemas/kind.schema.json` are **generated** from the
+document classes the loader deserializes (`Lodge.Core/Catalog/Documents`): descriptions from
+`[Description]`, enums from `[AllowedValues]`, patterns/bounds from `[RegularExpression]` /
+`[Range]`. Change the YAML shape there, run `./scripts/gen-schema.sh`, commit the result — CI
+regenerates them and fails on a diff. They are for editor support (the example's files start
+with a `# yaml-language-server: $schema=...` line); the loader keeps the semantic rules.
+
+A kind may also ship `inventory/{kind}/instance.schema.json`, a JSON Schema for its merged
+instance YAML (it may `$ref` `schemas/common/instance.base.schema.json` by `$id`). The server
+checks every cycle: an instance whose latest revision doesn't satisfy it gets validation
+errors and is **not reconciled** (its rows stay as they are) until the inventory or the schema
+is fixed; `lodge validate` runs the same check.
 
 ### Add a governed capability
 Create `inventory/{kind}/capabilities/{capability}.yaml` with `capability`, `title`,

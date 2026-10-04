@@ -10,6 +10,7 @@ using Lodge.Core.Reconciliation;
 using Lodge.Infrastructure.Execution;
 using Lodge.Infrastructure.Git;
 using Lodge.Infrastructure.Persistence;
+using Lodge.Validation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -47,6 +48,7 @@ public sealed class ReconciliationRunner
     private readonly ICapabilityCatalogProvider _catalogs;
     private readonly ActionExecutionService _execution;
     private readonly GitOptions _gitOptions;
+    private readonly string _repoRoot;
     private readonly ILogger<ReconciliationRunner> _logger;
 
     public ReconciliationRunner(
@@ -55,8 +57,12 @@ public sealed class ReconciliationRunner
         ICapabilityCatalogProvider catalogs,
         ActionExecutionService execution,
         IOptions<GitOptions> gitOptions,
+        IOptions<GitSnapshotOptions> snapshotOptions,
         ILogger<ReconciliationRunner> logger)
     {
+        _repoRoot = string.IsNullOrWhiteSpace(snapshotOptions.Value.RepoRoot)
+            ? Directory.GetCurrentDirectory()
+            : snapshotOptions.Value.RepoRoot;
         _db = db;
         _inventory = inventory;
         _catalogs = catalogs;
@@ -142,7 +148,7 @@ public sealed class ReconciliationRunner
         var (input, latestYaml, errors) = await BuildInputAsync(kindCode, instance, cancellationToken);
         if (input is null)
         {
-            return new InstanceReconcileView(instance, null, Array.Empty<CapabilityStatusView>(), errors);
+            return new InstanceReconcileView(instance, latestYaml, Array.Empty<CapabilityStatusView>(), errors);
         }
 
         var result = Reconciler.Reconcile(input);
@@ -484,6 +490,16 @@ public sealed class ReconciliationRunner
         if (latestYaml is null)
         {
             return (null, null, errors);
+        }
+
+        // A kind may ship a JSON Schema for its instances (inventory/{kind}/instance.schema.json).
+        // A revision that doesn't satisfy it is a validation error and is not reconciled — the
+        // instance's rows stay as they are until the inventory (or the schema) is fixed.
+        var schemaErrors = InstanceSchemaValidator.RevisionErrors(_repoRoot, kindCode, instance.InstanceCode, latestYaml);
+        if (schemaErrors.Count > 0)
+        {
+            errors.AddRange(schemaErrors);
+            return (null, latestYaml, errors);
         }
 
         var catalogResult = await _catalogs.GetCatalogAsync(kindCode, instance.InstanceCode, cancellationToken);

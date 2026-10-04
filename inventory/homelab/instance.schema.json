@@ -107,11 +107,7 @@
         },
         "ansible_profile": {
           "type": "string",
-          "description": "A playbook of inventory/homelab/playbooks/ansible/playbooks/, without .yml.",
-          "enum": [
-            "docker-node",
-            "backrest-node"
-          ]
+          "description": "A playbook of inventory/homelab/playbooks/ansible/playbooks/, without .yml. The folder is the list of valid names — a schema copy of it would only drift."
         },
         "backed_up": {
           "type": "boolean",

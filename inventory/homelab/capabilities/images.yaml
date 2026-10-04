@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../../schemas/capability.schema.json
 # Cloud images downloaded onto Proxmox datastores, one per key under proxmox.images — what
 # a VM's `image` (a volume id, <datastore>:import/<file>) points at. Same generic Terraform
 # runner as the VMs, module `proxmox-image`, one state per image.

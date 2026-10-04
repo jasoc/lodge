@@ -1,0 +1,443 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lodge.dev/schemas/capability.schema.json",
+  "title": "Lodge capability",
+  "type": "object",
+  "properties": {
+    "capability": {
+      "type": "string",
+      "description": "The capability's code, unique in its kind."
+    },
+    "title": {
+      "type": "string",
+      "description": "Name shown on the capability card; defaults to the code."
+    },
+    "description": {
+      "type": "string",
+      "description": "What the capability governs."
+    },
+    "signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Dotted path into the instance YAML, e.g. `features.sso_login`. A keyed collection may contain one `*` segment to address a collection nested inside every item of a parent (`proxmox.virtual_machines.*.compose`); a scalar `*` path (`proxmox.virtual_machines.*.cores`) is only valid in a view."
+          },
+          "kind": {
+            "type": "string",
+            "description": "scalar (default): one value, matched with `when`. keyed_collection: a map of stable keys to item bodies. scalar_list: a list of scalars, each its own identity.",
+            "enum": [
+              "scalar",
+              "keyed_collection",
+              "scalar_list"
+            ]
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "keyed_collection only: item fields left out of every item body (what MODIFY compares and `from: item` carries) — used to carve a nested collection out of its parent."
+          },
+          "files": {
+            "type": "string",
+            "description": "scalar_list only: a folder of the kind's inventory (relative to `inventory/<kind>/`) whose files the list entries name — paths or `*`/`**` globs. Each file is an item `{file, sha256, content}`; editing it is a MODIFY."
+          },
+          "label": {
+            "type": "string",
+            "description": "Column header where a view shows the signal; defaults to the path's last segment."
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "when": true,
+                "on": {
+                  "type": "string",
+                  "description": "Collection signals: add (item present, presence not yet confirmed), modify (confirmed item's body changed), delete (item gone while still confirmed present).",
+                  "enum": [
+                    "add",
+                    "delete",
+                    "modify"
+                  ]
+                },
+                "item_key": {
+                  "type": "string",
+                  "description": "Restricts an add/delete/modify rule to one item key (used by an instance's overrides.yaml)."
+                },
+                "actions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "description": "Explicit, signal-unique identity of the action."
+                      },
+                      "label": {
+                        "type": "string",
+                        "description": "Label shown on the capability card; defaults to the key."
+                      },
+                      "policy": {
+                        "type": "string",
+                        "description": "AUTO runs immediately at reconciliation (never with prompt inputs); MANUAL_REQUIRED (default) waits for a human; OPTIONAL is available but never required.",
+                        "enum": [
+                          "AUTO",
+                          "MANUAL_REQUIRED",
+                          "OPTIONAL"
+                        ]
+                      },
+                      "requires": {
+                        "type": "string",
+                        "description": "The user group whose members (and admins) may confirm, retry or revoke the action. Omit, or `nobody`, for anyone. AUTO runs ignore it."
+                      },
+                      "executor": {
+                        "type": "string",
+                        "description": "What runs the action; selects which block below applies.",
+                        "enum": [
+                          "container",
+                          "http"
+                        ]
+                      },
+                      "container": {
+                        "type": "object",
+                        "properties": {
+                          "image": {
+                            "type": "string",
+                            "description": "A ready-made image, pulled as-is. Pin it by digest (`name:tag@sha256:...`)."
+                          },
+                          "build": {
+                            "type": "object",
+                            "properties": {
+                              "context": {
+                                "type": "string",
+                                "description": "The build context folder, relative to `inventory/<kind>/` (no `..`)."
+                              },
+                              "dockerfile": {
+                                "type": "string",
+                                "description": "Dockerfile path relative to the context; defaults to `Dockerfile`."
+                              },
+                              "target": {
+                                "type": "string",
+                                "description": "Build target stage."
+                              },
+                              "args": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "description": "Static build arguments. Runtime parameters never reach the build."
+                              },
+                              "additional_contexts": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "string"
+                                },
+                                "description": "Extra named build contexts (`COPY --from=<name>`), name → folder relative to `inventory/<kind>/`. They count toward the playbook's fingerprint."
+                              }
+                            },
+                            "required": [
+                              "context"
+                            ],
+                            "additionalProperties": false,
+                            "description": "A folder of the inventory with a Dockerfile, built once and cached by content fingerprint."
+                          },
+                          "entrypoint": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "Overrides the image's ENTRYPOINT."
+                          },
+                          "command": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "Overrides the image's CMD (or follows `entrypoint`). Parameter values are never templated in: they arrive as `LODGE_PARAM_*` environment variables."
+                          },
+                          "env": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "description": "Static environment variables. Names may not start with `LODGE_` (reserved for inputs)."
+                          },
+                          "resources": {
+                            "type": "object",
+                            "properties": {
+                              "memory": {
+                                "type": "string",
+                                "description": "Memory limit in docker's size syntax (`512m`, `2g`); swap is capped to the same amount.",
+                                "pattern": "^[1-9][0-9]*[bBkKmMgG]?$"
+                              },
+                              "cpus": {
+                                "type": "number",
+                                "description": "Number of CPUs, e.g. 0.5.",
+                                "minimum": 0.001,
+                                "maximum": 1024
+                              },
+                              "pids": {
+                                "type": "integer",
+                                "description": "The most processes the container may create.",
+                                "minimum": 1
+                              }
+                            },
+                            "additionalProperties": false,
+                            "description": "Caps on what the container may use."
+                          },
+                          "timeout_seconds": {
+                            "type": "integer",
+                            "description": "Seconds before a still-running container is killed and the run fails. Omitted: the server default (3600).",
+                            "minimum": 1,
+                            "maximum": 86400
+                          },
+                          "security": {
+                            "type": "object",
+                            "properties": {
+                              "cap_add": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "description": "Linux capabilities to add back (every capability is dropped by default), e.g. `NET_ADMIN`."
+                              },
+                              "no_new_privileges": {
+                                "type": "boolean",
+                                "description": "false omits `--security-opt no-new-privileges`. Default true."
+                              },
+                              "read_only_rootfs": {
+                                "type": "boolean",
+                                "description": "false omits `--read-only` (and the default tmpfs mounts). Default true."
+                              },
+                              "user": {
+                                "type": "string",
+                                "description": "`auto` (default): the image's own non-root user, else 65534:65534. `image`: whatever the image says, root included. Or an explicit user/uid with an optional :group/gid.",
+                                "pattern": "^(auto|image|[a-z_][a-z0-9_-]*|[0-9]+)(:([a-z_][a-z0-9_-]*|[0-9]+))?$"
+                              },
+                              "tmpfs": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "description": "Extra writable tmpfs mounts (absolute paths), besides /tmp and /work."
+                              }
+                            },
+                            "additionalProperties": false,
+                            "description": "Explicit relaxations of the restrictive run defaults (all capabilities dropped, no-new-privileges, read-only root filesystem with tmpfs /tmp and /work, non-root user)."
+                          },
+                          "network": {
+                            "type": "string",
+                            "description": "A network profile defined by the server (`DockerExecutor__NetworkProfiles__<name>`), not a docker network name. Built in: `default` and `none`.",
+                            "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "description": "`executor: container`: the container to run.",
+                        "oneOf": [
+                          {
+                            "required": [
+                              "image"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "build"
+                            ]
+                          }
+                        ]
+                      },
+                      "http": {
+                        "type": "object",
+                        "properties": {
+                          "method": {
+                            "type": "string",
+                            "description": "HTTP method; defaults to POST.",
+                            "enum": [
+                              "GET",
+                              "POST",
+                              "PUT",
+                              "PATCH",
+                              "DELETE",
+                              "HEAD"
+                            ]
+                          },
+                          "url": {
+                            "type": "string",
+                            "description": "Absolute http(s) URL, or a `{{ name }}` reference that resolves to one."
+                          },
+                          "headers": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "description": "Request headers."
+                          },
+                          "query": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "description": "Query parameters (URL-encoded when substituted)."
+                          },
+                          "body": true,
+                          "timeout_seconds": {
+                            "type": "integer",
+                            "description": "Request timeout in seconds; defaults to 60.",
+                            "minimum": 1,
+                            "maximum": 3600
+                          },
+                          "expect_status": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer"
+                            },
+                            "description": "Status codes that count as success; any 2xx when omitted."
+                          }
+                        },
+                        "required": [
+                          "url"
+                        ],
+                        "additionalProperties": false,
+                        "description": "`executor: http`: the request to send."
+                      },
+                      "inputs": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "properties": {
+                            "from": {
+                              "type": "string",
+                              "description": "Bound from the match context: `kind`, `instance`, `path`, `key`, `item`, `item.<field>`, `value`; for collections also `collection`; for nested ones `parent_key`, `parent`, `parent.<field>`."
+                            },
+                            "const": {
+                              "description": "A fixed literal value.",
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "prompt": {
+                              "type": "string",
+                              "description": "Asked from a human at confirm time; this is the prompt text. Not allowed on AUTO actions."
+                            },
+                            "secret": {
+                              "type": "string",
+                              "description": "A secret reference, resolved by the server's secret provider only when the action runs — never stored, never logged."
+                            },
+                            "required": {
+                              "type": "boolean",
+                              "description": "Prompt inputs only: whether an answer is mandatory."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "description": "One input: exactly one of `from`, `const`, `prompt` or `secret`. `~` (null) drops a kind default of that name."
+                        },
+                        "description": "The action's parameters, by name: resolved from the match (`from`), fixed (`const`), a secret (`secret`) or asked from a human at confirm time (`prompt`). A kind's default inputs are added unless named here (`name: ~` drops one)."
+                      },
+                      "depends_on": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "Other actions that must have succeeded first, as `signal_path.action_key`. Until then the action is emitted BLOCKED."
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "executor"
+                    ],
+                    "additionalProperties": false,
+                    "description": "One action: what runs (`executor` + its block), under which policy, who may confirm it, and its inputs.",
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "executor": {
+                              "const": "container"
+                            }
+                          },
+                          "required": [
+                            "executor"
+                          ]
+                        },
+                        "then": {
+                          "required": [
+                            "container"
+                          ]
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "executor": {
+                              "const": "http"
+                            }
+                          },
+                          "required": [
+                            "executor"
+                          ]
+                        },
+                        "then": {
+                          "required": [
+                            "http"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "description": "The actions the rule requires. Each key is unique within the signal."
+                }
+              },
+              "required": [
+                "actions"
+              ],
+              "additionalProperties": false,
+              "description": "One rule: `when` (scalar signals) or `on` (collection signals) selects the actions required right now."
+            },
+            "description": "What to do for each state or change of the signal. No rules at all makes the signal part of a view."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false,
+        "description": "A dotted path of the instance YAML, plus the rules that map its value (or its items) to actions."
+      },
+      "description": "What the capability observes in instance inventory, and the rules that turn it into actions."
+    }
+  },
+  "required": [
+    "capability"
+  ],
+  "additionalProperties": false,
+  "description": "One capability file: a governed module of a kind, `inventory/<kind>/capabilities/<capability>.yaml` (or an instance's `overrides.yaml`). Signals with rules govern; signals without any make a view."
+}

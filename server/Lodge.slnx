@@ -8,4 +8,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Lodge.Tests/Lodge.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/gen-schema/Lodge.Tools.GenSchema.csproj" />
+  </Folder>
 </Solution>

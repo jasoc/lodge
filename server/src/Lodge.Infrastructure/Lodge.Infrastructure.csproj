@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Lodge.Core\Lodge.Core.csproj" />
+    <ProjectReference Include="..\Lodge.Validation\Lodge.Validation.csproj" />
   </ItemGroup>
 
   <ItemGroup>

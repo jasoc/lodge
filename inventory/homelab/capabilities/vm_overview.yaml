@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../../schemas/capability.schema.json
 # A view: signals and no rules. Nothing here is reconciled — it gives this slice of the
 # inventory a name and a card: every VM, sorted by name, with its size next to it.
 # `collection.*.field` signals sharing a collection become one table, one column each.

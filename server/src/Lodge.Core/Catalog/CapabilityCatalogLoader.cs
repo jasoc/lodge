@@ -1,3 +1,4 @@
+using Lodge.Core.Catalog.Documents;
 using Lodge.Core.Diff;
 using Lodge.Core.Domain.Enums;
 using YamlDotNet.Serialization;
@@ -24,10 +25,10 @@ public static class CapabilityCatalogLoader
     /// </summary>
     public static CapabilityDefinition LoadCapability(string yaml, string? sourceFile = null, KindDefaults? defaults = null)
     {
-        CapabilityDto dto;
+        CapabilityDocument dto;
         try
         {
-            dto = Deserializer.Deserialize<CapabilityDto>(yaml) ?? new CapabilityDto();
+            dto = Deserializer.Deserialize<CapabilityDocument>(yaml) ?? new CapabilityDocument();
         }
         catch (Exception ex)
         {
@@ -41,7 +42,7 @@ public static class CapabilityCatalogLoader
         }
 
         var signals = new List<SignalDefinition>();
-        foreach (var s in dto.Signals ?? new List<SignalDto>())
+        foreach (var s in dto.Signals ?? new List<SignalDocument>())
         {
             signals.Add(LoadSignal(code, s, sourceFile, defaults));
         }
@@ -63,10 +64,10 @@ public static class CapabilityCatalogLoader
     /// </summary>
     public static KindDefaults LoadKindDefaults(string yaml, string sourceFile = "kind.yaml")
     {
-        KindManifestDto dto;
+        KindDocument dto;
         try
         {
-            dto = Deserializer.Deserialize<KindManifestDto>(yaml) ?? new KindManifestDto();
+            dto = Deserializer.Deserialize<KindDocument>(yaml) ?? new KindDocument();
         }
         catch (Exception ex)
         {
@@ -250,7 +251,7 @@ public static class CapabilityCatalogLoader
         visited.Add(node);
     }
 
-    private static SignalDefinition LoadSignal(string capabilityCode, SignalDto dto, string? sourceFile, KindDefaults? defaults)
+    private static SignalDefinition LoadSignal(string capabilityCode, SignalDocument dto, string? sourceFile, KindDefaults? defaults)
     {
         var path = dto.Path?.Trim();
         if (string.IsNullOrEmpty(path))
@@ -261,7 +262,7 @@ public static class CapabilityCatalogLoader
         var kind = ParseKind(dto.Kind, sourceFile, capabilityCode, path);
 
         var rules = new List<SignalRule>();
-        foreach (var r in dto.Rules ?? new List<RuleDto>())
+        foreach (var r in dto.Rules ?? new List<RuleDocument>())
         {
             rules.Add(LoadRule(capabilityCode, path, kind, !string.IsNullOrWhiteSpace(dto.Files), r, sourceFile, defaults));
         }
@@ -313,7 +314,7 @@ public static class CapabilityCatalogLoader
     }
 
     private static SignalRule LoadRule(
-        string capabilityCode, string path, SignalKind kind, bool fileBacked, RuleDto dto, string? sourceFile, KindDefaults? defaults)
+        string capabilityCode, string path, SignalKind kind, bool fileBacked, RuleDocument dto, string? sourceFile, KindDefaults? defaults)
     {
         var where = $"{Location(sourceFile, capabilityCode)}, signal '{path}'";
         var trigger = ParseTrigger(dto.On, where);
@@ -334,7 +335,7 @@ public static class CapabilityCatalogLoader
         }
 
         var actions = new List<ActionTemplate>();
-        foreach (var a in dto.Actions ?? new List<ActionDto>())
+        foreach (var a in dto.Actions ?? new List<ActionDocument>())
         {
             if (string.IsNullOrWhiteSpace(a.Key))
             {
@@ -467,7 +468,7 @@ public static class CapabilityCatalogLoader
     /// <c>..</c>); the catalog provider resolves them against the kind folder and rejects
     /// anything that still escapes it.
     /// </summary>
-    private static ContainerExecutorConfig ParseContainer(ContainerDto? dto, string where)
+    private static ContainerExecutorConfig ParseContainer(ContainerDocument? dto, string where)
     {
         if (dto is null)
         {
@@ -554,7 +555,7 @@ public static class CapabilityCatalogLoader
             string.IsNullOrEmpty(network) ? null : network);
     }
 
-    private static ContainerResources? ParseResources(ResourcesDto? dto, string where)
+    private static ContainerResources? ParseResources(ResourcesDocument? dto, string where)
     {
         if (dto is null)
         {
@@ -579,7 +580,7 @@ public static class CapabilityCatalogLoader
         return memory is null && dto.Cpus is null && dto.Pids is null ? null : new ContainerResources(memory, dto.Cpus, dto.Pids);
     }
 
-    private static ContainerSecurity? ParseSecurity(SecurityDto? dto, string where)
+    private static ContainerSecurity? ParseSecurity(SecurityDocument? dto, string where)
     {
         if (dto is null)
         {
@@ -677,7 +678,7 @@ public static class CapabilityCatalogLoader
     /// list <c>body</c> is kept as canonical JSON, a scalar one as a text template.
     /// Parameter references (<c>{{ name }}</c>) are left untouched here.
     /// </summary>
-    private static HttpExecutorConfig ParseHttp(HttpDto? dto, string where)
+    private static HttpExecutorConfig ParseHttp(HttpDocument? dto, string where)
     {
         if (dto is null)
         {
@@ -755,7 +756,7 @@ public static class CapabilityCatalogLoader
         return sorted;
     }
 
-    private static List<RuleInput> ParseInputs(Dictionary<string, InputDto>? inputs)
+    private static List<RuleInput> ParseInputs(Dictionary<string, InputDocument?>? inputs)
     {
         var result = new List<RuleInput>();
         if (inputs is null)
@@ -793,112 +794,4 @@ public static class CapabilityCatalogLoader
 
     private static string Location(string? sourceFile, string capabilityCode)
         => sourceFile is null ? $"capability '{capabilityCode}'" : $"{sourceFile} (capability '{capabilityCode}')";
-
-    private sealed class CapabilityDto
-    {
-        public string? Capability { get; set; }
-        public string? Title { get; set; }
-        public string? Description { get; set; }
-        public List<SignalDto>? Signals { get; set; }
-    }
-
-    private sealed class SignalDto
-    {
-        public string? Path { get; set; }
-        public string? Kind { get; set; }
-        public List<string>? Exclude { get; set; }
-        public string? Files { get; set; }
-        public string? Label { get; set; }
-        public List<RuleDto>? Rules { get; set; }
-    }
-
-    private sealed class RuleDto
-    {
-        public object? When { get; set; }
-        public string? On { get; set; }
-        public string? ItemKey { get; set; }
-        public List<ActionDto>? Actions { get; set; }
-    }
-
-    private sealed class ActionDto
-    {
-        public string? Key { get; set; }
-        public string? Runbook { get; set; }
-        public string? Label { get; set; }
-        public string? Policy { get; set; }
-        public string? Requires { get; set; }
-        public string? Executor { get; set; }
-        public ContainerDto? Container { get; set; }
-        public HttpDto? Http { get; set; }
-        public Dictionary<string, InputDto>? Inputs { get; set; }
-        public List<string>? DependsOn { get; set; }
-    }
-
-    private sealed class ContainerDto
-    {
-        public string? Image { get; set; }
-        public ContainerBuildDto? Build { get; set; }
-        public List<string>? Entrypoint { get; set; }
-        public List<string>? Command { get; set; }
-        public Dictionary<string, string?>? Env { get; set; }
-        public ResourcesDto? Resources { get; set; }
-        public int? TimeoutSeconds { get; set; }
-        public SecurityDto? Security { get; set; }
-        public string? Network { get; set; }
-    }
-
-    private sealed class ResourcesDto
-    {
-        public string? Memory { get; set; }
-        public double? Cpus { get; set; }
-        public int? Pids { get; set; }
-    }
-
-    private sealed class SecurityDto
-    {
-        public List<string>? CapAdd { get; set; }
-        public bool? NoNewPrivileges { get; set; }
-        public bool? ReadOnlyRootfs { get; set; }
-        public string? User { get; set; }
-        public List<string>? Tmpfs { get; set; }
-    }
-
-    private sealed class HttpDto
-    {
-        public string? Method { get; set; }
-        public string? Url { get; set; }
-        public Dictionary<string, string?>? Headers { get; set; }
-        public Dictionary<string, string?>? Query { get; set; }
-        public object? Body { get; set; }
-        public int? TimeoutSeconds { get; set; }
-        public List<int>? ExpectStatus { get; set; }
-    }
-
-    private sealed class ContainerBuildDto
-    {
-        public string? Context { get; set; }
-        public string? Dockerfile { get; set; }
-        public string? Target { get; set; }
-        public Dictionary<string, string?>? Args { get; set; }
-        public Dictionary<string, string?>? AdditionalContexts { get; set; }
-    }
-
-    private sealed class KindManifestDto
-    {
-        public KindDefaultsDto? Defaults { get; set; }
-    }
-
-    private sealed class KindDefaultsDto
-    {
-        public Dictionary<string, InputDto>? Inputs { get; set; }
-    }
-
-    private sealed class InputDto
-    {
-        public string? From { get; set; }
-        public string? Const { get; set; }
-        public string? Prompt { get; set; }
-        public string? Secret { get; set; }
-        public bool Required { get; set; }
-    }
 }

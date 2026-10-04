@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lodge.dev/schemas/kind.schema.json",
+  "title": "Lodge kind manifest",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Display name of the kind; defaults to its folder name."
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "description": "Bound from the match context: `kind`, `instance`, `path`, `key`, `item`, `item.<field>`, `value`; for collections also `collection`; for nested ones `parent_key`, `parent`, `parent.<field>`."
+              },
+              "const": {
+                "description": "A fixed literal value.",
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "null"
+                ]
+              },
+              "prompt": {
+                "type": "string",
+                "description": "Asked from a human at confirm time; this is the prompt text. Not allowed on AUTO actions."
+              },
+              "secret": {
+                "type": "string",
+                "description": "A secret reference, resolved by the server's secret provider only when the action runs — never stored, never logged."
+              },
+              "required": {
+                "type": "boolean",
+                "description": "Prompt inputs only: whether an answer is mandatory."
+              }
+            },
+            "additionalProperties": false,
+            "description": "One input: exactly one of `from`, `const`, `prompt` or `secret`. `~` (null) drops a kind default of that name."
+          },
+          "description": "Inputs appended to every action of the kind (capabilities and instance overrides) that doesn't name that input itself; `name: ~` on an action drops a default. Typically the one secret every playbook needs."
+        }
+      },
+      "additionalProperties": false,
+      "description": "What every action of the kind gets."
+    }
+  },
+  "additionalProperties": false,
+  "description": "`inventory/<kind>/kind.yaml`: optional manifest of a kind."
+}

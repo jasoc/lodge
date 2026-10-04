@@ -24,10 +24,12 @@ public sealed record SucceededRecord(
     bool Synthetic);
 
 /// <summary>
-/// Projection of one live (QUEUED/RUNNING/FAILED) action row. <see cref="ExecutorConfigJson"/>
-/// is the executor config snapshot the row was emitted (and possibly approved) with, in
+/// Projection of one live (BLOCKED/QUEUED/RUNNING/FAILED) action row: the snapshot it was
+/// emitted (and possibly approved) with. <see cref="ExecutorConfigJson"/> is in
 /// <see cref="Catalog.ExecutorConfigJson"/>'s canonical encoding; <see cref="Requires"/> the
-/// group it was emitted with.
+/// group, <see cref="Policy"/> the policy it was emitted under; the three inputs columns
+/// are in <see cref="RequiredAction"/>'s persisted encodings (resolved from/const values,
+/// secret references, pending prompts).
 /// </summary>
 public sealed record LiveActionRow(
     Guid Id,
@@ -36,7 +38,11 @@ public sealed record LiveActionRow(
     ActionStatus Status,
     string? DesiredValueJson,
     string? ExecutorConfigJson = null,
-    string? Requires = null);
+    string? Requires = null,
+    ActionPolicy Policy = ActionPolicy.MANUAL_REQUIRED,
+    string? ResolvedInputsJson = null,
+    string? SecretInputsJson = null,
+    string? PendingPromptsJson = null);
 
 /// <summary>
 /// One action the current desired state calls for (or, when <see cref="Satisfied"/>,
@@ -75,6 +81,15 @@ public sealed record RequiredAction(
 
     /// <summary>The executor config snapshot in its canonical, persisted encoding.</summary>
     public string? ExecutorConfigJson => Catalog.ExecutorConfigJson.Serialize(ContainerConfig, HttpConfig);
+
+    /// <summary>The resolved from/const inputs in their persisted encoding.</summary>
+    public string ResolvedInputsJson => System.Text.Json.JsonSerializer.Serialize(ResolvedInputs);
+
+    /// <summary>The unresolved secret references in their persisted encoding.</summary>
+    public string SecretInputsJson => System.Text.Json.JsonSerializer.Serialize(SecretInputs);
+
+    /// <summary>The prompts still to answer at confirm time in their persisted encoding.</summary>
+    public string PendingPromptsJson => System.Text.Json.JsonSerializer.Serialize(PendingPrompts);
 
     public Guid? LiveRowId { get; set; }
 

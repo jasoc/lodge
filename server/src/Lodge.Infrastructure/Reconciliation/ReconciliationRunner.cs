@@ -499,7 +499,8 @@ public sealed class ReconciliationRunner
             .Where(a => a.Status is ActionStatus.QUEUED or ActionStatus.BLOCKED or ActionStatus.RUNNING or ActionStatus.FAILED)
             .Select(a => new LiveActionRow(
                 a.Id, new ActionIdentity(a.SignalPath, a.ItemKey, a.ActionKey),
-                a.Trigger, a.Status, a.DesiredValueJson, a.ExecutorConfigJson, a.Requires))
+                a.Trigger, a.Status, a.DesiredValueJson, a.ExecutorConfigJson, a.Requires,
+                a.Policy, a.ResolvedInputsJson, a.SecretInputsJson, a.PendingPromptsJson))
             .ToList();
 
         var input = new ReconciliationInput(
@@ -571,11 +572,11 @@ public sealed class ReconciliationRunner
             Label = required.Label,
             Policy = required.Policy,
             DesiredValueJson = required.DesiredValueJson,
-            ResolvedInputsJson = JsonSerializer.Serialize(required.ResolvedInputs),
-            PendingPromptsJson = JsonSerializer.Serialize(required.PendingPrompts),
+            ResolvedInputsJson = required.ResolvedInputsJson,
+            PendingPromptsJson = required.PendingPromptsJson,
             ExecutorKind = required.ExecutorKind,
             ExecutorConfigJson = required.ExecutorConfigJson,
-            SecretInputsJson = JsonSerializer.Serialize(required.SecretInputs),
+            SecretInputsJson = required.SecretInputsJson,
             DependsOnJson = required.DependsOn.Count == 0 ? null : JsonSerializer.Serialize(required.DependsOn),
             CreatedAt = now,
             UpdatedAt = now

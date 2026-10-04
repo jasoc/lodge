@@ -21,6 +21,11 @@ public class ReconcilerTests
         ActionIdentity identity, SignalTrigger trigger, string? desiredValueJson, DateTimeOffset completedAt, bool synthetic)
         => new(Guid.NewGuid(), identity, trigger, desiredValueJson, completedAt, synthetic);
 
+    /// <summary>A live row carrying exactly the snapshot <paramref name="a"/> is emitted with — what the runner persists.</summary>
+    private static LiveActionRow Live(RequiredAction a, ActionStatus status) => new(
+        Guid.NewGuid(), a.Identity, a.Trigger, status, a.DesiredValueJson, a.ExecutorConfigJson, a.Requires,
+        a.Policy, a.ResolvedInputsJson, a.SecretInputsJson, a.PendingPromptsJson);
+
     private static ReconciliationInput Input(
         CapabilityCatalog catalog,
         string desiredYaml,
@@ -361,7 +366,7 @@ public class ReconcilerTests
             .ToList();
         var live = new[]
         {
-            new LiveActionRow(Guid.NewGuid(), update.Identity, SignalTrigger.MODIFY, ActionStatus.BLOCKED, update.DesiredValueJson, update.ExecutorConfigJson)
+            Live(update, ActionStatus.BLOCKED)
         };
 
         var unblocked = Reconciler.Reconcile(Input(catalog, yaml, historyWithDependency, live));
@@ -479,30 +484,89 @@ public class ReconcilerTests
     // --- Live policy (never frozen on rows) ---------------------------------------------
 
     [Fact]
-    public void Pending_manual_action_whose_policy_became_optional_stops_being_drift()
+    public void Pending_manual_action_whose_policy_became_optional_is_requeued_and_stops_being_drift()
     {
         var history = new[]
         {
             Succeeded(Id("features.sso_login", null, "configure_sso"), SignalTrigger.STATE, "true", T(1), false)
         };
         // The row was queued back when redeploy was MANUAL_REQUIRED.
-        var live = new[]
-        {
-            new LiveActionRow(Guid.NewGuid(), Id("features.sso_login", null, "redeploy"), SignalTrigger.STATE, ActionStatus.QUEUED, "true", SsoConfig("acme/redeploy"))
-        };
+        var queued = Reconciler.Reconcile(Input(SsoCatalog(), "features:\n  sso_login: true", history))
+            .ToCreate.Single(a => a.Identity.ActionKey == "redeploy");
+        var live = new[] { Live(queued, ActionStatus.QUEUED) };
 
         var result = Reconciler.Reconcile(Input(
             SsoCatalog(redeployPolicy: "OPTIONAL"), "features:\n  sso_login: true", history, live));
 
-        // The row is reused (no churn), shown under its live OPTIONAL policy, and the
+        // The row's policy is part of its snapshot: it is re-emitted under the live
+        // OPTIONAL policy (the row never shows a policy it won't run under), and the
         // capability is Active — the old "pending manual" reading is gone.
-        Assert.Empty(result.ToCreate);
-        Assert.Empty(result.ToSupersede);
-        var capability = Assert.Single(result.Capabilities);
-        Assert.Equal(CapabilityState.Active, capability.State);
-        var redeploy = capability.Signals[0].Actions.Single(a => a.Identity.ActionKey == "redeploy");
+        Assert.Equal(live[0].Id, Assert.Single(result.ToSupersede));
+        var redeploy = Assert.Single(result.ToCreate);
         Assert.Equal(ActionPolicy.OPTIONAL, redeploy.Policy);
-        Assert.Equal(live[0].Id, redeploy.LiveRowId);
+        Assert.Equal(CapabilityState.Active, Assert.Single(result.Capabilities).State);
+    }
+
+    [Fact]
+    public void A_pending_row_is_requeued_when_a_constant_input_changes()
+    {
+        var before = SsoCatalog();
+        var queued = Reconciler.Reconcile(Input(before, "features:\n  sso_login: true"))
+            .ToCreate.Single(a => a.Identity.ActionKey == "configure_sso");
+        var live = Live(queued, ActionStatus.QUEUED);
+
+        // Same desired value, same executor, same group — only a const input changed.
+        var after = SsoCatalog();
+        var configure = after.Capabilities[0].Signals[0].Rules[0].Actions.Single(a => a.Key == "configure_sso");
+        configure.Inputs.Single(i => i.Name == "mode").Value = "enable-v2";
+
+        var result = Reconciler.Reconcile(Input(after, "features:\n  sso_login: true", live: new[] { live }));
+
+        Assert.Equal(live.Id, Assert.Single(result.ToSupersede));
+        var fresh = Assert.Single(result.ToCreate, a => a.Identity.ActionKey == "configure_sso");
+        Assert.Equal("enable-v2", fresh.ResolvedInputs["mode"]);
+    }
+
+    [Fact]
+    public void A_pending_row_is_requeued_when_a_from_mapping_secret_or_prompt_changes()
+    {
+        static CapabilityCatalog Catalog(string from, string secret, string prompt)
+            => CapabilityCatalogLoader.Merge("acme", new[]
+            {
+                CapabilityCatalogLoader.LoadCapability($$"""
+                    capability: vms
+                    signals:
+                      - path: virtual_machines
+                        kind: keyed_collection
+                        rules:
+                          - on: add
+                            actions:
+                              - key: provision_vm
+                                executor: http
+                                http: { url: "https://ops.test/provision" }
+                                inputs:
+                                  host: { from: {{from}} }
+                                  token: { secret: {{secret}} }
+                                  reason: { prompt: "{{prompt}}" }
+                    """)
+            }, Array.Empty<CapabilityDefinition>());
+
+        const string yaml = "virtual_machines:\n  vm1: { ip: 10.0.0.1, name: one }";
+        var original = Catalog("item.ip", "TOKEN_A", "Why?");
+        var live = Live(Assert.Single(Reconciler.Reconcile(Input(original, yaml)).ToCreate), ActionStatus.QUEUED);
+
+        Assert.Empty(Reconciler.Reconcile(Input(original, yaml, live: new[] { live })).ToSupersede);
+        foreach (var changed in new[]
+        {
+            Catalog("item.name", "TOKEN_A", "Why?"),
+            Catalog("item.ip", "TOKEN_B", "Why?"),
+            Catalog("item.ip", "TOKEN_A", "Why now?")
+        })
+        {
+            var result = Reconciler.Reconcile(Input(changed, yaml, live: new[] { live }));
+            Assert.Equal(live.Id, Assert.Single(result.ToSupersede));
+            Assert.Single(result.ToCreate);
+        }
     }
 
     [Fact]
@@ -699,8 +763,9 @@ public class ReconcilerTests
     [Fact]
     public void Failed_row_parks_the_drift_without_recreation_or_auto_retry()
     {
-        var failed = new LiveActionRow(
-            Guid.NewGuid(), Id("features.sso_login", null, "configure_sso"), SignalTrigger.STATE, ActionStatus.FAILED, "true", SsoConfig("acme/configure-sso"));
+        var emitted = Reconciler.Reconcile(Input(SsoCatalog(redeployPolicy: "OPTIONAL"), "features:\n  sso_login: true"))
+            .ToCreate.Single(a => a.Identity.ActionKey == "configure_sso");
+        var failed = Live(emitted, ActionStatus.FAILED);
 
         var result = Reconciler.Reconcile(Input(SsoCatalog(redeployPolicy: "OPTIONAL"), "features:\n  sso_login: true", live: new[] { failed }));
 
@@ -869,7 +934,7 @@ public class ReconcilerTests
 
         // Materialize ToCreate as live QUEUED rows, exactly as the runner does.
         var live = input.ToCreate
-            .Select(a => new LiveActionRow(Guid.NewGuid(), a.Identity, a.Trigger, ActionStatus.QUEUED, a.DesiredValueJson, a.ExecutorConfigJson, a.Requires))
+            .Select(a => Live(a, ActionStatus.QUEUED))
             .ToList();
 
         var second = Reconciler.Reconcile(Input(
@@ -975,8 +1040,7 @@ public class ReconcilerTests
     public void A_queued_row_pinned_to_the_current_playbook_fingerprint_is_kept()
     {
         var first = Assert.Single(Reconciler.Reconcile(Input(PlaybookCatalog("aaa"), "checks:\n  web: {}")).ToCreate);
-        var row = new LiveActionRow(Guid.NewGuid(), first.Identity, SignalTrigger.ADD, ActionStatus.QUEUED,
-            first.DesiredValueJson, ExecutorConfigJson.Serialize(first.ContainerConfig));
+        var row = Live(first, ActionStatus.QUEUED);
 
         var again = Reconciler.Reconcile(Input(PlaybookCatalog("aaa"), "checks:\n  web: {}", live: new[] { row }));
 

@@ -122,7 +122,9 @@ export class LodgeService extends BackendService {
 
   /** View capabilities (no rules) rendered against the instance's latest inventory. */
   async getViews(kindCode: string, instanceCode: string): Promise<CapabilityViewModel[]> {
-    const res = await this.get<CapabilityViewModel[]>(`/kinds/${kindCode}/instances/${instanceCode}/views`);
+    const res = await this.get<CapabilityViewModel[]>(
+      `/kinds/${kindCode}/instances/${instanceCode}/views`,
+    );
     return res.body!;
   }
 

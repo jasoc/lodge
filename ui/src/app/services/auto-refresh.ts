@@ -10,7 +10,10 @@ import { DestroyRef, inject } from '@angular/core';
  * component constructor (an active injection context is required), typically right
  * after the initial `load()` call.
  */
-export function autoRefresh(reload: () => void | Promise<void>, intervalMs: number | (() => number) = 10000): void {
+export function autoRefresh(
+  reload: () => void | Promise<void>,
+  intervalMs: number | (() => number) = 10000,
+): void {
   const destroyRef = inject(DestroyRef);
   const nextDelay = () => (typeof intervalMs === 'function' ? intervalMs() : intervalMs);
 

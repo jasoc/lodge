@@ -21,7 +21,14 @@ import { LodgeService } from '../../services/lodge.service';
   standalone: true,
   templateUrl: './reconciliation.component.html',
   styleUrls: ['./reconciliation.component.scss'],
-  imports: [MatButtonModule, MatChipsModule, MatExpansionModule, MatIconModule, MatSnackBarModule, DatePipe],
+  imports: [
+    MatButtonModule,
+    MatChipsModule,
+    MatExpansionModule,
+    MatIconModule,
+    MatSnackBarModule,
+    DatePipe,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ReconciliationComponent {
@@ -32,11 +39,16 @@ export class ReconciliationComponent {
   readonly reconciling = signal(false);
 
   /** The newest cycle that finished — its errors are the inventory's current state. */
-  readonly latest = computed(() => this.data()?.cycles.find((c) => c.completed_at !== null) ?? null);
+  readonly latest = computed(
+    () => this.data()?.cycles.find((c) => c.completed_at !== null) ?? null,
+  );
 
   constructor() {
     this.load();
-    autoRefresh(() => this.load(), () => 10000);
+    autoRefresh(
+      () => this.load(),
+      () => 10000,
+    );
   }
 
   async load() {
@@ -49,12 +61,15 @@ export class ReconciliationComponent {
       const summary = await this.lodgeService.reconcile();
       const errors = summary.validation_errors.length;
       this.snackBar.open(
-        `Reconciled · ${summary.drift_count} drifting` + (errors ? ` · ${errors} validation error(s)` : ''),
+        `Reconciled · ${summary.drift_count} drifting` +
+          (errors ? ` · ${errors} validation error(s)` : ''),
         'Close',
         { duration: 3000 },
       );
     } catch {
-      this.snackBar.open('Reconciliation failed — see the server log.', 'Close', { duration: 5000 });
+      this.snackBar.open('Reconciliation failed — see the server log.', 'Close', {
+        duration: 5000,
+      });
     } finally {
       this.reconciling.set(false);
       await this.load();

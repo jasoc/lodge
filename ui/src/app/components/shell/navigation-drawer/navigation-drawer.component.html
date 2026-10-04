@@ -10,7 +10,9 @@
       [attr.aria-label]="collapsed() ? 'Expand menu' : 'Collapse menu'"
       (click)="ToggleCollapse()"
     >
-      <mat-icon fontSet="material-symbols-outlined">{{ collapsed() ? 'menu' : 'menu_open' }}</mat-icon>
+      <mat-icon fontSet="material-symbols-outlined">{{
+        collapsed() ? 'menu' : 'menu_open'
+      }}</mat-icon>
     </button>
     @if (!collapsed()) {
       <p class="lodge-fade-enter">Lodge</p>

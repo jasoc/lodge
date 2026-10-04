@@ -241,7 +241,9 @@ export class InstanceDetailComponent {
 
       // Failures first — they're the ones that went wrong, not just the ones waiting.
       todo.sort((a, b) => Number(b.status === 'FAILED') - Number(a.status === 'FAILED'));
-      applied.sort((a, b) => (b.completed_at ?? b.created_at).localeCompare(a.completed_at ?? a.created_at));
+      applied.sort((a, b) =>
+        (b.completed_at ?? b.created_at).localeCompare(a.completed_at ?? a.created_at),
+      );
 
       cards.push({
         code,
@@ -393,7 +395,9 @@ export class InstanceDetailComponent {
       );
       await this.load({ silent: true });
     } catch {
-      this.snackBar.open('Reconciliation failed — see the server log.', 'Close', { duration: 5000 });
+      this.snackBar.open('Reconciliation failed — see the server log.', 'Close', {
+        duration: 5000,
+      });
     } finally {
       this.reconciling.set(false);
     }
@@ -424,7 +428,9 @@ export class InstanceDetailComponent {
 
   /** AUTO and unblocked: the loop starts it on its own within seconds. */
   isStarting(action: ActionModel): boolean {
-    return action.status === 'QUEUED' && action.policy === 'AUTO' && action.pending_prompts.length === 0;
+    return (
+      action.status === 'QUEUED' && action.policy === 'AUTO' && action.pending_prompts.length === 0
+    );
   }
 
   statusColor(status: string): 'primary' | 'accent' | 'warn' {
@@ -451,11 +457,15 @@ export class InstanceDetailComponent {
   }
 
   visibleRows<T>(card: CapabilityCard, section: CardSection, rows: T[]): T[] {
-    return this.sectionExpanded()[`${card.code}:${section}`] ? rows : rows.slice(0, SECTION_PREVIEW);
+    return this.sectionExpanded()[`${card.code}:${section}`]
+      ? rows
+      : rows.slice(0, SECTION_PREVIEW);
   }
 
   hiddenCount(card: CapabilityCard, section: CardSection, rows: unknown[]): number {
-    return this.sectionExpanded()[`${card.code}:${section}`] ? 0 : Math.max(0, rows.length - SECTION_PREVIEW);
+    return this.sectionExpanded()[`${card.code}:${section}`]
+      ? 0
+      : Math.max(0, rows.length - SECTION_PREVIEW);
   }
 
   expandSection(card: CapabilityCard, section: CardSection) {

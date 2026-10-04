@@ -91,7 +91,13 @@ body
 
 // Icons would otherwise inherit those axes (opsz 50 thins them out); zero specificity, so
 // m3-icon's own FILL/weight settings still apply.
-:where(mat-icon, .mat-icon, .material-symbols-outlined, .material-symbols-rounded, .material-symbols-sharp) {
+:where(
+  mat-icon,
+  .mat-icon,
+  .material-symbols-outlined,
+  .material-symbols-rounded,
+  .material-symbols-sharp
+) {
   font-variation-settings: normal;
 }
 

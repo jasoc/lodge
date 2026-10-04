@@ -33,12 +33,15 @@ WORKDIR /app
 # mounts at /var/run/docker.sock (or whatever DOCKER_HOST points at), pulling images and
 # building inventory playbook folders as sibling containers. buildx makes `docker build`
 # use BuildKit instead of the deprecated legacy builder (and enables --build-context).
+# openssh-client: only for DOCKER_HOST=ssh://user@host (docker execs `ssh ... docker system
+# dial-stdio`); docker.io doesn't pull it in, and without it an ssh:// host fails to start. The
+# key and known_hosts come from a /root/.ssh mount — see docs/deployment/containers.md.
 # TODO: install pass-cli (Proton Pass CLI) here too, for PassCliSecretProvider
 # (Secrets:Provider=PassCli) — its distribution/install method isn't verified from
 # anything in this repo (the homelab scripts assume it's already on PATH), so no install
 # command is guessed here; fill this in against the real pass-cli release artifact.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends docker.io docker-buildx \
+    && apt-get install -y --no-install-recommends docker.io docker-buildx openssh-client \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=server-build /app/publish ./
 COPY --from=spa-build /spa/dist/spa/browser ./wwwroot

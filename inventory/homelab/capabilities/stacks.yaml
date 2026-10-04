@@ -25,6 +25,7 @@ signals:
             depends_on: [ "proxmox.virtual_machines.configure_vm" ]
             executor: container
             container:
+              security: &runs-as-root { user: image, read_only_rootfs: false }
               build: { context: playbooks/compose, additional_contexts: { base: playbooks/_base } }
               command: ["deploy"]
             inputs:
@@ -40,6 +41,7 @@ signals:
             policy: MANUAL_REQUIRED
             executor: container
             container:
+              security: *runs-as-root
               build: { context: playbooks/compose, additional_contexts: { base: playbooks/_base } }
               command: ["deploy"]
             inputs:
@@ -55,6 +57,7 @@ signals:
             policy: MANUAL_REQUIRED
             executor: container
             container:
+              security: *runs-as-root
               build: { context: playbooks/compose, additional_contexts: { base: playbooks/_base } }
               command: ["remove"]
             inputs:

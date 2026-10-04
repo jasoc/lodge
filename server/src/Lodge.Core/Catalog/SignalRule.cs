@@ -60,13 +60,68 @@ public sealed record SecretInputRef(string Name, string SecretRef);
 /// cref="Command"/> — they flow in purely as <c>LODGE_PARAM_*</c> environment variables
 /// (plus the whole map as <c>LODGE_PARAMS_JSON</c>). Nothing here names a runtime: the
 /// server decides where the container runs.
+///
+/// How it runs is bounded by the rest: <see cref="Resources"/> caps what it may use,
+/// <see cref="TimeoutSeconds"/> how long, <see cref="Security"/> relaxes the server's
+/// restrictive defaults (capabilities dropped, no new privileges, read-only root
+/// filesystem, non-root user), and <see cref="Network"/> names a server-defined network
+/// profile. All four are left out of the persisted JSON when unset, so an action that
+/// declares none keeps its exact pre-existing snapshot encoding.
 /// </summary>
 public sealed record ContainerExecutorConfig(
     string? Image,
     IReadOnlyList<string> Command,
     IReadOnlyList<string>? Entrypoint = null,
     ContainerBuildConfig? Build = null,
-    IReadOnlyDictionary<string, string>? Env = null);
+    IReadOnlyDictionary<string, string>? Env = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ContainerResources? Resources = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    int? TimeoutSeconds = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ContainerSecurity? Security = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Network = null);
+
+/// <summary>
+/// Resource caps of one container run. <see cref="Memory"/> is docker's size syntax (<c>512m</c>,
+/// <c>2g</c>; swap is capped to the same amount), <see cref="Cpus"/> a number of CPUs
+/// (<c>0.5</c>), <see cref="Pids"/> the most processes it may spawn.
+/// </summary>
+public sealed record ContainerResources(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Memory = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    double? Cpus = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    int? Pids = null);
+
+/// <summary>
+/// Explicit relaxations of the restrictive run defaults — every default can be undone per
+/// action, and only here, so the inventory shows what an action is allowed beyond them.
+/// A null member keeps the default: all capabilities dropped, <c>no-new-privileges</c> on,
+/// read-only root filesystem (with a writable tmpfs <c>/tmp</c> and work dir
+/// <c>/work</c>), and <see cref="User"/> <c>auto</c> (the image's own non-root user, else
+/// <c>65534:65534</c>).
+/// </summary>
+public sealed record ContainerSecurity(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? CapAdd = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    bool? NoNewPrivileges = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    bool? ReadOnlyRootfs = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? User = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? Tmpfs = null)
+{
+    /// <summary><see cref="User"/>: the image's own non-root user, else <c>65534:65534</c> (the default).</summary>
+    public const string UserAuto = "auto";
+
+    /// <summary><see cref="User"/>: whatever the image says, root included.</summary>
+    public const string UserImage = "image";
+}
 
 /// <summary>
 /// A playbook image built from a folder of the inventory itself rather than pulled.

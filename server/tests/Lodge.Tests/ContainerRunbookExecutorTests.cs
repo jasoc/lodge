@@ -32,7 +32,15 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
 
     private string ContainersDir => Path.Combine(_scratchDir, "containers");
 
-    private ContainerRunbookExecutor NewExecutor(int runExit = 0, int buildExit = 0, string? logDir = null, string? network = null)
+    private string ScratchFile(string name) => Path.Combine(_scratchDir, name);
+
+    private DockerContainerRunner? _lastRunner;
+
+    private const string UserFormat = "{{.Config.User}}";
+
+    private ContainerRunbookExecutor NewExecutor(
+        int runExit = 0, int buildExit = 0, string? logDir = null, string? network = null,
+        Action<DockerExecutorOptions>? configure = null)
     {
         var scriptPath = Path.Combine(_scratchDir, $"fake-docker-{Guid.NewGuid():N}.sh");
         var builtDir = Path.Combine(_scratchDir, "built");
@@ -43,9 +51,14 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
             calls='{{CallsFile}}'
             built='{{builtDir}}'
             containers='{{ContainersDir}}'
+            scratch='{{_scratchDir}}'
             echo "CALL $*" >> "$calls"
             case "$1 $2" in
               "image inspect")
+                if [ "$4" = '{{UserFormat}}' ]; then
+                  [ -f "$scratch/image-user" ] && cat "$scratch/image-user"
+                  exit 0
+                fi
                 tag=$(echo "$5" | tr '/:' '__')
                 [ -f "$built/$tag" ] && exit 0 || exit 1 ;;
               "image ls"|"image rm")
@@ -70,10 +83,17 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
               start)
                 exit 0 ;;
               logs)
-                echo "container output"
+                if [ -f "$scratch/hang" ]; then
+                  while [ ! -f "$scratch/killed" ]; do sleep 0.05; done
+                  exit 0
+                fi
+                if [ -f "$scratch/logs-output" ]; then cat "$scratch/logs-output"; else echo "container output"; fi
+                exit 0 ;;
+              kill)
+                touch "$scratch/killed"
                 exit 0 ;;
               wait)
-                echo {{runExit}}
+                if [ -f "$scratch/killed" ]; then echo 137; else echo {{runExit}}; fi
                 exit 0 ;;
               rm)
                 for a in "$@"; do
@@ -81,6 +101,14 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
                 done
                 exit 0 ;;
               ps)
+                case "$*" in
+                  *label=lodge.managed=true*)
+                    for f in "$containers"/*; do
+                      [ -f "$f" ] && echo "$(cat "$f") $(basename "$f")"
+                    done
+                    [ -f "$scratch/unlabelled" ] && echo "cid-unlabelled "
+                    exit 0 ;;
+                esac
                 run=$(printf '%s\n' "$@" | sed -n 's/^label=lodge.run_id=//p' | head -1)
                 [ -f "$containers/$run" ] && cat "$containers/$run"
                 exit 0 ;;
@@ -89,18 +117,21 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
             """.ReplaceLineEndings("\n"));
         File.SetUnixFileMode(scriptPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
-        var options = Options.Create(new DockerExecutorOptions
+        var dockerOptions = new DockerExecutorOptions
         {
             DockerBinaryPath = scriptPath,
             LogDirectory = logDir ?? Path.Combine(_scratchDir, "logs"),
             Network = network
-        });
+        };
+        configure?.Invoke(dockerOptions);
+        var options = Options.Create(dockerOptions);
         var docker = new DockerCli(options);
+        _lastRunner = new DockerContainerRunner(options, docker);
         return new ContainerRunbookExecutor(
             options,
             new PlaybookContextResolver(RepoRoot),
             new DockerImageBuilder(options, docker),
-            new DockerContainerRunner(options, docker));
+            _lastRunner);
     }
 
     private static async Task<RunbookRunStatus> WaitUntilTerminalAsync(ContainerRunbookExecutor executor, string runId)
@@ -461,7 +492,7 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
 
         Assert.Equal(RunbookRunState.Succeeded, status.State);
         Assert.Contains(Calls(), l => l == $"CALL wait cid-{runId}");
-        Assert.Contains(Calls(), l => l.StartsWith($"CALL logs --follow --since ", StringComparison.Ordinal));
+        Assert.Contains(Calls(), l => l == $"CALL logs --follow cid-{runId}");
         Assert.False(File.Exists(Path.Combine(ContainersDir, runId)));
         var log = File.ReadAllText(Path.Combine(logDir, $"{runId}.log"));
         Assert.StartsWith("before the restart\n[lodge] reattached", log);
@@ -487,5 +518,247 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
         Assert.Equal(RunbookRunState.Failed, status.State);
         Assert.Contains(expected, status.Message);
         Assert.DoesNotContain(Calls(), l => l.StartsWith("CALL create ", StringComparison.Ordinal));
+    }
+
+    // --- Hardening ---------------------------------------------------------------------------
+
+    private async Task<List<string>> CreateArgvAsync(
+        ContainerExecutorConfig config, Action<DockerExecutorOptions>? configure = null)
+    {
+        File.Delete(CallsFile);
+        var executor = NewExecutor(configure: configure);
+        var status = await WaitUntilTerminalAsync(executor, (await executor.StartAsync(Request(config))).RunId);
+        Assert.Equal(RunbookRunState.Succeeded, status.State);
+        return Calls().Where(l => l.StartsWith("ARGV[")).Select(l => l.Split('=', 2)[1]).ToList();
+    }
+
+    private static ContainerExecutorConfig Image(ContainerSecurity? security = null, ContainerResources? resources = null,
+        int? timeout = null, string? network = null)
+        => new("alpine:3.20", Array.Empty<string>(), Resources: resources, TimeoutSeconds: timeout, Security: security, Network: network);
+
+    [Fact]
+    public async Task Containers_are_created_restrictive_by_default()
+    {
+        var argv = await CreateArgvAsync(Image());
+
+        Assert.Contains("--cap-drop=ALL", argv);
+        Assert.DoesNotContain(argv, a => a.StartsWith("--cap-add"));
+        Assert.Equal("no-new-privileges", argv[argv.IndexOf("--security-opt") + 1]);
+        Assert.Contains("--read-only", argv);
+        var tmpfs = argv.Where((a, i) => i > 0 && argv[i - 1] == "--tmpfs").ToList();
+        Assert.Equal(new[] { "/tmp:rw,nosuid,nodev,mode=1777,size=256m", "/work:rw,nosuid,nodev,mode=1777,size=256m" }, tmpfs);
+        Assert.Equal("65534:65534", argv[argv.IndexOf("--user") + 1]);
+        Assert.Contains("LODGE_WORK_DIR", argv);
+        Assert.DoesNotContain("--memory", argv);
+        Assert.DoesNotContain("--privileged", argv);
+    }
+
+    [Theory]
+    [InlineData("", true)]
+    [InlineData("root", true)]
+    [InlineData("0:0", true)]
+    [InlineData("app", false)]
+    [InlineData("1000:1000", false)]
+    public async Task The_default_user_keeps_a_non_root_image_user_and_replaces_root(string imageUser, bool forced)
+    {
+        File.WriteAllText(ScratchFile("image-user"), imageUser);
+        var argv = await CreateArgvAsync(Image());
+
+        Assert.Equal(forced, argv.Contains("--user"));
+    }
+
+    [Fact]
+    public async Task Every_default_can_be_relaxed_explicitly()
+    {
+        var argv = await CreateArgvAsync(Image(new ContainerSecurity(
+            CapAdd: new[] { "NET_ADMIN" }, NoNewPrivileges: false, ReadOnlyRootfs: false,
+            User: ContainerSecurity.UserImage, Tmpfs: new[] { "/var/cache" })));
+
+        Assert.Contains("--cap-drop=ALL", argv);          // still dropped first, then re-added by name
+        Assert.Contains("--cap-add=NET_ADMIN", argv);
+        Assert.DoesNotContain("--security-opt", argv);
+        Assert.DoesNotContain("--read-only", argv);
+        Assert.DoesNotContain("--user", argv);
+        Assert.Equal(new[] { "/var/cache:rw,nosuid,nodev,mode=1777,size=256m" }, argv.Where((a, i) => i > 0 && argv[i - 1] == "--tmpfs"));
+    }
+
+    [Fact]
+    public async Task An_explicit_user_is_passed_as_is_without_inspecting_the_image()
+    {
+        var argv = await CreateArgvAsync(Image(new ContainerSecurity(User: "1001:1001")));
+
+        Assert.Equal("1001:1001", argv[argv.IndexOf("--user") + 1]);
+        Assert.DoesNotContain(Calls(), l => l.StartsWith("CALL image inspect --format {{.Config.User}}", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Resources_become_memory_cpu_and_pid_limits()
+    {
+        var argv = await CreateArgvAsync(Image(resources: new ContainerResources("512m", 1.5, 200)));
+
+        Assert.Equal("512m", argv[argv.IndexOf("--memory") + 1]);
+        Assert.Equal("512m", argv[argv.IndexOf("--memory-swap") + 1]);   // no swap beyond the cap
+        Assert.Equal("1.5", argv[argv.IndexOf("--cpus") + 1]);
+        Assert.Equal("200", argv[argv.IndexOf("--pids-limit") + 1]);
+    }
+
+    [Fact]
+    public async Task Network_profiles_map_to_docker_networks_and_unknown_ones_fail_before_starting()
+    {
+        var configure = (DockerExecutorOptions o) =>
+        {
+            o.Network = "lodge_default";
+            o.NetworkProfiles["internal"] = "backend_net";
+        };
+
+        var named = await CreateArgvAsync(Image(network: "internal"), configure);
+        Assert.Equal("backend_net", named[named.IndexOf("--network") + 1]);
+        var none = await CreateArgvAsync(Image(network: "none"), configure);
+        Assert.Equal("none", none[none.IndexOf("--network") + 1]);
+        var plain = await CreateArgvAsync(Image(network: "default"), configure);
+        Assert.Equal("lodge_default", plain[plain.IndexOf("--network") + 1]);
+
+        File.Delete(CallsFile);
+        var executor = NewExecutor(configure: configure);
+        var status = await WaitUntilTerminalAsync(executor, (await executor.StartAsync(Request(Image(network: "mystery")))).RunId);
+        Assert.Equal(RunbookRunState.Failed, status.State);
+        Assert.Contains("network profile 'mystery' is not configured", status.Message);
+        Assert.DoesNotContain(Calls(), l => l.StartsWith("CALL create ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_run_past_its_timeout_is_killed_by_its_run_id_label_and_fails()
+    {
+        File.WriteAllText(ScratchFile("hang"), "");
+        var executor = NewExecutor();
+        var handle = await executor.StartAsync(Request(Image(timeout: 1)));
+
+        var status = await WaitUntilTerminalAsync(executor, handle.RunId);
+
+        Assert.Equal(RunbookRunState.Failed, status.State);
+        Assert.Contains("timed out after 1 s and was killed", status.Message);
+        var calls = Calls();
+        Assert.Contains($"CALL ps --quiet --no-trunc --filter label=lodge.run_id={handle.RunId}", calls);
+        Assert.Contains($"CALL kill cid-{handle.RunId}", calls);
+        Assert.Contains($"CALL rm --force --volumes cid-{handle.RunId}", calls);
+        Assert.Contains("timed out: killing the container", File.ReadAllText(Path.Combine(_scratchDir, "logs", $"{handle.RunId}.log")));
+    }
+
+    [Fact]
+    public async Task The_server_default_timeout_applies_when_an_action_sets_none_and_zero_means_unlimited()
+    {
+        File.WriteAllText(ScratchFile("hang"), "");
+        var executor = NewExecutor(configure: o => o.DefaultTimeoutSeconds = 1);
+        var status = await WaitUntilTerminalAsync(executor, (await executor.StartAsync(Request(Image()))).RunId);
+        Assert.Contains("timed out after 1 s", status.Message);
+
+        // Unlimited: nothing watches, the run ends on its own (the hang is lifted by hand).
+        File.Delete(ScratchFile("killed"));
+        File.Delete(CallsFile);
+        var unlimited = NewExecutor(configure: o => o.DefaultTimeoutSeconds = 0);
+        var handle = await unlimited.StartAsync(Request(Image()));
+        await Task.Delay(1500);
+        Assert.Equal(RunbookRunState.Running, (await unlimited.GetStatusAsync(handle.RunId)).State);
+        File.WriteAllText(ScratchFile("killed"), "");   // the fake's way of letting `logs` return
+        Assert.Equal(RunbookRunState.Failed, (await WaitUntilTerminalAsync(unlimited, handle.RunId)).State);   // fake reports 137 once "killed"
+        Assert.DoesNotContain(Calls(), l => l.StartsWith("CALL kill ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Resolved_secret_values_are_masked_in_the_run_log()
+    {
+        File.WriteAllText(ScratchFile("logs-output"),
+            "starting\nenv: LODGE_PARAM_REGISTRY_TOKEN=s3cr3t-value\n{\"registry_token\":\"s3cr3t-value\"}\nkey line\n");
+        var executor = NewExecutor();
+        var request = Request(Image(), new Dictionary<string, string?> { ["registry_token"] = "s3cr3t-value", ["host"] = "10.0.0.1" })
+            with { SecretNames = new[] { "registry_token" } };
+
+        var handle = await executor.StartAsync(request);
+        await WaitUntilTerminalAsync(executor, handle.RunId);
+
+        var log = File.ReadAllText(Path.Combine(_scratchDir, "logs", $"{handle.RunId}.log"));
+        Assert.DoesNotContain("s3cr3t-value", log);
+        Assert.Contains("env: LODGE_PARAM_REGISTRY_TOKEN=***", log);
+        Assert.Contains("{\"registry_token\":\"***\"}", log);
+        Assert.Contains("starting", log);
+    }
+
+    [Fact]
+    public async Task Orphaned_managed_containers_are_removed_and_those_of_running_actions_kept()
+    {
+        var executor = NewExecutor();
+        _ = executor;
+        File.WriteAllText(Path.Combine(ContainersDir, "docker-live"), "cid-live");
+        File.WriteAllText(Path.Combine(ContainersDir, "docker-finished"), "cid-finished");
+        File.WriteAllText(ScratchFile("unlabelled"), "");
+
+        var removed = await _lastRunner!.RemoveOrphansAsync(_ => Task.FromResult<IReadOnlySet<string>>(new HashSet<string> { "docker-live" }));
+
+        Assert.Equal(2, removed);
+        var calls = Calls();
+        Assert.Contains("CALL rm --force --volumes cid-finished", calls);
+        Assert.Contains("CALL rm --force --volumes cid-unlabelled", calls);
+        Assert.DoesNotContain("CALL rm --force --volumes cid-live", calls);
+        Assert.Contains(calls, l => l.StartsWith("CALL ps --all --no-trunc --filter label=lodge.managed=true", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_reattached_runs_output_is_not_logged_because_its_secrets_cant_be_masked()
+    {
+        var logDir = Path.Combine(_scratchDir, "logs-reattach-quiet");
+        Directory.CreateDirectory(logDir);
+        var runId = $"docker-{Guid.NewGuid():N}";
+        File.WriteAllText(Path.Combine(logDir, $"{runId}.json"), JsonSerializer.Serialize(new
+        {
+            ActionRef = "probe/run", StartedAt = DateTimeOffset.UtcNow, CompletedAt = (DateTimeOffset?)null,
+            Succeeded = false, ExitCode = (int?)null, Message = (string?)null, Phase = "running"
+        }));
+        File.WriteAllText(ScratchFile("logs-output"), "LODGE_PARAM_TOKEN=s3cr3t\n");
+        var executor = NewExecutor(logDir: logDir);
+        File.WriteAllText(Path.Combine(ContainersDir, runId), $"cid-{runId}");
+
+        await WaitUntilTerminalAsync(executor, runId);
+
+        var log = File.ReadAllText(Path.Combine(logDir, $"{runId}.log"));
+        Assert.DoesNotContain("s3cr3t", log);
+        Assert.Contains("not logged", log);
+    }
+}
+
+public sealed class SecretMaskerTests
+{
+    [Fact]
+    public void Masks_values_their_json_escaped_form_and_the_lines_of_multiline_secrets()
+    {
+        var key = "-----BEGIN KEY-----\nabcdefghij1234567890\n-----END KEY-----";
+        var masker = new SecretMasker(new[] { "pa\"ss", key, null, "" });
+
+        Assert.Equal("a *** b", masker.Apply("a pa\"ss b"));
+        Assert.DoesNotContain("pa\\\"ss", masker.Apply("{\"p\":\"pa\\\"ss\"}"));
+        Assert.Equal("x *** y", masker.Apply("x abcdefghij1234567890 y"));
+        Assert.DoesNotContain("BEGIN KEY", masker.Apply(key));
+    }
+
+    [Fact]
+    public void The_stream_masks_a_secret_split_across_writes_and_flushes_a_trailing_partial_line()
+    {
+        var inner = new MemoryStream();
+        using (var wrapped = new SecretMasker(new[] { "topsecret" }).Wrap(inner))
+        {
+            foreach (var piece in new[] { "token=top", "secret and ", "more\nnext top", "secret" })
+            {
+                var bytes = System.Text.Encoding.UTF8.GetBytes(piece);
+                wrapped.Write(bytes, 0, bytes.Length);
+            }
+            wrapped.Flush();
+            Assert.Equal("token=*** and more\nnext ***", System.Text.Encoding.UTF8.GetString(inner.ToArray()));
+        }
+    }
+
+    [Fact]
+    public void An_empty_masker_changes_nothing()
+    {
+        Assert.True(SecretMasker.None.IsEmpty);
+        Assert.Equal("anything", SecretMasker.None.Apply("anything"));
     }
 }

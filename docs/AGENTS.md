@@ -80,7 +80,14 @@ its own Postgres schema on startup. Only Postgres is a separate container.
   `body`, `timeout_seconds`, `expect_status`) with `{{ name }}` parameter references
   substituted at run time; its log shows the request and response with secrets masked.
   The executor config is part of the action's snapshot, so editing it (or a playbook
-  folder) re-queues pending actions for fresh confirmation.
+  folder) re-queues pending actions for fresh confirmation. A container runs under
+  restrictive defaults (all capabilities dropped, no-new-privileges, read-only rootfs with
+  tmpfs `/tmp` and `/work`, non-root user) that an action relaxes explicitly with
+  `security:`; `resources`, `timeout_seconds` and a `network` profile (server-defined, never
+  a docker network name) bound it further, and its run log has resolved secrets masked. See
+  `docs/deployment/containers.md`, which is also where `DOCKER_HOST` (including `ssh://`) is
+  documented — the docker host is the operator's env var on the Lodge container, never an
+  inventory key.
 - **Kind defaults** — `inventory/{kind}/kind.yaml` may declare `defaults.inputs`, appended
   to every action of the kind (capabilities and instance overrides) that doesn't name that
   input itself; `name: ~` on an action drops a default. Typically the one secret every
@@ -180,7 +187,9 @@ live without a restart.
 Give a rule an action with a `key` and an executor — no server config either way:
 - a container: `executor: container` plus a `container:` block with `image:` or
   `build: { context: playbooks/<name> }` (add `additional_contexts: { base: playbooks/_base }`
-  to share a folder between playbooks — `COPY --from=base` in their Dockerfiles);
+  to share a folder between playbooks — `COPY --from=base` in their Dockerfiles), and
+  optionally `resources`, `timeout_seconds`, `network`, `security` (see
+  `docs/deployment/containers.md`);
 - an API call: `executor: http` plus an `http:` block, e.g.
   `{ method: POST, url: "https://n8n.lan/webhook/{{ instance }}", headers: { Authorization: "Bearer {{ token }}" }, body: { vm: "{{ item }}" } }`
   with `token: { secret: N8N_TOKEN }` and `item: { from: item }` among its inputs.
@@ -210,6 +219,8 @@ Replace the default implementation in
 
 ## Deployment scenarios
 
+`docs/deployment/containers.md` is the reference for container actions (confinement,
+network profiles, log masking, `DOCKER_HOST`).
 `docs/deployment/homelab.md` and `docs/deployment/company.md` walk through the two
 profiles end to end — topology, `.env`, and what changes (and what deliberately doesn't)
 between a single-operator `NoAuth` box and a multi-product `Oidc` deployment with

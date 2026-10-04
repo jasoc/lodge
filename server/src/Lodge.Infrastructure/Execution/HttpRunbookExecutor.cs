@@ -107,7 +107,7 @@ public sealed partial class HttpRunbookExecutor : IRunbookExecutor, IRunbookLogR
 
     private async Task<RunOutcome> RunAsync(RunbookExecutionRequest request, HttpExecutorConfig config, RunState state)
     {
-        var mask = new SecretMask(request.SecretNames, request.Parameters);
+        var mask = SecretMasker.For(request.SecretNames, request.Parameters);
         await using var log = new StreamWriter(state.LogPath, append: false, Encoding.UTF8) { AutoFlush = true };
 
         RunOutcome Done(bool succeeded, string message)
@@ -299,21 +299,6 @@ public sealed partial class HttpRunbookExecutor : IRunbookExecutor, IRunbookLogR
 
     [GeneratedRegex(@"^\s*\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}\s*$")]
     private static partial Regex WholeReference();
-
-    /// <summary>Replaces every resolved secret value in text that's about to be logged.</summary>
-    private sealed class SecretMask(IReadOnlyCollection<string>? names, IReadOnlyDictionary<string, string?> parameters)
-    {
-        private readonly List<string> _values = (names ?? Array.Empty<string>())
-            .Select(n => parameters.TryGetValue(n, out var v) ? v : null)
-            .Where(v => !string.IsNullOrEmpty(v))
-            .Select(v => v!)
-            .Distinct()
-            .OrderByDescending(v => v.Length)
-            .ToList();
-
-        public string Apply(string text)
-            => _values.Aggregate(text, (current, secret) => current.Replace(secret, "***", StringComparison.Ordinal));
-    }
 
     private sealed class RunState(string actionRef, string logPath, string sidecarPath, DateTimeOffset startedAt)
     {

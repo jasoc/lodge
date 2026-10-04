@@ -26,10 +26,29 @@ public sealed class DockerExecutorOptions
     public int KeepImagesPerPlaybook { get; set; } = 3;
 
     /// <summary>
-    /// The docker network every action container joins (<c>docker run --network</c>);
-    /// null keeps docker's default bridge. Set it to reach services on that network by
-    /// name without publishing them on the host — e.g. the Postgres holding Terraform
-    /// state (dev: <c>lodge_default</c>, the network of docker-compose.yml).
+    /// The docker network the <c>default</c> network profile maps to — what an action joins
+    /// unless it names another profile (<c>docker create --network</c>); null keeps docker's
+    /// default bridge. Set it to reach services on that network by name without publishing
+    /// them on the host — e.g. the Postgres holding Terraform state (dev: <c>lodge_default</c>,
+    /// the network of docker-compose.yml).
     /// </summary>
     public string? Network { get; set; }
+
+    /// <summary>
+    /// Named network profiles an action may select with <c>container.network</c>: profile
+    /// name → docker network name. Built in: <c>default</c> (<see cref="Network"/>) and
+    /// <c>none</c> (no network at all). An inventory names a profile, never a docker network,
+    /// so whoever can edit it can't attach a container to an arbitrary host network.
+    /// Configured as <c>DockerExecutor__NetworkProfiles__&lt;name&gt;=&lt;docker network&gt;</c>.
+    /// </summary>
+    public Dictionary<string, string> NetworkProfiles { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// How long a container may run before it is killed, for actions that set no
+    /// <c>container.timeout_seconds</c>. 0 means no limit.
+    /// </summary>
+    public int DefaultTimeoutSeconds { get; set; } = 3600;
+
+    /// <summary>Size of the writable tmpfs mounts (<c>/tmp</c>, <c>/work</c>, ...) of a read-only container, docker's size syntax.</summary>
+    public string TmpfsSize { get; set; } = "256m";
 }

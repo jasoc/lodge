@@ -60,8 +60,13 @@ services:
       # The host's docker daemon, for `executor: container` actions: Lodge pulls/builds
       # playbook images and runs them as sibling containers. Root-equivalent on the host —
       # anyone who can merge to the inventory can run arbitrary containers here. To narrow
-      # that, put a socket proxy in front and set DOCKER_HOST on this service instead.
+      # that, put a socket proxy in front and set DOCKER_HOST on this service instead — or run
+      # the containers on another machine: drop this mount, set DOCKER_HOST=ssh://user@host in
+      # .env.prod and mount an ssh key + known_hosts below. See docs/deployment/containers.md.
       - /var/run/docker.sock:/var/run/docker.sock
+      # For DOCKER_HOST=ssh://...: a directory with the private key and a known_hosts that
+      # already lists the host (ssh-keyscan -H host >> known_hosts); ssh can't ask here.
+      # - ${LODGE_DOCKER_SSH_DIR:-./docker-ssh}:/root/.ssh:ro
     ports:
       - "${LODGE_BIND:-127.0.0.1}:${SERVER_PORT:-8080}:8080"
     healthcheck:

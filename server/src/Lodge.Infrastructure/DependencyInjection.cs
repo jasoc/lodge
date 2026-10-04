@@ -94,6 +94,7 @@ public static class DependencyInjection
         services.AddSingleton<DockerCli>();
         services.AddSingleton<IImageBuilder, DockerImageBuilder>();
         services.AddSingleton<IContainerRunner, DockerContainerRunner>();
+        services.AddHostedService<OrphanContainerReaper>();
         services.AddSingleton<ContainerRunbookExecutor>();
         services.AddHttpClient("http-executor");
         services.AddSingleton(sp => new HttpRunbookExecutor(

@@ -71,14 +71,30 @@ public class ShowcaseInstanceFixtureTests
 
         Assert.Empty(result.ValidationErrors);
         Assert.All(AllTemplates(catalog), a => Assert.NotNull(a.Container!.Build!.Fingerprint));
-        // kind.yaml hands every action the Proton Pass token, and every playbook shares _base.
-        Assert.All(AllTemplates(catalog), a =>
+        // kind.yaml hands every action the Proton Pass token, and every playbook shares _base —
+        // except the read-only verification, which needs neither.
+        Assert.All(AllTemplates(catalog).Where(a => a.Key != "verify_vm"), a =>
         {
             var pat = Assert.Single(a.Inputs, i => i.Name == "pass_pat");
             Assert.Equal(RuleInputKind.Secret, pat.Kind);
             Assert.Equal("PROTON_PASS_PAT", pat.Value);
             Assert.Equal("playbooks/_base", a.Container!.Build!.AdditionalContexts!["base"]);
         });
+    }
+
+    [Fact]
+    public async Task Only_the_playbooks_that_need_root_relax_the_restrictive_container_profile()
+    {
+        var (catalog, _) = await LoadHomelabLabAsync();
+
+        var verify = Assert.Single(AllTemplates(catalog), a => a.Key == "verify_vm").Container!;
+        Assert.Null(verify.Security);                          // nothing relaxed: the restrictive defaults apply
+        Assert.Equal(60, verify.TimeoutSeconds);
+        Assert.NotNull(verify.Resources);
+
+        // Terraform/Ansible/compose run as root and write to /root: relaxed explicitly, and only that.
+        Assert.All(AllTemplates(catalog).Where(a => a.Key != "verify_vm"), a =>
+            Assert.Equal(new ContainerSecurity(User: "image", ReadOnlyRootfs: false), a.Container!.Security));
     }
 
     [Fact]

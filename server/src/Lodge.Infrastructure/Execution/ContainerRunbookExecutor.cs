@@ -152,8 +152,10 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
                 image = built.Image;
             }
 
+            var timeout = TimeoutFor(config);
+            state.Deadline = timeout is { } limit ? DateTimeOffset.UtcNow + limit : null;
             SetPhase(state, Phases.Running);
-            outcome = ExitOutcome(state, await _runner.RunAsync(RunSpec(request, config, image!, runId), state.LogPath));
+            outcome = ExitOutcome(state, await _runner.RunAsync(RunSpec(request, config, image!, runId, timeout), state.LogPath), timeout);
         }
         catch (Exception ex)
         {
@@ -164,10 +166,20 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         return Finish(state, outcome);
     }
 
-    private static RunOutcome ExitOutcome(RunState state, int exitCode)
-        => exitCode == 0
-            ? new RunOutcome(true, 0, $"Action '{state.ActionRef}' completed (exit 0). Log: {state.LogPath}")
-            : new RunOutcome(false, exitCode, $"Action '{state.ActionRef}' failed (exit {exitCode}). Log: {state.LogPath}");
+    /// <summary>How long the run may last: the action's own <c>timeout_seconds</c>, else the server default; null (0) = no limit.</summary>
+    private TimeSpan? TimeoutFor(ContainerExecutorConfig config)
+    {
+        var seconds = config.TimeoutSeconds ?? _options.DefaultTimeoutSeconds;
+        return seconds > 0 ? TimeSpan.FromSeconds(seconds) : null;
+    }
+
+    private static RunOutcome ExitOutcome(RunState state, ContainerRunResult result, TimeSpan? timeout)
+        => result.TimedOut
+            ? new RunOutcome(false, result.ExitCode,
+                $"Action '{state.ActionRef}' timed out{(timeout is { } t ? $" after {t.TotalSeconds:0} s" : "")} and was killed. Log: {state.LogPath}")
+            : result.ExitCode == 0
+                ? new RunOutcome(true, 0, $"Action '{state.ActionRef}' completed (exit 0). Log: {state.LogPath}")
+                : new RunOutcome(false, result.ExitCode, $"Action '{state.ActionRef}' failed (exit {result.ExitCode}). Log: {state.LogPath}");
 
     private RunOutcome Finish(RunState state, RunOutcome outcome)
     {
@@ -206,16 +218,17 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         }
 
         var phaseBeforeRestart = sidecar.Phase;
+        state.Deadline = sidecar.DeadlineAt;
         state.Completion = Task.Run(() => ReattachPipelineAsync(runId, state, phaseBeforeRestart));
         return state;
     }
 
     private async Task<RunOutcome?> ReattachPipelineAsync(string runId, RunState state, string? phaseBeforeRestart)
     {
-        int? exitCode;
+        ContainerRunResult? result;
         try
         {
-            exitCode = await _runner.ReattachAsync(runId, state.LogPath);
+            result = await _runner.ReattachAsync(runId, state.LogPath, state.Deadline);
         }
         catch (Exception ex)
         {
@@ -224,9 +237,9 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         }
 
         state.Phase = Phases.Running;
-        if (exitCode is { } code)
+        if (result is { } ended)
         {
-            return Finish(state, ExitOutcome(state, code));
+            return Finish(state, ExitOutcome(state, ended, state.Deadline is { } at ? at - state.StartedAt : null));
         }
 
         // No container carries this run id. Before the "running" phase none was ever
@@ -316,7 +329,8 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         return new RunOutcome(false, null, $"Action '{state.ActionRef}' refused: {message}");
     }
 
-    private static ContainerRunSpec RunSpec(RunbookExecutionRequest request, ContainerExecutorConfig config, string image, string runId)
+    private static ContainerRunSpec RunSpec(
+        RunbookExecutionRequest request, ContainerExecutorConfig config, string image, string runId, TimeSpan? timeout)
     {
         // Static env from the catalog first; LODGE_* names are reserved (the loader
         // rejects them there), so inputs can never be shadowed.
@@ -343,8 +357,13 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
             [ContainerLabels.RunId] = runId
         };
 
+        // The writable work dir of a read-only container, for scripts that need scratch space.
+        environment["LODGE_WORK_DIR"] = DockerContainerRunner.WorkDir;
+
         return new ContainerRunSpec(
-            runId, image, environment, config.Entrypoint, config.Command, labels);
+            runId, image, environment, config.Entrypoint, config.Command, labels,
+            config.Resources, config.Security, config.Network, timeout,
+            SecretMasker.For(request.SecretNames, request.Parameters));
     }
 
     private static string ParamEnvName(string key)
@@ -432,7 +451,7 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
     private static void WriteSidecar(RunState state, RunOutcome? outcome, DateTimeOffset? completedAt)
     {
         var sidecar = new Sidecar(state.ActionRef, state.StartedAt, completedAt,
-            outcome?.Succeeded ?? false, outcome?.ExitCode, outcome?.Message, state.Phase);
+            outcome?.Succeeded ?? false, outcome?.ExitCode, outcome?.Message, state.Phase, state.Deadline);
         lock (state)
         {
             File.WriteAllText(state.SidecarPath, JsonSerializer.Serialize(sidecar));
@@ -454,6 +473,7 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         public string SidecarPath { get; } = sidecarPath;
         public DateTimeOffset StartedAt { get; } = startedAt;
         public volatile string Phase = Phases.Starting;
+        public DateTimeOffset? Deadline { get; set; }
         public DateTimeOffset? CompletedAt { get; set; }
 
         /// <summary>The run's outcome; null when the runtime couldn't be asked and a later read should try again.</summary>
@@ -464,5 +484,5 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
 
     private sealed record Sidecar(
         string ActionRef, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, bool Succeeded, int? ExitCode, string? Message,
-        string? Phase = null);
+        string? Phase = null, DateTimeOffset? DeadlineAt = null);
 }

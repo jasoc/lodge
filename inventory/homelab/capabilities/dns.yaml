@@ -17,6 +17,7 @@ signals:
             policy: MANUAL_REQUIRED
             executor: container
             container:
+              security: &runs-as-root { user: image, read_only_rootfs: false }
               build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["apply"]
             inputs:
@@ -33,6 +34,7 @@ signals:
             policy: MANUAL_REQUIRED
             executor: container
             container:
+              security: *runs-as-root
               build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["apply"]
             inputs:
@@ -49,6 +51,7 @@ signals:
             policy: MANUAL_REQUIRED
             executor: container
             container:
+              security: *runs-as-root
               build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
               command: ["destroy"]
             inputs:

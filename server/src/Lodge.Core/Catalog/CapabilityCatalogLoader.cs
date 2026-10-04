@@ -529,16 +529,111 @@ public static class CapabilityCatalogLoader
             env[name] = value ?? string.Empty;
         }
 
+        if (dto.TimeoutSeconds is <= 0 or > 86400)
+        {
+            throw new CatalogFormatException($"{where}: 'container.timeout_seconds' must be between 1 and 86400.");
+        }
+
+        var network = dto.Network?.Trim();
+        if (network is not null && !NetworkProfilePattern.IsMatch(network))
+        {
+            throw new CatalogFormatException(
+                $"{where}: 'container.network: {dto.Network}' must be a profile name (lowercase letters, digits, '.', '_' or '-'); " +
+                "profiles are defined by the server, not by a docker network name.");
+        }
+
         return new ContainerExecutorConfig(
             hasImage ? dto.Image!.Trim() : null,
             dto.Command ?? new List<string>(),
             dto.Entrypoint is { Count: > 0 } ? dto.Entrypoint : null,
             build,
-            env);
+            env,
+            ParseResources(dto.Resources, where),
+            dto.TimeoutSeconds,
+            ParseSecurity(dto.Security, where),
+            string.IsNullOrEmpty(network) ? null : network);
+    }
+
+    private static ContainerResources? ParseResources(ResourcesDto? dto, string where)
+    {
+        if (dto is null)
+        {
+            return null;
+        }
+
+        var memory = dto.Memory?.Trim().ToLowerInvariant();
+        if (memory is not null && !MemoryPattern.IsMatch(memory))
+        {
+            throw new CatalogFormatException(
+                $"{where}: 'container.resources.memory: {dto.Memory}' must be a size like 512m or 2g (b, k, m or g).");
+        }
+        if (dto.Cpus is <= 0 or > 1024)
+        {
+            throw new CatalogFormatException($"{where}: 'container.resources.cpus' must be greater than 0 (e.g. 0.5, 2).");
+        }
+        if (dto.Pids is <= 0)
+        {
+            throw new CatalogFormatException($"{where}: 'container.resources.pids' must be at least 1.");
+        }
+
+        return memory is null && dto.Cpus is null && dto.Pids is null ? null : new ContainerResources(memory, dto.Cpus, dto.Pids);
+    }
+
+    private static ContainerSecurity? ParseSecurity(SecurityDto? dto, string where)
+    {
+        if (dto is null)
+        {
+            return null;
+        }
+
+        var capAdd = (dto.CapAdd ?? new List<string>()).Select(c => c.Trim().ToUpperInvariant()).ToList();
+        foreach (var cap in capAdd)
+        {
+            if (!CapabilityPattern.IsMatch(cap))
+            {
+                throw new CatalogFormatException($"{where}: 'container.security.cap_add' entry '{cap}' must be a Linux capability name (e.g. NET_ADMIN).");
+            }
+        }
+
+        var user = dto.User?.Trim();
+        if (user is not null && !UserPattern.IsMatch(user))
+        {
+            throw new CatalogFormatException(
+                $"{where}: 'container.security.user: {dto.User}' must be auto, image, or a user/uid with an optional :group/gid.");
+        }
+
+        var tmpfs = new List<string>();
+        foreach (var raw in dto.Tmpfs ?? new List<string>())
+        {
+            var path = raw.Trim().Replace('\\', '/');
+            if (!path.StartsWith('/') || path.Length < 2 || path.Split('/').Any(seg => seg is ".." ) || !TmpfsPathPattern.IsMatch(path))
+            {
+                throw new CatalogFormatException($"{where}: 'container.security.tmpfs' entry '{raw}' must be an absolute path (no '..', ':' or ',').");
+            }
+            tmpfs.Add(path.TrimEnd('/'));
+        }
+
+        if (capAdd.Count == 0 && dto.NoNewPrivileges is null && dto.ReadOnlyRootfs is null && string.IsNullOrEmpty(user) && tmpfs.Count == 0)
+        {
+            return null;
+        }
+
+        return new ContainerSecurity(
+            capAdd.Count == 0 ? null : capAdd.Distinct().Order(StringComparer.Ordinal).ToList(),
+            dto.NoNewPrivileges,
+            dto.ReadOnlyRootfs,
+            string.IsNullOrEmpty(user) ? null : user,
+            tmpfs.Count == 0 ? null : tmpfs.Distinct().Order(StringComparer.Ordinal).ToList());
     }
 
     private static readonly System.Text.RegularExpressions.Regex EnvNamePattern = new("^[A-Za-z_][A-Za-z0-9_]*$");
     private static readonly System.Text.RegularExpressions.Regex ContextNamePattern = new("^[a-z0-9][a-z0-9_.-]*$");
+    private static readonly System.Text.RegularExpressions.Regex NetworkProfilePattern = new("^[a-z0-9][a-z0-9_.-]*$");
+    private static readonly System.Text.RegularExpressions.Regex MemoryPattern = new("^[1-9][0-9]*[bkmg]?$");
+    private static readonly System.Text.RegularExpressions.Regex CapabilityPattern = new("^[A-Z][A-Z_]*$");
+    private static readonly System.Text.RegularExpressions.Regex UserPattern =
+        new("^(auto|image|[a-z_][a-z0-9_-]*|[0-9]+)(:([a-z_][a-z0-9_-]*|[0-9]+))?$");
+    private static readonly System.Text.RegularExpressions.Regex TmpfsPathPattern = new("^/[A-Za-z0-9_./-]*$");
 
     private static string? NormalizeRelativePath(string? raw, string field, string where)
     {
@@ -746,6 +841,26 @@ public static class CapabilityCatalogLoader
         public List<string>? Entrypoint { get; set; }
         public List<string>? Command { get; set; }
         public Dictionary<string, string?>? Env { get; set; }
+        public ResourcesDto? Resources { get; set; }
+        public int? TimeoutSeconds { get; set; }
+        public SecurityDto? Security { get; set; }
+        public string? Network { get; set; }
+    }
+
+    private sealed class ResourcesDto
+    {
+        public string? Memory { get; set; }
+        public double? Cpus { get; set; }
+        public int? Pids { get; set; }
+    }
+
+    private sealed class SecurityDto
+    {
+        public List<string>? CapAdd { get; set; }
+        public bool? NoNewPrivileges { get; set; }
+        public bool? ReadOnlyRootfs { get; set; }
+        public string? User { get; set; }
+        public List<string>? Tmpfs { get; set; }
     }
 
     private sealed class HttpDto

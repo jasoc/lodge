@@ -947,4 +947,79 @@ public class CapabilityCatalogLoaderTests
             """)));
         Assert.Contains(expected, ex.Message);
     }
+
+    [Fact]
+    public void LoadCapability_parses_resources_timeout_security_and_network()
+    {
+        var container = CapabilityCatalogLoader.LoadCapability(ContainerYaml("""
+                          image: "alpine:3.20"
+                          resources: { memory: 512M, cpus: 1.5, pids: 100 }
+                          timeout_seconds: 900
+                          network: internal
+                          security:
+                            cap_add: [net_admin, CHOWN, NET_ADMIN]
+                            no_new_privileges: false
+                            read_only_rootfs: false
+                            user: "1000:1000"
+                            tmpfs: [/var/cache/, /run]
+            """)).Signals[0].Rules[0].Actions[0].Container!;
+
+        Assert.Equal(new ContainerResources("512m", 1.5, 100), container.Resources);
+        Assert.Equal(900, container.TimeoutSeconds);
+        Assert.Equal("internal", container.Network);
+        Assert.Equal(new[] { "CHOWN", "NET_ADMIN" }, container.Security!.CapAdd);
+        Assert.False(container.Security.NoNewPrivileges);
+        Assert.False(container.Security.ReadOnlyRootfs);
+        Assert.Equal("1000:1000", container.Security.User);
+        Assert.Equal(new[] { "/run", "/var/cache" }, container.Security.Tmpfs);
+    }
+
+    [Fact]
+    public void An_action_without_the_hardening_fields_keeps_its_exact_snapshot_encoding()
+    {
+        var container = CapabilityCatalogLoader.LoadCapability(ContainerYaml("""
+                          image: "alpine:3.20"
+            """)).Signals[0].Rules[0].Actions[0].Container!;
+
+        Assert.Equal("{\"Image\":\"alpine:3.20\",\"Command\":[],\"Entrypoint\":null,\"Build\":null,\"Env\":null}",
+            ExecutorConfigJson.Serialize(container));
+    }
+
+    [Fact]
+    public void A_hardening_field_is_part_of_the_snapshot_so_changing_it_requeues()
+    {
+        string Json(string extra) => ExecutorConfigJson.Serialize(CapabilityCatalogLoader.LoadCapability(ContainerYaml($$"""
+                          image: "alpine:3.20"
+                          {{extra}}
+            """)).Signals[0].Rules[0].Actions[0].Container)!;
+
+        Assert.NotEqual(Json(""), Json("timeout_seconds: 60"));
+        Assert.NotEqual(Json("timeout_seconds: 60"), Json("timeout_seconds: 61"));
+        Assert.NotEqual(Json(""), Json("security: { read_only_rootfs: false }"));
+        Assert.NotEqual(Json(""), Json("network: none"));
+        Assert.NotEqual(Json(""), Json("resources: { pids: 10 }"));
+    }
+
+    [Theory]
+    [InlineData("resources: { memory: lots }", "container.resources.memory")]
+    [InlineData("resources: { memory: 0m }", "container.resources.memory")]
+    [InlineData("resources: { cpus: 0 }", "container.resources.cpus")]
+    [InlineData("resources: { pids: 0 }", "container.resources.pids")]
+    [InlineData("timeout_seconds: 0", "container.timeout_seconds")]
+    [InlineData("timeout_seconds: 90000", "container.timeout_seconds")]
+    [InlineData("network: \"host net\"", "container.network")]
+    [InlineData("network: Host", "container.network")]
+    [InlineData("security: { cap_add: [\"net admin\"] }", "cap_add")]
+    [InlineData("security: { user: \"root; id\" }", "container.security.user")]
+    [InlineData("security: { tmpfs: [relative] }", "container.security.tmpfs")]
+    [InlineData("security: { tmpfs: [/a/../etc] }", "container.security.tmpfs")]
+    [InlineData("security: { tmpfs: [\"/a:ro,exec\"] }", "container.security.tmpfs")]
+    public void LoadCapability_rejects_invalid_hardening_fields(string line, string expected)
+    {
+        var ex = Assert.Throws<CatalogFormatException>(() => CapabilityCatalogLoader.LoadCapability(ContainerYaml($$"""
+                          image: "alpine:3.20"
+                          {{line}}
+            """)));
+        Assert.Contains(expected, ex.Message);
+    }
 }

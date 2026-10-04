@@ -90,11 +90,33 @@ public class ShowcaseInstanceFixtureTests
         var verify = Assert.Single(AllTemplates(catalog), a => a.Key == "verify_vm").Container!;
         Assert.Null(verify.Security);                          // nothing relaxed: the restrictive defaults apply
         Assert.Equal(60, verify.TimeoutSeconds);
+        Assert.Equal("lodge", verify.Network);
         Assert.NotNull(verify.Resources);
 
         // Terraform/Ansible/compose run as root and write to /root: relaxed explicitly, and only that.
         Assert.All(AllTemplates(catalog).Where(a => a.Key != "verify_vm"), a =>
             Assert.Equal(new ContainerSecurity(User: "image", ReadOnlyRootfs: false), a.Container!.Security));
+    }
+
+    [Fact]
+    public async Task The_verify_action_invalidates_the_vms_apply_through_lodges_own_api()
+    {
+        var (catalog, mergedYaml) = await LoadHomelabLabAsync();
+        var verify = Assert.Single(AllTemplates(catalog), a => a.Key == "verify_vm");
+
+        Assert.Equal(ActionPolicy.OPTIONAL, verify.Policy);
+        Assert.Equal(RuleInputKind.Secret, Assert.Single(verify.Inputs, i => i.Name == "lodge_token").Kind);
+        Assert.DoesNotContain(verify.Inputs, i => i.Name is "pass_pat" or "tf_pg_conn_str");
+        // The identity it invalidates is exactly the action that creates the VM: same signal, same item, same key.
+        var apply = AllTemplates(catalog).Single(a => a.Key == "apply_vm");
+        Assert.NotNull(apply);
+        Assert.Equal("proxmox.virtual_machines", verify.Inputs.Single(i => i.Name == "invalidate_signal").Value);
+        Assert.Equal("apply_vm", verify.Inputs.Single(i => i.Name == "invalidate_action").Value);
+        Assert.Equal("key", verify.Inputs.Single(i => i.Name == "invalidate_key").Value);
+
+        var emitted = Reconcile(catalog, mergedYaml).ToCreate.Where(a => a.Identity.ActionKey == "verify_vm").ToList();
+        Assert.NotEmpty(emitted);
+        Assert.All(emitted, v => Assert.Equal(v.Identity.ItemKey, v.ResolvedInputs["invalidate_key"]));
     }
 
     [Fact]

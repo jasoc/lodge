@@ -6,8 +6,10 @@
 #
 # Meant to sit behind a TLS-terminating reverse proxy (Caddy, nginx, Traefik, ...) that
 # routes LODGE_HOSTNAME to the server and KEYCLOAK_HOSTNAME to Keycloak; both publish on
-# loopback only by default (see *_BIND below). A homelab NoAuth deployment can skip SSO
-# entirely: set Auth__Mode=NoAuth and start only `postgres server`.
+# loopback only by default (see *_BIND below). A homelab NoAuth deployment doesn't need
+# SSO: set Auth__Mode=NoAuth and, because compose insists on every variable of every service,
+# fill the KEYCLOAK_* ones with any placeholder (they're only used by the keycloak services),
+# then start only `postgres server`. To just look around, docker-compose.quickstart.yml is simpler.
 #
 # Nothing here touches the dev database (./data/postgres, docker-compose.yml): all state
 # lives in named volumes of the `lodge-prod` project.

@@ -97,3 +97,33 @@ DockerExecutor__Network=lodge_default   # so playbook containers reach that Post
   images) in with the token, then fetches everything else from `Homelab/environments`:
   the provider credentials, `SSH_PUBLIC_KEY`, `SSH_PRIVATE_KEY_B64`
   (`base64 -w0 <key>`), and every `${VAR}` used in the compose files.
+
+## Checking reality: the verify pattern
+
+Lodge compares this inventory with the *history of what it ran*, not with the VMs
+themselves: delete a VM in the Proxmox UI and Lodge still believes `apply_vm` succeeded.
+`verify_vm` (OPTIONAL, on every VM) shows how to close that gap without putting any of it
+in the engine:
+
+1. it runs `playbooks/verify`, which tries the VM's ssh port;
+2. if the VM answers, the run succeeds and nothing changes;
+3. if not, the run calls Lodge's own API with a service token and **invalidates** the
+   VM's succeeded `apply_vm`, then fails so the red run on the card says why;
+4. on its next cycle Lodge sees `apply_vm` as never done and offers "Create VM" again
+   (MANUAL, like always), with its policy, owner and audit trail.
+
+The playbook runs under Lodge's restrictive container profile with nothing relaxed
+(no capabilities, read-only rootfs, non-root; see
+[docs/deployment/containers.md](../../docs/deployment/containers.md)). What it needs from
+the deployment:
+
+| What | How |
+|---|---|
+| A service token with the `actions` scope | `lodge tokens create --display-name verify --scope actions`, exported to the **server** as `LODGE_VERIFY_TOKEN` (the action's `lodge_token` secret; it is masked in the run log) |
+| The container can reach Lodge | `DockerExecutor__NetworkProfiles__lodge=<the docker network Lodge is on>` (the action says `network: lodge`; `lodge-prod_default` with `docker-compose.prod.yml`) and `lodge_url` in the action (`http://server:8080`, the compose service) |
+
+Two things to know. An identity covered by `past_history` is adopted again as soon as it is
+invalidated, so the entry has to go once the history is real. And the same shape fits any
+check: replace the ssh probe with an API read, a `terraform plan -detailed-exitcode`, a
+checksum, and invalidate whichever action no longer holds. Only the playbook and the
+action's inputs change.

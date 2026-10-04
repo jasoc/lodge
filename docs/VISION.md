@@ -58,13 +58,20 @@ said and what has happened.
 ## Why a reconciler
 
 The model that makes "when should this button exist?" answerable is the one Kubernetes
-uses for everything: declare what you *want*, compare it continuously to what you
-*have*, and let the difference, the drift, be the thing that produces work.
+uses for everything: declare what you *want*, compare it to what you *have*, and let the
+difference, the drift, be the thing that produces work.
+
+One difference from Kubernetes, stated plainly because it changes what you can rely on:
+what Lodge calls "what you have" is **the history of actions it ran successfully**, not
+the observed state of the systems. A controller in Kubernetes reads the world; Lodge reads
+its own ledger. That is why it needs no agents, credentials into every system or
+per-system controllers, and why it cannot notice a VM deleted by hand. See "Reality is not
+observed" below for how to close that gap when it matters.
 
 Lodge borrows that shape wholesale, minus the cluster. A **Kind** is a CRD: the schema
 and vocabulary for one type of governed thing. An **Instance** is one concrete object of
-that Kind. A reconciliation cycle diffs desired state against confirmed history and turns
-every difference into an **Action**: the "button" from the original want, now with an
+that Kind. A reconciliation cycle diffs desired state against the history of confirmed actions (not
+against observed reality) and turns every difference into an **Action**: the "button" from the original want, now with an
 identity, a status, and a policy: `AUTO` (Lodge just does it), `MANUAL_REQUIRED` (a human
 has to confirm), or `OPTIONAL` (available, never required).
 
@@ -138,8 +145,9 @@ ended. None of the words "VM", "Terraform" or "Proxmox" appear anywhere in Lodge
 
 - Reads declarative state from Git (a local working tree or a real GitHub repo), the
   single source of truth, never mutated by Lodge itself.
-- Diffs it against confirmed history on every reconciliation cycle (a timer, a button, an
-  API call, a CI job: all the same coalesced operation underneath).
+- Diffs it against the history of confirmed actions (its own record in Postgres, not the
+  live systems) on every reconciliation cycle (a timer, a button, an API call, a CI job:
+  all the same coalesced operation underneath).
 - Turns every drift into an auditable Action with resolved inputs, a policy, and, for
   `MANUAL_REQUIRED` actions that need more than the inventory provides, prompts a human
   fills in at confirm time.
@@ -152,6 +160,30 @@ ended. None of the words "VM", "Terraform" or "Proxmox" appear anywhere in Lodge
   came from no-auth local admin or a real SSO login.
 - Exposes all of the above through one API, with a CLI and a web UI as equal peers of
   it: nothing one can do that the other can't.
+
+## Reality is not observed
+
+Because the thing Lodge compares your files to is its record of what it did, three things
+follow, and they are worth knowing before you rely on it:
+
+- **Out-of-band changes are invisible.** A VM destroyed by hand, a record edited in a
+  dashboard: Lodge still believes the last confirmed state. Nothing flags it.
+- **The history is state worth backing up.** It lives in Postgres, not in Git. Lose it and
+  everything looks unconfirmed. Back the database up like one that matters (README, "Back
+  up Postgres"), and use `past_history` to declare what already exists if you ever
+  start over.
+- **Adopting what already exists is explicit.** `past_history` records identities as done
+  without running them; it is the way in for systems that predate Lodge, and the way
+  back after a lost history.
+
+Closing the gap is a pattern, deliberately kept out of the engine: an `OPTIONAL` action
+inspects reality (a ping, an API read, a `terraform plan` that must be empty) and, when
+it finds a difference, **invalidates** the succeeded action that no longer holds, through
+the same API the UI uses. The next cycle then treats that action as never done and offers
+it again, with its policy, its owner and its audit trail. The engine stays generic (it
+knows nothing about what "reachable" means); the check lives next to your capability,
+where you can read and review it. `inventory/homelab/` has a worked example
+(`verify_vm`), written up in its README.
 
 ## Why it's shaped the way it is
 
@@ -180,6 +212,8 @@ ended. None of the words "VM", "Terraform" or "Proxmox" appear anywhere in Lodge
 - **Not a CMDB or a portal with a fixed model.** It has no opinion on what your world
   contains. If you can describe it as YAML and act on it with a container or an HTTP
   call, it fits.
+- **Not a drift detector.** It compares your files with what it has done, not with what is
+  there. Detecting out-of-band change is a check you add, see above.
 - **Not a CI system.** Pipelines run when code changes; Lodge acts when the description
   of the world and the world disagree, and keeps the history of both.
 

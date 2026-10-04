@@ -1,0 +1,54 @@
+# The two-minute way to look at Lodge: the server (API + UI) and its Postgres, no login
+# (Auth__Mode=NoAuth), reading the example inventory/ in this checkout.
+#
+#   docker compose -f docker-compose.quickstart.yml up -d
+#   open http://localhost:8080          # stop: docker compose -f docker-compose.quickstart.yml down
+#
+# Nothing here is for production — that is docker-compose.prod.yml (see README). Whatever is
+# in this stack's database lives in the `lodge-quickstart` project's named volumes; `down -v`
+# throws it away. Nothing runs by itself: every action of the example waits for you to confirm
+# it (the AUTO ones are blocked behind a manual one).
+name: lodge-quickstart
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lodge
+      POSTGRES_USER: lodge
+      POSTGRES_PASSWORD: lodge
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lodge -d lodge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    image: ${LODGE_SERVER_IMAGE:-ghcr.io/jasoc/lodge:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: lodge
+      Auth__Mode: NoAuth
+      Git__Provider: Local
+    volumes:
+      # The source of truth stays outside the image; Lodge only ever reads it.
+      - ./inventory:/repo/inventory:ro
+      - ./schemas:/repo/schemas:ro
+      - lodge-data:/repo/data
+      # For `executor: container` actions. Root-equivalent on this host: fine for a look
+      # around, not for anything shared. Drop this line and the UI still works; container
+      # actions then fail when you confirm them.
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:${SERVER_PORT:-8080}:8080"
+
+volumes:
+  postgres-data:
+  lodge-data:

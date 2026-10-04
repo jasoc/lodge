@@ -4,8 +4,9 @@
 #   modify → apply_vm_changes (Terraform updates it in place, MANUAL)
 #   delete → destroy_vm (Terraform destroys it, MANUAL — only members of `admins`)
 #   plan_vm (OPTIONAL, any time): what Terraform would change for this VM right now
-#   verify_vm (OPTIONAL, any time): is the VM reachable over ssh — the one action here that
-#     runs under the restrictive container profile, with nothing relaxed
+#   verify_vm (OPTIONAL, any time): is the VM reachable over ssh; if not, invalidate apply_vm
+#     so Lodge offers it again — the pattern for checking reality (see README.md). It is the
+#     one action here that runs under the restrictive container profile, with nothing relaxed
 #
 # Terraform: the generic runner (playbooks/terraform) applies the `proxmox-vm` module as
 # its own root with its own state — a Postgres workspace named after the item's path
@@ -81,11 +82,17 @@ signals:
               inputs: { from: item }
               import_id: { from: item.import_id }
 
-          # Runs under Lodge's restrictive container profile (no `security:` block): a
-          # read-only check needs no secrets, no capabilities and no writable rootfs, so
-          # it drops the kind's default secret inputs too.
+          # Lodge compares the inventory with the history of what it ran, not with reality —
+          # this is how a check closes that gap without the engine knowing anything about VMs:
+          # if the VM stopped answering, the run invalidates the VM's `apply_vm` through Lodge's
+          # own API, so the next cycle offers "Create VM" again. Needs a service token with the
+          # `actions` scope in LODGE_VERIFY_TOKEN (see the README), and the container able to reach Lodge:
+          # the `lodge` network profile is the one the server's DockerExecutor__NetworkProfiles__lodge
+          # maps to Lodge's own docker network. Runs under the restrictive container profile
+          # (no `security:` block): it needs no capabilities and no writable rootfs, and drops the
+          # kind's default secret inputs.
           - key: verify_vm
-            label: "Verify VM (ssh reachable, read-only)"
+            label: "Verify VM (ssh reachable; invalidates Create if not)"
             policy: OPTIONAL
             executor: container
             container:
@@ -93,11 +100,17 @@ signals:
               command: ["reachable"]
               timeout_seconds: 60
               resources: { memory: 64m, cpus: 0.5, pids: 32 }
+              network: lodge
             inputs:
               pass_pat: ~
               tf_pg_conn_str: ~
               vm_name: { from: key }
               host: { from: item.ip }
+              lodge_url: { const: "http://server:8080" }
+              lodge_token: { secret: LODGE_VERIFY_TOKEN }
+              invalidate_signal: { const: proxmox.virtual_machines }
+              invalidate_key: { from: key }
+              invalidate_action: { const: apply_vm }
 
       - on: modify
         actions:

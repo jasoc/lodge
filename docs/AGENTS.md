@@ -11,8 +11,12 @@ this file. For *why* the project exists and is shaped this way — not covered h
 
 Lodge is a **governance control plane**. Git (or a local working tree) is the single
 source of truth (SSOT) for declarative inventory. Lodge reads it, reconciles desired
-state against confirmed history, and turns each drift into an auditable **action** that
-runs a container or calls an HTTP API. Lodge governs; the executor executes.
+state against the history of confirmed actions — **not** against observed reality: an
+out-of-band change is invisible to it — and turns each drift into an auditable **action**
+that runs a container or calls an HTTP API. Lodge governs; the executor executes. The history
+lives in Postgres (back it up). Detecting out-of-band change is a pattern in the inventory, not
+the engine: an OPTIONAL action that invalidates the action that no longer holds (see
+`inventory/homelab/README.md`).
 
 The whole thing runs as **one process, one container**: `Lodge.Server` serves the API,
 serves the built Angular SPA as static files, runs the reconciliation loop, and migrates

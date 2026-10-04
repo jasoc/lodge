@@ -10,6 +10,8 @@ an action `requires`).
 The CLI (`lodge`) and the web UI are peer clients of the same API — nothing you can do in
 one, you can't also do in the other.
 
+![An instance's Capabilities view: per-capability action cards, a failed manual action waiting for a retry, and a custom VM sizes view](resources/instance-capabilities.png)
+
 ## Prerequisites
 
 The scripts never install anything: they check that each tool is present at the pinned

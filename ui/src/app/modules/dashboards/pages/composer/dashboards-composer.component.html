@@ -15,75 +15,71 @@
     [class.sider-collapsed]="siderCollapsed()"
   >
     @if (!siderCollapsed()) {
-      <mat-tab-group class="sider-content-enter lodge-fill-tabs">
-        <mat-tab>
-          <ng-template mat-tab-label>
-            <mat-icon fontSet="material-symbols-outlined">list</mat-icon>
-            <span class="tab-label">Widgets</span>
-          </ng-template>
-          <div class="tab-body">
-            <div class="widget-preview-title">
-              <m3-icon>grid_on</m3-icon>
-              <p>Sub grid</p>
-              <button mat-flat-button color="primary" (click)="addSubGridToDashboard()">Add</button>
-            </div>
-            <div class="separator"></div>
-
-            @for (selector of allWidgetsSelector; track selector) {
+      <div class="sider-content sider-content-enter">
+        <lodge-tab-bar
+          [tabs]="siderTabs"
+          [selected]="siderTab()"
+          (selectedChange)="siderTab.set($any($event))"
+          aria-label="Composer panels"
+        />
+        <div class="tab-body lodge-tab-content">
+          @switch (siderTab()) {
+            @case ('options') {
+              <button mat-fab extended color="primary" (click)="saveDashboard()">
+                <mat-icon fontSet="material-symbols-outlined">save</mat-icon>
+                Save
+              </button>
+            }
+            @case ('selected') {
+              @if (currentOptionForm && currentOptionDefaultValues) {
+                <ng-container
+                  #currentOptionFormOutlet
+                  [ngTemplateOutlet]="currentOptionFormContent"
+                >
+                </ng-container>
+                <ng-template #currentOptionFormContent>
+                  <app-dynamic-form
+                    [questions]="currentOptionForm"
+                    [overrideValues]="currentOptionDefaultValues"
+                    (valuesChange)="onWidgetOptionChanges($event)"
+                  ></app-dynamic-form>
+                </ng-template>
+              }
+            }
+            @default {
               <div class="widget-preview-title">
-                <m3-icon>{{
-                  dashboardService.getLodgeWidgetBySelector(selector).icon ?? 'widgets'
-                }}</m3-icon>
-                <p>
-                  {{ dashboardService.getLodgeWidgetBySelector(selector).name }}
-                </p>
-                <button mat-flat-button color="primary" (click)="addToDashboard(selector)">
+                <m3-icon>grid_on</m3-icon>
+                <p>Sub grid</p>
+                <button mat-flat-button color="primary" (click)="addSubGridToDashboard()">
                   Add
                 </button>
               </div>
-              <gridstack
-                [options]="widgetPreviewOptions.get(selector)!"
-                style="pointer-events: none"
-              >
-                <div empty-content>Add items here or reload the grid</div>
-              </gridstack>
               <div class="separator"></div>
-            }
-          </div>
-        </mat-tab>
-        <mat-tab>
-          <ng-template mat-tab-label>
-            <mat-icon fontSet="material-symbols-outlined">settings</mat-icon>
-            <span class="tab-label">Options</span>
-          </ng-template>
-          <div class="tab-body">
-            <button mat-fab extended color="primary" (click)="saveDashboard()">
-              <mat-icon fontSet="material-symbols-outlined">save</mat-icon>
-              Save
-            </button>
-          </div>
-        </mat-tab>
 
-        <mat-tab>
-          <ng-template mat-tab-label>
-            <mat-icon fontSet="material-symbols-outlined">widgets</mat-icon>
-            <span class="tab-label">Selected widget</span>
-          </ng-template>
-          <div class="tab-body">
-            @if (currentOptionForm && currentOptionDefaultValues) {
-              <ng-container #currentOptionFormOutlet [ngTemplateOutlet]="currentOptionFormContent">
-              </ng-container>
-              <ng-template #currentOptionFormContent>
-                <app-dynamic-form
-                  [questions]="currentOptionForm"
-                  [overrideValues]="currentOptionDefaultValues"
-                  (valuesChange)="onWidgetOptionChanges($event)"
-                ></app-dynamic-form>
-              </ng-template>
+              @for (selector of allWidgetsSelector; track selector) {
+                <div class="widget-preview-title">
+                  <m3-icon>{{
+                    dashboardService.getLodgeWidgetBySelector(selector).icon ?? 'widgets'
+                  }}</m3-icon>
+                  <p>
+                    {{ dashboardService.getLodgeWidgetBySelector(selector).name }}
+                  </p>
+                  <button mat-flat-button color="primary" (click)="addToDashboard(selector)">
+                    Add
+                  </button>
+                </div>
+                <gridstack
+                  [options]="widgetPreviewOptions.get(selector)!"
+                  style="pointer-events: none"
+                >
+                  <div empty-content>Add items here or reload the grid</div>
+                </gridstack>
+                <div class="separator"></div>
+              }
             }
-          </div>
-        </mat-tab>
-      </mat-tab-group>
+          }
+        </div>
+      </div>
     }
     <div id="dashboards-composer-sider-handle" (click)="toggleSiderCollapse()">
       <m3-icon>{{ siderCollapsed() ? 'keyboard_arrow_left' : 'keyboard_arrow_right' }}</m3-icon>

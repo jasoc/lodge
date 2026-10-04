@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 
 import { dashboardResolver } from './modules/dashboards/dashboards.resolver';
+import { INSTANCE_TABS } from './modules/instances/instance-tabs';
 import { PermissionsService } from './services/permissions.service';
 
 export const routes: Routes = [
@@ -66,6 +67,16 @@ export const routes: Routes = [
                   import('./modules/instances/instance-detail.component').then(
                     (m) => m.InstanceDetailComponent,
                   ),
+                // Componentless: the page itself renders the section (it shares one set of
+                // loaded data across them); the child only puts it in the URL.
+                children: [
+                  { path: '', pathMatch: 'full', redirectTo: INSTANCE_TABS[0].id },
+                  ...INSTANCE_TABS.map((tab) => ({
+                    path: tab.id,
+                    data: { breadcrumb: false },
+                    children: [],
+                  })),
+                ],
               },
             ],
           },

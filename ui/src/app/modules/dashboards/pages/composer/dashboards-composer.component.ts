@@ -22,12 +22,12 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatTabsModule } from '@angular/material/tabs';
 import { ActivatedRoute } from '@angular/router';
 
 import { DynamicFormComponent } from '../../../../components/dynamic-form/dynamic-form.component';
 import { DynamicFormRoot } from '../../../../components/dynamic-form/types/dynamic-form';
 import { M3IconComponent } from '../../../../components/m3-icon/m3-icon.component';
+import { TabBarComponent, TabBarItem } from '../../../../components/tab-bar/tab-bar.component';
 import { DashboardModel } from '../../../../domain';
 import { DashboardService } from '../../../../services/dashboard.service';
 import { QuestionControlService } from '../../../../services/question-control.service';
@@ -43,7 +43,7 @@ import { BaseLodgeWidget } from '../../widgets/BaseLodgeWidget';
     GridstackModule,
     MatButtonModule,
     MatIconModule,
-    MatTabsModule,
+    TabBarComponent,
     M3IconComponent,
     DynamicFormComponent,
   ],
@@ -61,6 +61,12 @@ export class DashboardsComposerComponent {
     read: TemplateRef,
   });
 
+  readonly siderTabs: TabBarItem[] = [
+    { id: 'widgets', label: 'Widgets', icon: 'list' },
+    { id: 'options', label: 'Options', icon: 'settings' },
+    { id: 'selected', label: 'Selected widget', icon: 'widgets' },
+  ];
+  readonly siderTab = signal('widgets');
   readonly siderCollapsed = signal(false);
   readonly dashboard = signal<DashboardModel | undefined>(undefined);
 

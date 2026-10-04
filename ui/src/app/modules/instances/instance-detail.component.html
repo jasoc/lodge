@@ -59,23 +59,11 @@
     </section>
   }
 
-  <mat-tab-group>
-    <mat-tab>
-      <ng-template mat-tab-label>
-        <mat-icon fontSet="material-symbols-outlined">bolt</mat-icon>
-        <span class="tab-label">Capabilities</span>
-      </ng-template>
-      <div class="tab-body">
-        <ng-container [ngTemplateOutlet]="capabilityCardsTpl"></ng-container>
-      </div>
-    </mat-tab>
+  <lodge-tab-bar [tabs]="tabs" [selected]="activeTab()" aria-label="Instance sections" />
 
-    <mat-tab>
-      <ng-template mat-tab-label>
-        <mat-icon fontSet="material-symbols-outlined">format_list_numbered</mat-icon>
-        <span class="tab-label">Run queue</span>
-      </ng-template>
-      <div class="tab-body">
+  <div class="tab-body lodge-tab-content">
+    @switch (activeTab()) {
+      @case ('queue') {
         <lodge-run-queue
           [actions]="actions()"
           [lockedReason]="lockedReasonFn"
@@ -84,15 +72,8 @@
           (openLog)="openLog($event)"
           (run)="runFromQueue($event)"
         ></lodge-run-queue>
-      </div>
-    </mat-tab>
-
-    <mat-tab>
-      <ng-template mat-tab-label>
-        <mat-icon fontSet="material-symbols-outlined">account_tree</mat-icon>
-        <span class="tab-label">Graph</span>
-      </ng-template>
-      <div class="tab-body">
+      }
+      @case ('graph') {
         <lodge-action-graph
           [actions]="actions()"
           [lockedReason]="lockedReasonFn"
@@ -100,21 +81,17 @@
           (openLog)="openLog($event)"
           (confirm)="startConfirm($event)"
         ></lodge-action-graph>
-      </div>
-    </mat-tab>
-
-    <mat-tab>
-      <ng-template mat-tab-label>
-        <mat-icon fontSet="material-symbols-outlined">description</mat-icon>
-        <span class="tab-label">Inventory</span>
-      </ng-template>
-      <div class="tab-body">
+      }
+      @case ('inventory') {
         <lodge-yaml-viewer
           [value]="t.latest_yaml ?? '# no inventory revision yet'"
         ></lodge-yaml-viewer>
-      </div>
-    </mat-tab>
-  </mat-tab-group>
+      }
+      @default {
+        <ng-container [ngTemplateOutlet]="capabilityCardsTpl"></ng-container>
+      }
+    }
+  </div>
 
   <ng-template #capabilityCardsTpl>
     <div class="capability-toolbar">

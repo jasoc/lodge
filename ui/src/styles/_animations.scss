@@ -51,17 +51,6 @@ $lodge-ease-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
 // ---------------------------------------------------------------------------
-// Navigation Drawer — subgroup
-// ---------------------------------------------------------------------------
-.subgroup-animated {
-  transition: opacity 280ms $lodge-ease;
-
-  &.subgroup-hidden {
-    opacity: 0;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // M3 Button — justify-content animation
 // ---------------------------------------------------------------------------
 .m3-button-spaced-animated {
@@ -107,4 +96,29 @@ $lodge-ease-standard: cubic-bezier(0.2, 0, 0, 1);
 // ---------------------------------------------------------------------------
 .sider-content-enter {
   animation: lodge-fade-in-x 200ms $lodge-ease both;
+}
+
+// ---------------------------------------------------------------------------
+// Tab content — a short rise-and-fade when the section under a tab row changes
+// (whatever the @switch inserts is a direct child of the container)
+// ---------------------------------------------------------------------------
+.lodge-tab-content > * {
+  animation: lodge-tab-enter 220ms $lodge-ease-standard both;
+}
+
+@keyframes lodge-tab-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lodge-tab-content > * {
+    animation: none;
+  }
 }

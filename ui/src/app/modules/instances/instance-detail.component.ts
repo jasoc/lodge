@@ -1,7 +1,10 @@
-import { ActivatedRoute, RouterModule } from '@angular/router';
+import { filter, map, startWith } from 'rxjs';
+
+import { ActivatedRoute, NavigationEnd, Router, RouterModule } from '@angular/router';
 
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatRippleModule } from '@angular/material/core';
@@ -10,11 +13,11 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { MatTabsModule } from '@angular/material/tabs';
 
 import { DynamicFormComponent } from '../../components/dynamic-form/dynamic-form.component';
 import { DynamicFormRoot } from '../../components/dynamic-form/types/dynamic-form';
 import { TextboxElement } from '../../components/dynamic-form/types/dynamic-form-element-textbox';
+import { TabBarComponent } from '../../components/tab-bar/tab-bar.component';
 import { YamlViewerComponent } from '../../components/yaml-viewer/yaml-viewer.component';
 import {
   ActionModel,
@@ -29,6 +32,7 @@ import { ActionGraphComponent } from './action-graph/action-graph.component';
 import { identityKey } from './action-graph/action-graph.model';
 import { RunLogDialogComponent, RunLogDialogData } from './run-log-dialog/run-log-dialog.component';
 import { RunQueueComponent, RunRequest } from './run-queue/run-queue.component';
+import { INSTANCE_TABS } from './instance-tabs';
 import { ViewCardComponent } from './view-card/view-card.component';
 
 /**
@@ -99,7 +103,7 @@ const SECTION_PREVIEW = 6;
     MatDialogModule,
     MatFormFieldModule,
     MatInputModule,
-    MatTabsModule,
+    TabBarComponent,
     DynamicFormComponent,
     YamlViewerComponent,
     ActionGraphComponent,
@@ -113,6 +117,7 @@ const SECTION_PREVIEW = 6;
 })
 export class InstanceDetailComponent {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly lodgeService = inject(LodgeService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly dialog = inject(MatDialog);
@@ -122,6 +127,20 @@ export class InstanceDetailComponent {
   // segment, on purpose, so the breadcrumb trail shows each segment separately).
   readonly kindCode = this.route.snapshot.parent!.paramMap.get('kind')!;
   readonly instanceCode = this.route.snapshot.paramMap.get('instance')!;
+
+  readonly tabs = INSTANCE_TABS.map((tab) => ({
+    ...tab,
+    link: ['/instances', this.kindCode, this.instanceCode, tab.id],
+  }));
+  /** The section in the URL: the page's only child route. */
+  readonly activeTab = toSignal(
+    this.router.events.pipe(
+      filter((event) => event instanceof NavigationEnd),
+      startWith(null),
+      map(() => this.route.snapshot.firstChild?.routeConfig?.path ?? INSTANCE_TABS[0].id),
+    ),
+    { initialValue: INSTANCE_TABS[0].id as string },
+  );
 
   readonly loading = signal(true);
   readonly instance = signal<InstanceDetailModel | null>(null);

@@ -14,9 +14,8 @@
         collapsed() ? 'menu' : 'menu_open'
       }}</mat-icon>
     </button>
-    @if (!collapsed()) {
-      <p class="lodge-fade-enter">Lodge</p>
-    }
+    <span class="lodge-logo" role="img" aria-label="Lodge"></span>
+    <p class="fade-slot" [class.faded]="collapsed()" aria-hidden="true">Lodge</p>
   </div>
 
   <nav class="entries">
@@ -24,39 +23,45 @@
     @for (element of navigationElementsTree(); track element.name) {
       @if (element.type === 'tag') {
         <div class="navigation-section" [class.navigation-section-collapsed]="collapsed()">
-          @if (!collapsed()) {
-            <span class="lodge-fade-enter">{{ element.name }}</span>
-          }
+          <span class="fade-slot" [class.faded]="collapsed()" [attr.aria-hidden]="collapsed()">{{
+            element.name
+          }}</span>
         </div>
       } @else {
-        <div class="navigation-entry" [class.navigation-entry-expanded]="element.isExpanded">
+        @let hasSub = element.subElements.length > 0;
+        @let open = hasSub && isExpanded(element) && !collapsed();
+        <div class="navigation-entry" [class.navigation-entry-expanded]="open">
           <m3-button
-            [icon-filled]="element.rippled"
+            [icon-filled]="isActive(element)"
             [Icon]="element.icon"
-            [Rippled]="element.rippled"
+            [Rippled]="isActive(element)"
             [Tooltip]="element.name"
+            [Compact]="collapsed()"
             Type="sidenav-left"
-            [Text]="collapsed() ? '' : element.name"
-            (click)="navigate(element)"
+            [Text]="element.name"
+            (click)="onEntryClick(element)"
+            (dblclick)="onEntryDoubleClick(element)"
           >
           </m3-button>
 
-          <!-- 2nd level -->
-          @if (element.isExpanded) {
-            <div class="navigation-sub subgroup-animated">
-              @for (element_1 of element.subElements; track element_1.name) {
-                @if (element_1.type === 'button') {
-                  <m3-button
-                    Type="thin"
-                    [Icon]="element_1.icon"
-                    [icon-filled]="element_1.rippled"
-                    [Text]="element_1.name"
-                    [Rippled]="element_1.rippled"
-                    (click)="navigate(element_1, element)"
-                  >
-                  </m3-button>
-                }
-              }
+          <!-- 2nd level: always rendered, so opening and closing can animate -->
+          @if (hasSub) {
+            <div class="navigation-sub-wrap" [class.open]="open" [attr.inert]="open ? null : ''">
+              <div class="navigation-sub-clip">
+                <div class="navigation-sub">
+                  @for (sub of element.subElements; track sub.redirect) {
+                    <m3-button
+                      Type="thin"
+                      [Icon]="sub.icon"
+                      [icon-filled]="isActive(sub)"
+                      [Text]="sub.name"
+                      [Rippled]="isActive(sub)"
+                      (click)="router.navigateByUrl(sub.redirect)"
+                    >
+                    </m3-button>
+                  }
+                </div>
+              </div>
             </div>
           }
         </div>

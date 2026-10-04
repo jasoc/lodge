@@ -52,6 +52,11 @@ export class BreadcrumbService {
       label = segments.join('/');
     }
 
+    // A section of a page (an instance's tabs) is not a place of its own.
+    if (route.data['breadcrumb'] === false) {
+      label = undefined;
+    }
+
     if (label) {
       breadcrumbs.push({ label, url: nextUrl });
     }

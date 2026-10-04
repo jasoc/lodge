@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Lodge.Core.Catalog;
+using Lodge.Infrastructure.Execution;
 using Lodge.Infrastructure.Git;
 using Microsoft.Extensions.Options;
 
@@ -16,9 +17,11 @@ public sealed class FileCapabilityCatalogProvider : ICapabilityCatalogProvider, 
     private readonly InventoryCatalogLoader _loader;
     private readonly ConcurrentDictionary<string, LoadedDefinitions> _cache = new(StringComparer.OrdinalIgnoreCase);
 
-    public FileCapabilityCatalogProvider(IOptions<GitSnapshotOptions> options, PlaybookContextResolver playbooks)
+    public FileCapabilityCatalogProvider(
+        IOptions<GitSnapshotOptions> options, PlaybookContextResolver playbooks, IOptions<DockerExecutorOptions> docker)
     {
-        _loader = new InventoryCatalogLoader(options.Value.RepoRoot, playbooks);
+        _loader = new InventoryCatalogLoader(
+            options.Value.RepoRoot, playbooks, new AutoBuildAllowlist(docker.Value.AutoBuildAllowlist));
     }
 
     public void Invalidate() => _cache.Clear();

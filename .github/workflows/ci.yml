@@ -26,8 +26,11 @@ jobs:
 
       - name: Validate the shipped example inventory
         # Offline, same loading code as the server; --format github turns every problem
-        # into an annotation on the offending file.
-        run: dotnet run --project cli/src/Lodge.Cli -- validate inventory --format github
+        # into an annotation on the offending file. --allow-auto-build mirrors the server's
+        # DockerExecutor__AutoBuildAllowlist: without it an AUTO action with a build is an error.
+        run: |
+          dotnet run --project cli/src/Lodge.Cli -- validate inventory --format github \
+            --allow-auto-build homelab/playbooks/ansible
 
       - name: Generated schemas are up to date
         # schemas/*.schema.json are generated from the catalog loader's document classes.

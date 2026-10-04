@@ -1,4 +1,5 @@
 using Lodge.Cli;
+using Lodge.Core.Catalog;
 using Lodge.Validation;
 
 var ct = CancellationToken.None;
@@ -57,7 +58,7 @@ static void PrintUsage()
           lodge tokens create --display-name <name> [--scope <scope>]... [--ttl-minutes <n>]
           lodge tokens list
           lodge tokens revoke <token-id>
-          lodge validate <inventory-dir> [--format text|json|github]   (offline, no server needed)
+          lodge validate <inventory-dir> [--format text|json|github] [--allow-auto-build <kind>/<playbook>]...   (offline, no server needed)
         """);
 }
 
@@ -68,6 +69,7 @@ static int Validate(string[] args)
 {
     string? directory = null;
     var format = ReportFormat.Text;
+    var autoBuild = new List<string>();
     for (var i = 1; i < args.Length; i++)
     {
         if (args[i] == "--format" && i + 1 < args.Length)
@@ -78,19 +80,23 @@ static int Validate(string[] args)
                 return 1;
             }
         }
+        else if (args[i] == "--allow-auto-build" && i + 1 < args.Length)
+        {
+            autoBuild.Add(args[++i]);
+        }
         else if (directory is null && !args[i].StartsWith("--", StringComparison.Ordinal))
         {
             directory = args[i];
         }
         else
         {
-            Console.Error.WriteLine("usage: lodge validate <inventory-dir> [--format text|json|github]");
+            Console.Error.WriteLine("usage: lodge validate <inventory-dir> [--format text|json|github] [--allow-auto-build <kind>/<playbook>]...");
             return 1;
         }
     }
     if (directory is null)
     {
-        Console.Error.WriteLine("usage: lodge validate <inventory-dir> [--format text|json|github]");
+        Console.Error.WriteLine("usage: lodge validate <inventory-dir> [--format text|json|github] [--allow-auto-build <kind>/<playbook>]...");
         return 1;
     }
 
@@ -111,7 +117,7 @@ static int Validate(string[] args)
         return 1;
     }
 
-    var diagnostics = InventoryValidator.Validate(repoRoot);
+    var diagnostics = InventoryValidator.Validate(repoRoot, autoBuildAllowlist: new AutoBuildAllowlist(autoBuild));
     Console.Write(DiagnosticFormatter.Format(diagnostics, format));
     return diagnostics.Count == 0 ? 0 : 1;
 }

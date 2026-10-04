@@ -35,11 +35,15 @@ public class ShowcaseInstanceFixtureTests
         return dir ?? throw new InvalidOperationException("repo root not found — expected to run under the Lodge repo tree");
     }
 
+    /// <summary>The playbooks of the example that AUTO actions build — what a deployment of it allowlists on the server.</summary>
+    private static readonly string[] AutoBuildAllowlist = { "homelab/playbooks/ansible" };
+
     private static async Task<(CapabilityCatalog Catalog, string MergedYaml)> LoadHomelabLabAsync()
     {
         var repoRoot = RepoRoot();
         var git = Options.Create(new GitSnapshotOptions { RepoRoot = repoRoot });
-        var catalog = await new FileCapabilityCatalogProvider(git, new PlaybookContextResolver(repoRoot)).GetCatalogAsync("homelab", "lab");
+        var docker = Options.Create(new DockerExecutorOptions { AutoBuildAllowlist = AutoBuildAllowlist.ToList() });
+        var catalog = await new FileCapabilityCatalogProvider(git, new PlaybookContextResolver(repoRoot), docker).GetCatalogAsync("homelab", "lab");
         Assert.Empty(catalog.Errors);
 
         var instanceDir = Path.Combine(repoRoot, "inventory", "homelab", "instances", "lab");
@@ -80,6 +84,24 @@ public class ShowcaseInstanceFixtureTests
             Assert.Equal("PROTON_PASS_PAT", pat.Value);
             Assert.Equal("playbooks/_base", a.Container!.Build!.AdditionalContexts!["base"]);
         });
+    }
+
+    [Fact]
+    public async Task Without_the_allowlist_the_examples_auto_builds_are_reported_and_become_manual()
+    {
+        var repoRoot = RepoRoot();
+        var git = Options.Create(new GitSnapshotOptions { RepoRoot = repoRoot });
+        var bare = await new FileCapabilityCatalogProvider(
+                git, new PlaybookContextResolver(repoRoot), Options.Create(new DockerExecutorOptions()))
+            .GetCatalogAsync("homelab", "lab");
+
+        var autoActions = new[] { "configure_vm" };   // the one AUTO action of the example: it builds the Ansible playbook
+        Assert.All(autoActions, key =>
+            Assert.Contains(bare.Errors, e => e.Contains($"action '{key}'") && e.Contains("DockerExecutor__AutoBuildAllowlist")));
+        Assert.All(AllTemplates(bare.Catalog), a => Assert.NotEqual(ActionPolicy.AUTO, a.Policy));
+
+        var (allowed, _) = await LoadHomelabLabAsync();
+        Assert.Equal(autoActions.OrderBy(k => k), AllTemplates(allowed).Where(a => a.Policy == ActionPolicy.AUTO).Select(a => a.Key).Distinct().OrderBy(k => k));
     }
 
     [Fact]

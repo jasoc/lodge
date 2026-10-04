@@ -131,6 +131,11 @@ its own Postgres schema on startup. Only Postgres is a separate container.
    UI alone.
 7. **An `AUTO` action that carries a prompt is downgraded** to effectively
    `MANUAL_REQUIRED` (it cannot run unattended).
+   Likewise an `AUTO` action with a `container.build` (it runs a Dockerfile, unattended) is
+   `MANUAL_REQUIRED` and a validation error unless the **operator** allowlists the playbook in
+   the server's config (`DockerExecutor__AutoBuildAllowlist__<n>=<kind>/<playbook folder>`,
+   optionally `@<fingerprint prefix>`) — never in the inventory, or whoever can merge to it
+   could allowlist themselves. `lodge validate --allow-auto-build` mirrors it for CI.
 8. **At most one live row per action identity**, enforced by a partial unique index in
    Postgres (`ux_actions_live`) — not just application logic.
 9. **The CLI and the UI are peer clients of the same API**, never a wrapper around each

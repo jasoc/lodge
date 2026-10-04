@@ -32,10 +32,15 @@ public static partial class InventoryValidator
 {
     /// <param name="repoRoot">The folder holding <c>inventory/</c>.</param>
     /// <param name="kinds">Only these kinds; null for every kind folder.</param>
-    public static IReadOnlyList<Diagnostic> Validate(string repoRoot, IReadOnlyCollection<string>? kinds = null)
+    /// <param name="autoBuildAllowlist">
+    /// The playbooks AUTO actions may build — mirror the server's <c>DockerExecutor__AutoBuildAllowlist</c>
+    /// so CI fails on exactly what the server would downgrade. Null allows none.
+    /// </param>
+    public static IReadOnlyList<Diagnostic> Validate(
+        string repoRoot, IReadOnlyCollection<string>? kinds = null, AutoBuildAllowlist? autoBuildAllowlist = null)
     {
         var diagnostics = new List<Diagnostic>();
-        var loader = new InventoryCatalogLoader(repoRoot, new PlaybookContextResolver(repoRoot));
+        var loader = new InventoryCatalogLoader(repoRoot, new PlaybookContextResolver(repoRoot), autoBuildAllowlist);
 
         var kindCodes = InventoryLayout.ListKinds(repoRoot);
         if (kinds is not null)

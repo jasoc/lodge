@@ -81,6 +81,30 @@ to networks:
 | `none` | no network at all |
 | anything else | `DockerExecutor__NetworkProfiles__<name>=<docker network>`; an unconfigured name fails the run before anything starts |
 
+## `AUTO` and `build`
+
+An `AUTO` action runs with no human in front of it, and a `build` runs whatever the
+playbook's Dockerfile says (every `RUN` step) on the docker host. Together they would let
+anyone who can merge to the inventory execute code unattended, so an `AUTO` action with a
+`container.build` only stays `AUTO` when the **operator** has allowlisted that playbook, in
+the server's configuration:
+
+```bash
+DockerExecutor__AutoBuildAllowlist__0=homelab/playbooks/ansible          # trust the folder
+DockerExecutor__AutoBuildAllowlist__1=homelab/playbooks/compose@3f9a1c0b7d2e   # or pin one content
+```
+
+Entries are `<kind>/<playbook folder>`; with `@<12+ hex characters of the fingerprint>` the
+entry only allows that exact content, so an edit to the folder makes the action wait for a
+human until the entry is bumped (the validation error prints the fingerprint). Without an
+entry the action is treated as `MANUAL_REQUIRED` — a human confirms the exact fingerprint
+they were shown — and the cycle reports a validation error saying what to add. The allowlist
+is deliberately not an inventory key. A folder entry trusts everything under it, so guard the
+playbook folders with review (see `docs/templates/CODEOWNERS.inventory`). `lodge validate
+--allow-auto-build <kind>/<folder>` takes the same entries, so CI fails on exactly what the
+server would downgrade. Actions that use a ready-made `image`, or are not `AUTO`, are
+unaffected.
+
 ## Run logs
 
 A run's stdout/stderr go to its log, which anyone who can see the action can read. Every

@@ -27,9 +27,61 @@ $ease: cubic-bezier(0.2, 0, 0, 1);
       flex: none;
       width: 28px;
       height: 28px;
-      margin-left: tokens.$lodge-space-2;
       background-color: var(--lodge-main-ui-text-color);
       mask: url('/lodge-logo.svg') center / contain no-repeat;
+    }
+
+    // Logo and menu icon share one 24px cell; collapsed, the logo shows until the button is
+    // hovered or focused, then the menu icon takes its place. Expanded, only the icon shows.
+    .toggle__glyphs {
+      display: grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+
+      > * {
+        grid-area: 1 / 1;
+        transition:
+          opacity 160ms ease,
+          transform 220ms $ease;
+      }
+    }
+
+    .toggle__logo {
+      width: 26px;
+      height: 26px;
+      opacity: 0;
+      transform: scale(0.8);
+    }
+
+    .toggle-collapsed {
+      .toggle__logo {
+        opacity: 1;
+        transform: none;
+      }
+
+      .toggle__icon {
+        opacity: 0;
+        transform: scale(0.8);
+      }
+
+      &:hover,
+      &:focus-visible {
+        .toggle__logo {
+          opacity: 0;
+          transform: scale(0.8);
+        }
+
+        .toggle__icon {
+          opacity: 1;
+          transform: none;
+        }
+      }
+    }
+
+    // Logo and name sit right of the button, 4px from it and 8px from each other.
+    .lodge-logo.fade-slot {
+      margin-left: tokens.$lodge-space-1;
     }
 
     p {

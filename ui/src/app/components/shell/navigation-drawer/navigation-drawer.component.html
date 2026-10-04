@@ -7,14 +7,25 @@
   <div class="navigation-drawer__top">
     <button
       mat-icon-button
+      class="toggle"
+      [class.toggle-collapsed]="collapsed()"
       [attr.aria-label]="collapsed() ? 'Expand menu' : 'Collapse menu'"
       (click)="ToggleCollapse()"
     >
-      <mat-icon fontSet="material-symbols-outlined">{{
-        collapsed() ? 'menu' : 'menu_open'
-      }}</mat-icon>
+      <!-- Collapsed, the button shows the logo and swaps to the menu icon on hover. -->
+      <span class="toggle__glyphs">
+        <span class="lodge-logo toggle__logo" aria-hidden="true"></span>
+        <mat-icon class="toggle__icon" fontSet="material-symbols-outlined">{{
+          collapsed() ? 'menu' : 'menu_open'
+        }}</mat-icon>
+      </span>
     </button>
-    <span class="lodge-logo" role="img" aria-label="Lodge"></span>
+    <span
+      class="lodge-logo fade-slot"
+      [class.faded]="collapsed()"
+      role="img"
+      aria-label="Lodge"
+    ></span>
     <p class="fade-slot" [class.faded]="collapsed()" aria-hidden="true">Lodge</p>
   </div>
 

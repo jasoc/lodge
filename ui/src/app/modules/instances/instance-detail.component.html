@@ -131,55 +131,7 @@
     <div class="capability-grid">
       <!-- Views: a named slice of the inventory, nothing to run. -->
       @for (view of views(); track view.code) {
-        <div class="capability-panel">
-          <div class="capability-panel-header">
-            <h3>{{ view.title }}</h3>
-            <span class="view-badge">
-              <mat-icon fontSet="material-symbols-outlined">visibility</mat-icon>
-              view
-            </span>
-          </div>
-          @if (view.description) {
-            <p class="view-description">{{ view.description }}</p>
-          }
-          @for (table of view.tables; track table.collection) {
-            @if (table.rows.length === 0) {
-              <p class="all-clear">
-                Nothing under <code>{{ table.collection }}</code
-                >.
-              </p>
-            } @else {
-              <table class="view-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    @for (column of table.columns; track column.field) {
-                      <th class="num">{{ column.label }}</th>
-                    }
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (row of table.rows; track row.key) {
-                    <tr>
-                      <td class="view-key">{{ row.key }}</td>
-                      @for (value of row.values; track $index) {
-                        <td class="num">{{ value ?? '—' }}</td>
-                      }
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            }
-          }
-          @if (view.values.length) {
-            <dl class="view-values">
-              @for (value of view.values; track value.path) {
-                <dt>{{ value.label }}</dt>
-                <dd>{{ value.value ?? '—' }}</dd>
-              }
-            </dl>
-          }
-        </div>
+        <lodge-view-card class="capability-panel" [view]="view" />
       }
 
       @for (card of capabilityCards(); track card.code) {
@@ -400,73 +352,81 @@
                       [ngTemplateOutlet]="itemHeader"
                       [ngTemplateOutletContext]="{ group }"
                     ></ng-container>
-                    @for (entry of group.rows; track entry.key) {
-                      <div class="check-row">
-                        @if (entry.live?.status === 'RUNNING') {
-                          <button mat-stroked-button class="check-run" disabled>
-                            <mat-icon fontSet="material-symbols-outlined" class="spin"
-                              >progress_activity</mat-icon
+                    <div class="check-pills">
+                      @for (entry of group.rows; track entry.key) {
+                        <div
+                          class="check-pill"
+                          [class.check-pill-failed]="entry.last?.status === 'FAILED'"
+                          [class.check-pill-running]="entry.live?.status === 'RUNNING'"
+                        >
+                          @if (entry.live?.status === 'RUNNING') {
+                            <button type="button" class="check-pill-run" disabled title="Running">
+                              <mat-icon fontSet="material-symbols-outlined" class="spin"
+                                >progress_activity</mat-icon
+                              >
+                              <span class="check-pill-label">{{ entry.label }}</span>
+                            </button>
+                          } @else if (entry.live; as live) {
+                            <button
+                              type="button"
+                              class="check-pill-run"
+                              matRipple
+                              [disabled]="busyActionId() === live.id || !!lockedReason(live)"
+                              [title]="lockedReason(live) ?? 'Run ' + entry.label"
+                              (click)="startConfirm(live)"
                             >
-                            Running
-                          </button>
-                        } @else if (entry.live; as live) {
-                          <button
-                            mat-stroked-button
-                            class="check-run"
-                            [disabled]="busyActionId() === live.id || !!lockedReason(live)"
-                            [title]="lockedReason(live) ?? ''"
-                            (click)="startConfirm(live)"
-                          >
-                            <mat-icon fontSet="material-symbols-outlined">{{
-                              lockedReason(live) ? 'lock' : 'play_arrow'
-                            }}</mat-icon>
-                            Run
-                          </button>
-                        } @else {
-                          <button
-                            mat-stroked-button
-                            class="check-run"
-                            disabled
-                            title="Queued again on the next reconcile"
-                          >
-                            <mat-icon fontSet="material-symbols-outlined">schedule</mat-icon>
-                            Soon
-                          </button>
-                        }
-                        <span class="check-label">
-                          {{ entry.label }}
-                          @if (entry.live) {
+                              <mat-icon fontSet="material-symbols-outlined">{{
+                                lockedReason(live) ? 'lock' : 'play_arrow'
+                              }}</mat-icon>
+                              <span class="check-pill-label">{{ entry.label }}</span>
+                            </button>
+                          } @else {
+                            <button
+                              type="button"
+                              class="check-pill-run"
+                              disabled
+                              title="Queued again on the next reconcile"
+                            >
+                              <mat-icon fontSet="material-symbols-outlined">schedule</mat-icon>
+                              <span class="check-pill-label">{{ entry.label }}</span>
+                            </button>
+                          }
+                          @if (entry.live?.requires) {
                             <ng-container
                               [ngTemplateOutlet]="lockTag"
                               [ngTemplateOutletContext]="{ action: entry.live }"
                             ></ng-container>
                           }
-                        </span>
-                        @if (entry.last; as last) {
-                          <button
-                            type="button"
-                            class="check-result"
-                            [class.check-result-failed]="last.status === 'FAILED'"
-                            [disabled]="!hasLog(last)"
-                            [title]="'Last run ' + last.status.toLowerCase() + ' — open its logs'"
-                            (click)="openLog(last)"
-                          >
-                            <mat-icon fontSet="material-symbols-outlined">{{
-                              last.status === 'FAILED' ? 'cancel' : 'check_circle'
-                            }}</mat-icon>
-                            {{ ago(last.completed_at) }}
-                          </button>
-                        } @else {
-                          <span class="check-result check-result-never">never run</span>
-                        }
+                          @if (entry.last; as last) {
+                            <button
+                              type="button"
+                              class="check-pill-result"
+                              matRipple
+                              [disabled]="!hasLog(last)"
+                              [title]="'Last run ' + last.status.toLowerCase() + ' — open its logs'"
+                              (click)="openLog(last)"
+                            >
+                              <mat-icon fontSet="material-symbols-outlined">{{
+                                last.status === 'FAILED' ? 'cancel' : 'check_circle'
+                              }}</mat-icon>
+                              {{ ago(last.completed_at) }}
+                            </button>
+                          } @else {
+                            <span class="check-pill-result check-pill-never" title="Never run"
+                              >never</span
+                            >
+                          }
+                        </div>
                         @if (entry.live && promptingActionId() === entry.live.id) {
-                          <ng-container
-                            [ngTemplateOutlet]="promptFormTpl"
-                            [ngTemplateOutletContext]="{ action: entry.live }"
-                          ></ng-container>
+                          <div class="check-prompt">
+                            <ng-container
+                              [ngTemplateOutlet]="promptFormTpl"
+                              [ngTemplateOutletContext]="{ action: entry.live }"
+                            ></ng-container>
+                          </div>
                         }
-                      </div>
-                    }
+                      }
+                    </div>
                   </div>
                 }
                 <ng-container

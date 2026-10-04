@@ -12,7 +12,16 @@
     <p>No audit events yet.</p>
   }
 
-  <table mat-table [dataSource]="dataSource" matSort>
+  <table mat-table [dataSource]="dataSource" matSort multiTemplateDataRows>
+    <ng-container matColumnDef="expand">
+      <th mat-header-cell *matHeaderCellDef aria-label="Expand row"></th>
+      <td mat-cell *matCellDef="let row">
+        <mat-icon fontSet="material-symbols-outlined" class="expand-icon">
+          {{ expandedId() === row.id ? 'expand_less' : 'expand_more' }}
+        </mat-icon>
+      </td>
+    </ng-container>
+
     <ng-container matColumnDef="kind_code">
       <th mat-header-cell *matHeaderCellDef mat-sort-header sortActionDescription="Sort by kind">
         Kind
@@ -29,7 +38,17 @@
       >
         Instance
       </th>
-      <td mat-cell *matCellDef="let row">{{ row.instance_display_name ?? '—' }}</td>
+      <td mat-cell *matCellDef="let row">
+        @if (row.instance_code) {
+          <a
+            [routerLink]="['/instances', row.kind_code, row.instance_code]"
+            (click)="$event.stopPropagation()"
+            >{{ row.instance_display_name ?? row.instance_code }}</a
+          >
+        } @else {
+          —
+        }
+      </td>
     </ng-container>
 
     <ng-container matColumnDef="event_type">
@@ -42,6 +61,13 @@
         Event
       </th>
       <td mat-cell *matCellDef="let row">{{ row.event_type }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="summary">
+      <th mat-header-cell *matHeaderCellDef>Details</th>
+      <td mat-cell *matCellDef="let row" class="summary-cell" [title]="row.summary">
+        <code>{{ row.summary }}</code>
+      </td>
     </ng-container>
 
     <ng-container matColumnDef="actor">
@@ -60,15 +86,68 @@
       >
         Created
       </th>
-      <td mat-cell *matCellDef="let row">{{ row.created_at | date: 'short' }}</td>
+      <td mat-cell *matCellDef="let row">{{ row.created_at | date: 'medium' }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="detail">
+      <td mat-cell *matCellDef="let row" [attr.colspan]="displayedColumns.length">
+        @if (expandedId() === row.id) {
+          <div class="audit-detail">
+            @if (row.changes.length) {
+              <table class="audit-changes">
+                <thead>
+                  <tr>
+                    <th>Signal</th>
+                    <th>Before</th>
+                    <th>After</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (change of row.changes; track change.path) {
+                    <tr>
+                      <td><code>{{ change.path }}</code></td>
+                      <td><code>{{ change.from }}</code></td>
+                      <td><code>{{ change.to }}</code></td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+
+            @if (row.fields.length) {
+              <dl class="audit-fields">
+                @for (f of row.fields; track f.key) {
+                  <dt>{{ f.key }}</dt>
+                  <dd>
+                    @if (f.block) {
+                      <pre>{{ f.text }}</pre>
+                    } @else {
+                      <code>{{ f.text }}</code>
+                    }
+                  </dd>
+                }
+              </dl>
+            } @else if (!row.changes.length) {
+              <p class="audit-empty">No payload recorded for this event.</p>
+            }
+          </div>
+        }
+      </td>
     </ng-container>
 
     <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
     <tr
       mat-row
       *matRowDef="let row; columns: displayedColumns"
-      [class.clickable-row]="row.instance_code"
-      (click)="openInstance(row)"
+      class="clickable-row"
+      [class.expanded-row]="expandedId() === row.id"
+      (click)="toggle(row)"
+    ></tr>
+    <tr
+      mat-row
+      *matRowDef="let row; columns: ['detail']"
+      class="detail-row"
+      [class.collapsed]="expandedId() !== row.id"
     ></tr>
   </table>
 </div>

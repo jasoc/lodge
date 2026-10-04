@@ -18,7 +18,7 @@
 # the only credential Lodge hands over; every run fetches the rest (provider tokens, ssh
 # key, state backend) from Proton Pass itself.
 capability: virtual_machines
-title: "Virtual Machines"
+title: "VMs provision"
 description: "Proxmox VMs: created and destroyed with Terraform, configured with Ansible."
 
 signals:

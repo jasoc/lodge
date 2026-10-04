@@ -39,6 +39,7 @@ export type {
   CapabilityDefinitionModel,
   CapabilityCatalogModel,
   CapabilityViewModel,
+  ViewJson,
   ViewTableModel,
   ViewValueModel,
 } from './catalog.model';

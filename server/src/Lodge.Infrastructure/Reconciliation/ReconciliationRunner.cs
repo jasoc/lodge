@@ -173,7 +173,7 @@ public sealed class ReconciliationRunner
                     if (!kind.Enabled)
                     {
                         messages.Add($"{kind.Code}: kind re-enabled (folder present in inventory)");
-                        AddAudit(null, kind.Code, "kind.enabled", "system", new { kind.Code });
+                        _db.AddAudit(null, kind.Code, "kind.enabled", "system", new { kind.Code });
                     }
                     kind.Enabled = true;
                     kind.Name = name;
@@ -183,7 +183,7 @@ public sealed class ReconciliationRunner
             {
                 kind.Enabled = false;
                 messages.Add($"{kind.Code}: kind disabled (no inventory/{kind.Code}/ folder)");
-                AddAudit(null, kind.Code, "kind.disabled", "system", new { kind.Code });
+                _db.AddAudit(null, kind.Code, "kind.disabled", "system", new { kind.Code });
             }
         }
 
@@ -191,7 +191,7 @@ public sealed class ReconciliationRunner
         {
             _db.Kinds.Add(new Kind { Code = descriptor.Code, Name = descriptor.Name ?? descriptor.Code, Enabled = true });
             messages.Add($"{descriptor.Code}: kind registered from inventory");
-            AddAudit(null, descriptor.Code, "kind.registered", "system", new { descriptor.Code, descriptor.Name });
+            _db.AddAudit(null, descriptor.Code, "kind.registered", "system", new { descriptor.Code, descriptor.Name });
         }
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -254,8 +254,15 @@ public sealed class ReconciliationRunner
                 ContentHash = hash,
                 CreatedAt = DateTimeOffset.UtcNow
             });
-            AddAudit(instance.Id, kindCode, "registry.revision.stored", "system",
-                new { instance = instance.InstanceCode, gitRef = head, contentHash = hash, files = group.Select(f => f.RepoRelativePath).ToList() });
+            _db.AddAudit(instance.Id, kindCode, "registry.revision.stored", "system", new
+            {
+                instance = instance.InstanceCode,
+                gitRef = head,
+                previousGitRef = latest?.GitRef,
+                contentHash = hash,
+                files = group.Select(f => f.RepoRelativePath).ToList(),
+                changes = DiffValues(latest?.YamlContent, mergedYaml!)
+            });
             messages.Add($"{kindCode}/{instance.InstanceCode}: new revision stored ({Shorten(head)})");
         }
 
@@ -288,7 +295,7 @@ public sealed class ReconciliationRunner
             messages.Add(present
                 ? $"{kindCode}/{instance.InstanceCode}: instance re-enabled (folder present in inventory)"
                 : $"{kindCode}/{instance.InstanceCode}: instance disabled (no inventory/{kindCode}/instances/{instance.InstanceCode}/ files)");
-            AddAudit(instance.Id, kindCode, $"instance.{verb}", "system", new { instance = instance.InstanceCode });
+            _db.AddAudit(instance.Id, kindCode, $"instance.{verb}", "system", new { instance = instance.InstanceCode });
         }
     }
 
@@ -352,13 +359,25 @@ public sealed class ReconciliationRunner
             var stale = await _db.Actions
                 .Where(a => result.ToSupersede.Contains(a.Id))
                 .ToListAsync(cancellationToken);
+            var replacements = result.ToCreate.Concat(result.ToAdopt).ToDictionary(r => r.Identity);
             foreach (var row in stale)
             {
+                var previousStatus = row.Status;
                 row.Status = ActionStatus.SUPERSEDED;
                 row.UpdatedAt = now;
                 row.CompletedAt = now;
-                AddAudit(instance.Id, kindCode, "action.superseded", "system",
-                    new { row.Id, row.ActionKey, row.SignalPath, row.ItemKey });
+
+                var payload = AuditLog.ActionSnapshot(row);
+                payload["previousStatus"] = previousStatus.ToString();
+                if (replacements.TryGetValue(new ActionIdentity(row.SignalPath, row.ItemKey, row.ActionKey), out var replacement))
+                {
+                    payload["newDesiredValue"] = AuditLog.ParseJson(replacement.DesiredValueJson);
+                }
+                else
+                {
+                    payload["reason"] = "no longer required by the current inventory and catalog";
+                }
+                _db.AddAudit(instance.Id, kindCode, "action.superseded", "system", payload);
             }
             await _db.SaveChangesAsync(cancellationToken);
             messages.Add($"{kindCode}/{instance.InstanceCode}: superseded {stale.Count} stale action(s)");
@@ -374,13 +393,18 @@ public sealed class ReconciliationRunner
             row.Synthetic = true;
             row.CompletedAt = row.CreatedAt;
             _db.Actions.Add(row);
-            AddAudit(instance.Id, kindCode, "action.adopted", "system",
-                new { row.Id, row.ActionKey, row.SignalPath, row.ItemKey, row.DesiredValueJson });
+            _db.AddAudit(instance.Id, kindCode, "action.adopted", "system", AuditLog.ActionSnapshot(row));
         }
         if (result.ToAdopt.Count > 0)
         {
             messages.Add($"{kindCode}/{instance.InstanceCode}: adopted {result.ToAdopt.Count} action(s) via past_history");
         }
+
+        // The last confirmed value per identity, so a generated action records the change
+        // it is meant to apply (previous -> desired), not just the target.
+        var lastConfirmed = input.History
+            .GroupBy(h => h.Identity)
+            .ToDictionary(g => g.Key, g => g.MaxBy(h => h.CompletedAt)!);
 
         var createdByIdentity = new Dictionary<ActionIdentity, ActionEntity>();
         foreach (var create in result.ToCreate)
@@ -389,8 +413,22 @@ public sealed class ReconciliationRunner
             row.Status = create.Blocked ? ActionStatus.BLOCKED : ActionStatus.QUEUED;
             _db.Actions.Add(row);
             createdByIdentity[create.Identity] = row;
-            AddAudit(instance.Id, kindCode, "action.generated", "system",
-                new { row.Id, row.ActionKey, row.SignalPath, row.ItemKey, policy = create.Policy.ToString(), status = row.Status.ToString() });
+
+            var payload = AuditLog.ActionSnapshot(row);
+            if (lastConfirmed.TryGetValue(create.Identity, out var previous))
+            {
+                payload["previousValue"] = AuditLog.ParseJson(previous.DesiredValueJson);
+                payload["previousActionId"] = previous.Id;
+            }
+            if (create.Blocked)
+            {
+                payload["blockedBy"] = create.BlockedBy;
+            }
+            if (create.PendingPrompts.Count > 0)
+            {
+                payload["pendingPrompts"] = create.PendingPrompts.Select(p => p.Name).ToList();
+            }
+            _db.AddAudit(instance.Id, kindCode, "action.generated", "system", payload);
         }
 
         // Live rows that haven't run yet follow their dependencies: unblocked ones become
@@ -513,7 +551,7 @@ public sealed class ReconciliationRunner
         {
             row.Status = status;
             row.UpdatedAt = now;
-            AddAudit(instance.Id, kindCode, eventType, "system", new { row.Id, row.ActionKey, row.SignalPath, row.ItemKey });
+            _db.AddAudit(instance.Id, kindCode, eventType, "system", AuditLog.ActionSnapshot(row));
         }
     }
 
@@ -544,18 +582,21 @@ public sealed class ReconciliationRunner
         };
     }
 
-    private void AddAudit(Guid? instanceId, string kindCode, string eventType, string actor, object payload)
+    /// <summary>
+    /// Leaf-level changes between two inventory revisions, with the values themselves:
+    /// <c>from</c> is null for an added path, <c>to</c> null for a removed one.
+    /// </summary>
+    private static List<object> DiffValues(string? previousYaml, string currentYaml)
     {
-        _db.AuditEvents.Add(new AuditEvent
-        {
-            Id = Guid.NewGuid(),
-            InstanceId = instanceId,
-            KindCode = kindCode,
-            EventType = eventType,
-            Actor = actor,
-            PayloadJson = JsonSerializer.Serialize(payload),
-            CreatedAt = DateTimeOffset.UtcNow
-        });
+        var before = previousYaml is null ? new Dictionary<string, string>() : YamlFlattener.Flatten(previousYaml);
+        var after = YamlFlattener.Flatten(currentYaml);
+
+        return before.Keys.Union(after.Keys)
+            .Order(StringComparer.Ordinal)
+            .Select(path => (path, from: before.GetValueOrDefault(path), to: after.GetValueOrDefault(path)))
+            .Where(c => !string.Equals(c.from, c.to, StringComparison.Ordinal))
+            .Select(c => (object)new { c.path, from = AuditLog.ParseJson(c.from), to = AuditLog.ParseJson(c.to) })
+            .ToList();
     }
 
     public static string ComputeHash(string content)

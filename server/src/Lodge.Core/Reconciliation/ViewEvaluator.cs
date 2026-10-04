@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Nodes;
 using Lodge.Core.Catalog;
 using Lodge.Core.Diff;
 
@@ -7,8 +8,11 @@ namespace Lodge.Core.Reconciliation;
 /// <summary>One column of a view table: a per-item field, named by its signal's label.</summary>
 public sealed record ViewColumn(string Label, string Field);
 
-/// <summary>One item of a view table: its key and one display value per column (null when the item lacks it).</summary>
-public sealed record ViewRow(string Key, IReadOnlyList<string?> Values);
+/// <summary>
+/// One item of a view table: its key and one value per column, as typed JSON (null when the
+/// item lacks it) — the UI picks how to draw each one (a list as chips, a bool as a check…).
+/// </summary>
+public sealed record ViewRow(string Key, IReadOnlyList<JsonNode?> Values);
 
 /// <summary>
 /// The items of one collection a view looks into (<c>proxmox.virtual_machines</c>), one row
@@ -16,8 +20,8 @@ public sealed record ViewRow(string Key, IReadOnlyList<string?> Values);
 /// </summary>
 public sealed record ViewTable(string Collection, IReadOnlyList<ViewColumn> Columns, IReadOnlyList<ViewRow> Rows);
 
-/// <summary>A plain (non-<c>*</c>) view signal: one labelled value.</summary>
-public sealed record ViewValue(string Label, string Path, string? Value);
+/// <summary>A plain (non-<c>*</c>) view signal: one labelled value, as typed JSON.</summary>
+public sealed record ViewValue(string Label, string Path, JsonNode? Value);
 
 /// <summary>What a view capability shows for one instance.</summary>
 public sealed record CapabilityViewData(
@@ -68,17 +72,10 @@ public static class ViewEvaluator
 
     private static string KeyOf(object key) => Convert.ToString(key, CultureInfo.InvariantCulture) ?? string.Empty;
 
-    /// <summary>Scalars as plain text, a list of scalars comma-separated, anything else as canonical JSON.</summary>
-    private static string? Display((bool Found, object? Node) resolved)
-    {
-        return !resolved.Found || resolved.Node is null ? null : Text(resolved.Node);
-
-        static string Text(object node) => node switch
-        {
-            IList<object> list when list.All(i => i is not (IDictionary<object, object> or IList<object>))
-                => string.Join(", ", list.Select(i => Convert.ToString(i, CultureInfo.InvariantCulture))),
-            IDictionary<object, object> or IList<object> => YamlFlattener.ToCanonicalJson(node),
-            _ => Convert.ToString(node, CultureInfo.InvariantCulture) ?? string.Empty
-        };
-    }
+    /// <summary>
+    /// The node as typed JSON — scalars inferred like the diff engine does (<c>"4"</c> is the
+    /// number 4, <c>"true"</c> the boolean), maps with sorted keys — or null when missing.
+    /// </summary>
+    private static JsonNode? Display((bool Found, object? Node) resolved)
+        => !resolved.Found || resolved.Node is null ? null : JsonNode.Parse(YamlFlattener.ToCanonicalJson(resolved.Node));
 }

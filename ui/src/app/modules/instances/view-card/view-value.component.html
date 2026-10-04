@@ -1,0 +1,72 @@
+@switch (shape()) {
+  @case ('empty') {
+    <span class="vv-empty" title="Not set">—</span>
+  }
+  @case ('none') {
+    <span class="vv-empty">none</span>
+  }
+  @case ('boolean') {
+    <span class="vv-bool" [class.vv-bool-on]="value()">
+      <mat-icon fontSet="material-symbols-outlined">{{
+        value() ? 'check_circle' : 'do_not_disturb_on'
+      }}</mat-icon>
+      {{ value() ? 'yes' : 'no' }}
+    </span>
+  }
+  @case ('number') {
+    <span class="vv-number">{{ value() }}</span>
+  }
+  @case ('link') {
+    <a class="vv-link" [href]="value()" target="_blank" rel="noopener" [title]="value()">
+      {{ linkText() }}
+      <mat-icon fontSet="material-symbols-outlined">open_in_new</mat-icon>
+    </a>
+  }
+  @case ('text') {
+    <span class="vv-text">{{ value() }}</span>
+  }
+  @case ('chips') {
+    <mat-chip-set class="vv-chips" role="list">
+      @for (item of items(); track $index) {
+        <mat-chip role="listitem" disableRipple>{{ item }}</mat-chip>
+      }
+    </mat-chip-set>
+  }
+  @case ('records') {
+    <div class="vv-records">
+      @for (record of records(); track $index) {
+        <div class="vv-record">
+          @if (record.title !== null) {
+            <div class="vv-record-title">{{ record.title }}</div>
+          }
+          @if (record.fields.length) {
+            <dl class="vv-fields">
+              @for (field of record.fields; track field.key) {
+                <dt>{{ field.key }}</dt>
+                <dd><lodge-view-value [value]="field.value" [depth]="depth() + 1" /></dd>
+              }
+            </dl>
+          }
+        </div>
+      }
+    </div>
+  }
+  @case ('fields') {
+    <dl class="vv-fields">
+      @for (field of fields(); track field.key) {
+        <dt>{{ field.key }}</dt>
+        <dd><lodge-view-value [value]="field.value" [depth]="depth() + 1" /></dd>
+      }
+    </dl>
+  }
+  @case ('list') {
+    <div class="vv-list">
+      @for (item of items(); track $index) {
+        <lodge-view-value [value]="item" [depth]="depth() + 1" />
+      }
+    </div>
+  }
+  @case ('json') {
+    <code class="vv-json">{{ json() }}</code>
+  }
+}

@@ -1,0 +1,130 @@
+@use 'tokens' as tokens;
+@use '@angular/material' as mat;
+
+:host {
+  display: block;
+  min-width: 0;
+
+  // Compact, read-only chips: smaller than the interactive default, tinted with the accent.
+  @include mat.chips-overrides(
+    (
+      container-height: 24px,
+      container-shape-radius: 8px,
+      label-text-size: 0.8rem,
+      outline-color: transparent,
+      elevated-container-color: color-mix(
+          in srgb,
+          var(--mat-sys-primary, currentColor) 16%,
+          transparent
+        ),
+      label-text-color: var(--lodge-main-ui-text-color),
+    )
+  );
+}
+
+.vv-empty {
+  color: var(--lodge-main-ui-text-color-light);
+  font-style: italic;
+}
+
+.vv-number {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.vv-text {
+  overflow-wrap: anywhere;
+}
+
+.vv-bool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--lodge-main-ui-text-color-light);
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+  }
+
+  &-on {
+    color: var(--lodge-main-ui-text-color);
+
+    mat-icon {
+      color: var(--mat-sys-primary, currentColor);
+    }
+  }
+}
+
+.vv-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--mat-sys-primary, inherit);
+  overflow-wrap: anywhere;
+
+  mat-icon {
+    flex: none;
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.vv-chips {
+  display: block;
+}
+
+.vv-records {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: tokens.$lodge-space-2;
+}
+
+.vv-record {
+  min-width: 0;
+  padding: tokens.$lodge-space-2;
+  border-radius: 12px;
+  border: 1px solid var(--lodge-background-shader-stronger);
+  background: var(--lodge-background-shader-lighter);
+
+  &-title {
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 4px;
+    overflow-wrap: anywhere;
+  }
+}
+
+.vv-fields {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px tokens.$lodge-space-2;
+  margin: 0;
+  font-size: 0.85rem;
+  align-items: baseline;
+
+  dt {
+    color: var(--lodge-main-ui-text-color-light);
+    font-size: 0.78rem;
+  }
+
+  dd {
+    margin: 0;
+    min-width: 0;
+  }
+}
+
+.vv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vv-json {
+  font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
+  font-size: 0.78rem;
+  color: var(--lodge-main-ui-text-color-light);
+  overflow-wrap: anywhere;
+}

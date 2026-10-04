@@ -54,17 +54,15 @@ public sealed class ActionExecutionService
         var handle = await _executor.StartAsync(
             await BuildRequestAsync(action, promptValues: null, kindCode, instanceCode, cancellationToken), cancellationToken);
 
+        var previousStatus = action.Status;
         action.Status = ActionStatus.RUNNING;
         action.ExecutionRef = handle.RunId;
         action.UpdatedAt = DateTimeOffset.UtcNow;
 
-        AddAudit(action.InstanceId, kindCode, "action.confirmed", "system", new
-        {
-            action.Id,
-            action.ActionKey,
-            runId = handle.RunId,
-            auto = true
-        });
+        var payload = AuditLog.ActionSnapshot(action);
+        payload["previousStatus"] = previousStatus.ToString();
+        payload["auto"] = true;
+        _db.AddAudit(action.InstanceId, kindCode, "action.confirmed", "system", payload);
     }
 
     /// <summary>
@@ -107,17 +105,21 @@ public sealed class ActionExecutionService
         var handle = await _executor.StartAsync(
             await BuildRequestAsync(action, promptValues, kindCode, instanceCode, cancellationToken), cancellationToken);
 
+        var previousStatus = action.Status;
         action.Status = ActionStatus.RUNNING;
         action.ExecutionRef = handle.RunId;
         action.UpdatedAt = DateTimeOffset.UtcNow;
         action.CompletedAt = null;
 
-        AddAudit(action.InstanceId, kindCode, "action.confirmed", actor, new
+        // Prompt answers are human-typed runbook inputs, not secrets (those come only
+        // from SecretInputsJson via ISecretProvider), so they are recorded as given.
+        var payload = AuditLog.ActionSnapshot(action);
+        payload["previousStatus"] = previousStatus.ToString();
+        if (promptValues is { Count: > 0 })
         {
-            action.Id,
-            action.ActionKey,
-            runId = handle.RunId
-        });
+            payload["promptValues"] = promptValues;
+        }
+        _db.AddAudit(action.InstanceId, kindCode, "action.confirmed", actor, payload);
 
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -156,13 +158,7 @@ public sealed class ActionExecutionService
         action.InvalidatedBy = actor;
         action.UpdatedAt = DateTimeOffset.UtcNow;
 
-        AddAudit(action.InstanceId, kindCode, "action.invalidated", actor, new
-        {
-            action.Id,
-            action.ActionKey,
-            action.SignalPath,
-            action.ItemKey
-        });
+        _db.AddAudit(action.InstanceId, kindCode, "action.invalidated", actor, AuditLog.ActionSnapshot(action));
 
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -226,16 +222,19 @@ public sealed class ActionExecutionService
 
         if (mapped != action.Status)
         {
+            // A RUNNING row is last touched when its run starts, so UpdatedAt is the start time.
+            var startedAt = action.UpdatedAt;
+            var now = DateTimeOffset.UtcNow;
             action.Status = mapped;
-            action.UpdatedAt = DateTimeOffset.UtcNow;
-            action.CompletedAt = DateTimeOffset.UtcNow;
-            AddAudit(action.InstanceId, kindCode, "action.execution.completed", "system", new
-            {
-                action.Id,
-                runId = action.ExecutionRef,
-                state = status.State.ToString(),
-                status.Message
-            });
+            action.UpdatedAt = now;
+            action.CompletedAt = now;
+
+            var payload = AuditLog.ActionSnapshot(action);
+            payload["state"] = status.State.ToString();
+            payload["message"] = status.Message;
+            payload["startedAt"] = startedAt;
+            payload["durationSeconds"] = Math.Round((now - startedAt).TotalSeconds, 1);
+            _db.AddAudit(action.InstanceId, kindCode, "action.execution.completed", "system", payload);
 
             if (mapped == ActionStatus.SUCCEEDED && action.Policy == ActionPolicy.OPTIONAL)
             {
@@ -291,8 +290,9 @@ public sealed class ActionExecutionService
             UpdatedAt = now
         };
         _db.Actions.Add(next);
-        AddAudit(done.InstanceId, kindCode, "action.generated", "system",
-            new { next.Id, next.ActionKey, next.SignalPath, next.ItemKey, policy = next.Policy.ToString(), requeuedAfter = done.Id });
+        var payload = AuditLog.ActionSnapshot(next);
+        payload["requeuedAfter"] = done.Id;
+        _db.AddAudit(done.InstanceId, kindCode, "action.generated", "system", payload);
     }
 
     /// <summary>
@@ -309,14 +309,11 @@ public sealed class ActionExecutionService
             return null;
         }
 
-        AddAudit(action.InstanceId, kindCode, "action.denied", actor, new
-        {
-            action.Id,
-            action.ActionKey,
-            action.Requires,
-            user = user.Id,
-            operation
-        });
+        var payload = AuditLog.ActionSnapshot(action);
+        payload["operation"] = operation;
+        payload["user"] = user.Id;
+        payload["userGroups"] = user.Groups;
+        _db.AddAudit(action.InstanceId, kindCode, "action.denied", actor, payload);
         await _db.SaveChangesAsync(cancellationToken);
         return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
             $"'{action.Label}' requires the '{action.Requires}' group, and {user.DisplayName} isn't in it.", Denied: true);
@@ -401,19 +398,5 @@ public sealed class ActionExecutionService
 
         return await _db.Actions
             .FirstOrDefaultAsync(a => a.Id == actionId && a.InstanceId == instance.Id, cancellationToken);
-    }
-
-    private void AddAudit(Guid? instanceId, string kindCode, string eventType, string actor, object payload)
-    {
-        _db.AuditEvents.Add(new Core.Domain.Entities.AuditEvent
-        {
-            Id = Guid.NewGuid(),
-            InstanceId = instanceId,
-            KindCode = kindCode,
-            EventType = eventType,
-            Actor = actor,
-            PayloadJson = JsonSerializer.Serialize(payload),
-            CreatedAt = DateTimeOffset.UtcNow
-        });
     }
 }

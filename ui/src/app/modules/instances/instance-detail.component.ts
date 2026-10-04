@@ -4,6 +4,7 @@ import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
+import { MatRippleModule } from '@angular/material/core';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -29,6 +30,7 @@ import { ActionGraphComponent } from './action-graph/action-graph.component';
 import { identityKey } from './action-graph/action-graph.model';
 import { RunLogDialogComponent, RunLogDialogData } from './run-log-dialog/run-log-dialog.component';
 import { RunQueueComponent, RunRequest } from './run-queue/run-queue.component';
+import { ViewCardComponent } from './view-card/view-card.component';
 
 /**
  * One OPTIONAL identity (a check, a plan, a test): re-invocable, one row per execution.
@@ -93,6 +95,7 @@ const SECTION_PREVIEW = 6;
     MatButtonModule,
     MatIconModule,
     MatChipsModule,
+    MatRippleModule,
     MatSnackBarModule,
     MatDialogModule,
     MatFormFieldModule,
@@ -103,6 +106,7 @@ const SECTION_PREVIEW = 6;
     YamlViewerComponent,
     ActionGraphComponent,
     RunQueueComponent,
+    ViewCardComponent,
     RouterModule,
     NgTemplateOutlet,
     DatePipe,

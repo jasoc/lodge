@@ -1,0 +1,91 @@
+<div class="vc-header">
+  <h3>{{ view().title }}</h3>
+  <span class="vc-badge">
+    <mat-icon fontSet="material-symbols-outlined">visibility</mat-icon>
+    view
+  </span>
+</div>
+@if (view().description) {
+  <p class="vc-description">{{ view().description }}</p>
+}
+
+@if (values().stats.length) {
+  <div class="vc-stats">
+    @for (stat of values().stats; track stat.label) {
+      <div class="vc-stat">
+        <span class="vc-label">{{ stat.label }}</span>
+        <lodge-view-value class="vc-stat-value" [value]="stat.value" />
+      </div>
+    }
+  </div>
+}
+@for (block of values().blocks; track block.label) {
+  <div class="vc-block">
+    <span class="vc-label">{{ block.label }}</span>
+    <lodge-view-value [value]="block.value" />
+  </div>
+}
+
+@for (entry of tables(); track entry.table.collection) {
+  <section class="vc-collection">
+    <div class="vc-collection-head">
+      <mat-icon fontSet="material-symbols-outlined">data_object</mat-icon>
+      <code>{{ entry.table.collection }}</code>
+      <span class="vc-count">{{ entry.table.rows.length }}</span>
+    </div>
+
+    @if (entry.table.rows.length === 0) {
+      <p class="vc-empty">Nothing here yet.</p>
+    } @else if (entry.layout.kind === 'table') {
+      <table class="vc-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            @for (column of entry.table.columns; track column.field; let i = $index) {
+              <th [class.num]="entry.layout.numeric[i]">{{ column.label }}</th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of entry.table.rows; track row.key) {
+            <tr>
+              <td class="vc-key">{{ row.key }}</td>
+              @for (value of row.values; track $index; let i = $index) {
+                <td [class.num]="entry.layout.numeric[i]">
+                  <lodge-view-value [value]="value" />
+                </td>
+              }
+            </tr>
+          }
+        </tbody>
+      </table>
+    } @else {
+      <div class="vc-tiles">
+        @for (tile of entry.layout.tiles; track tile.key) {
+          <article class="vc-tile">
+            <div class="vc-tile-head">
+              <mat-icon fontSet="material-symbols-outlined">deployed_code</mat-icon>
+              <span class="vc-tile-key" [title]="tile.key">{{ tile.key }}</span>
+            </div>
+            @if (tile.stats.length) {
+              <div class="vc-pills">
+                @for (stat of tile.stats; track stat.label) {
+                  <span class="vc-pill">
+                    <span class="vc-pill-label">{{ stat.label }}</span>
+                    <lodge-view-value [value]="stat.value" />
+                  </span>
+                }
+              </div>
+            }
+            @for (block of tile.blocks; track block.label) {
+              <div class="vc-tile-block">
+                <span class="vc-label">{{ block.label }}</span>
+                <lodge-view-value [value]="block.value" />
+              </div>
+            }
+          </article>
+        }
+      </div>
+    }
+  </section>
+}

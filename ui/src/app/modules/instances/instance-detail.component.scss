@@ -419,62 +419,123 @@
     border-radius: 12px;
   }
 
-  .check-row {
+  // One pill per check, side by side and wrapping only when the card runs out of room:
+  // the left part runs it, the right part is the last result (opens its logs).
+  .check-pills {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: tokens.$lodge-space-2;
-    padding: 2px 4px;
-    border-radius: 8px;
+    gap: 6px;
   }
 
-  .check-run {
-    flex: none;
-    min-width: 88px;
-  }
-
-  .check-label {
-    flex: 1;
-    min-width: 0;
-    font-size: 0.9rem;
-  }
-
-  .check-result {
+  .check-pill {
+    --check-pill-accent: var(--mat-sys-primary, var(--lodge-main-ui-text-color));
     display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    border: none;
+    align-items: stretch;
+    max-width: 100%;
+    min-height: 32px;
     border-radius: 999px;
-    background: none;
-    font: inherit;
-    font-size: 0.8rem;
-    color: var(--lodge-main-ui-text-color-light);
-    cursor: pointer;
+    box-shadow: inset 0 0 0 1px var(--lodge-background-shader-stronger);
+    background: var(--lodge-background-shader-lighter);
+    overflow: hidden;
+    transition: box-shadow 120ms ease;
 
-    &:hover:not(:disabled) {
-      background: var(--lodge-background-shader-stronger);
+    &:hover {
+      box-shadow: inset 0 0 0 1px var(--check-pill-accent);
     }
 
-    &:disabled {
-      cursor: default;
+    &-failed {
+      --check-pill-accent: var(--mat-sys-error, #c62828);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--check-pill-accent) 60%, transparent);
+    }
+
+    &-running {
+      box-shadow: inset 0 0 0 1px var(--check-pill-accent);
+      background: color-mix(in srgb, var(--check-pill-accent) 10%, transparent);
+    }
+
+    &-run,
+    &-result {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      border: none;
+      background: none;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+      position: relative;
+
+      &:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--check-pill-accent) 12%, transparent);
+      }
+
+      &:disabled {
+        cursor: default;
+      }
     }
 
     mat-icon {
-      font-size: 16px;
-      width: 16px;
-      height: 16px;
-      color: var(--lodge-main-ui-text-color);
+      flex: none;
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
     }
 
-    &-failed mat-icon {
+    &-run {
+      gap: 4px;
+      padding: 0 12px 0 8px;
+      font-size: 0.85rem;
+      font-weight: 500;
+
+      mat-icon {
+        color: var(--check-pill-accent);
+      }
+
+      &:disabled {
+        color: var(--lodge-main-ui-text-color-light);
+      }
+    }
+
+    &-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lock-tag {
+      align-self: center;
+      margin-right: 8px;
+    }
+
+    &-result {
+      gap: 3px;
+      padding: 0 10px 0 8px;
+      border-left: 1px solid var(--lodge-background-shader-stronger);
+      font-size: 0.75rem;
+      white-space: nowrap;
+      color: var(--lodge-main-ui-text-color-light);
+
+      mat-icon {
+        font-size: 15px;
+        width: 15px;
+        height: 15px;
+        color: var(--mat-sys-primary, var(--lodge-main-ui-text-color));
+      }
+    }
+
+    &-failed &-result mat-icon {
       color: var(--mat-sys-error, #c62828);
     }
 
     &-never {
-      cursor: default;
       font-style: italic;
+      cursor: default;
     }
+  }
+
+  // The prompts form of the check being run takes a line of its own, right after its pill.
+  .check-prompt {
+    flex-basis: 100%;
   }
 
   // Applied & history: dense one-liners.
@@ -583,79 +644,6 @@
 
     &-locked {
       color: var(--mat-sys-error, #c62828);
-    }
-  }
-
-  .view-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--lodge-main-ui-text-color-light);
-
-    mat-icon {
-      font-size: 16px;
-      width: 16px;
-      height: 16px;
-    }
-  }
-
-  .view-description {
-    margin: 0 0 tokens.$lodge-space-2;
-    font-size: 0.85rem;
-    color: var(--lodge-main-ui-text-color-light);
-  }
-
-  .view-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9rem;
-
-    th {
-      text-align: left;
-      font-size: 0.72rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--lodge-main-ui-text-color-light);
-      padding: 4px tokens.$lodge-space-2;
-      border-bottom: 1px solid var(--lodge-background-shader-stronger);
-    }
-
-    td {
-      padding: 6px tokens.$lodge-space-2;
-      border-bottom: 1px solid var(--lodge-background-shader);
-    }
-
-    tr:last-child td {
-      border-bottom: none;
-    }
-
-    .num {
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .view-key {
-      font-weight: 500;
-    }
-  }
-
-  .view-values {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 4px tokens.$lodge-space-3;
-    margin: tokens.$lodge-space-2 0 0;
-    font-size: 0.9rem;
-
-    dt {
-      color: var(--lodge-main-ui-text-color-light);
-    }
-
-    dd {
-      margin: 0;
     }
   }
 

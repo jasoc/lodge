@@ -53,9 +53,12 @@ export interface ViewColumnModel {
   field: string;
 }
 
+/** A view value exactly as the inventory holds it — scalars already typed (`4`, `true`). */
+export type ViewJson = string | number | boolean | null | ViewJson[] | { [key: string]: ViewJson };
+
 export interface ViewRowModel {
   key: string;
-  values: (string | null)[];
+  values: ViewJson[];
 }
 
 export interface ViewTableModel {
@@ -67,7 +70,7 @@ export interface ViewTableModel {
 export interface ViewValueModel {
   label: string;
   path: string;
-  value: string | null;
+  value: ViewJson;
 }
 
 export interface CapabilityViewModel {

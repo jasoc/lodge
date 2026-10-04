@@ -7,6 +7,8 @@ namespace Lodge.Tests;
 
 public class ViewEvaluatorTests
 {
+    private static string? Json(System.Text.Json.Nodes.JsonNode? node) => node?.ToJsonString();
+
     private static CapabilityDefinition View() => CapabilityCatalogLoader.LoadCapability("""
         capability: vm_sizes
         title: "VM sizes"
@@ -35,25 +37,34 @@ public class ViewEvaluatorTests
         Assert.Equal("proxmox.virtual_machines", table.Collection);
         Assert.Equal(new[] { "CPU", "RAM (MB)" }, table.Columns.Select(c => c.Label));
         Assert.Equal(new[] { "alpha", "zeta" }, table.Rows.Select(r => r.Key));
-        Assert.Equal(new string?[] { "4", null }, table.Rows[0].Values);
-        Assert.Equal(new string?[] { "2", "2048" }, table.Rows[1].Values);
+        Assert.Equal(new string?[] { "4", null }, table.Rows[0].Values.Select(Json));
+        Assert.Equal(new string?[] { "2", "2048" }, table.Rows[1].Values.Select(Json));
 
         var value = Assert.Single(data.Values);
         Assert.Equal("node", value.Label);
-        Assert.Equal("pve", value.Value);
+        Assert.Equal("\"pve\"", Json(value.Value));
     }
 
     [Fact]
-    public void A_list_of_scalars_reads_as_a_comma_separated_value()
+    public void Values_keep_their_shape_as_typed_json()
     {
         var view = CapabilityCatalogLoader.LoadCapability("""
             capability: stacks_view
             signals:
               - path: vms.*.compose
+              - path: vms.*.disks
+              - path: vms.*.on
             """);
-        var data = ViewEvaluator.Evaluate(view, YamlFlattener.Parse("vms:\n  a: { compose: [x.yml, y.yml] }"));
+        var data = ViewEvaluator.Evaluate(view, YamlFlattener.Parse("""
+            vms:
+              a:
+                compose: [x.yml, y.yml]
+                disks: [{ size: 10, bus: scsi }]
+                on: true
+            """));
 
-        Assert.Equal("x.yml, y.yml", data.Tables[0].Rows[0].Values[0]);
+        Assert.Equal(new[] { "[\"x.yml\",\"y.yml\"]", "[{\"bus\":\"scsi\",\"size\":10}]", "true" },
+            data.Tables[0].Rows[0].Values.Select(Json));
     }
 
     [Fact]

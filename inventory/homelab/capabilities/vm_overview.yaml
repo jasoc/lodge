@@ -2,7 +2,7 @@
 # inventory a name and a card: every VM, sorted by name, with its size next to it.
 # `collection.*.field` signals sharing a collection become one table, one column each.
 capability: vm_overview
-title: "VM sizes"
+title: "Virtual Machines"
 description: "Every VM with its CPU and memory."
 
 signals:
@@ -10,5 +10,7 @@ signals:
     label: CPU
   - path: proxmox.virtual_machines.*.memory_mb
     label: RAM (MB)
+  - path: proxmox.virtual_machines.*.ansible_profile
+    label: Ansible profile
   - path: proxmox.virtual_machines.*.compose
     label: Compose

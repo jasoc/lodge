@@ -98,7 +98,7 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
         var docker = new DockerCli(options);
         return new ContainerRunbookExecutor(
             options,
-            new PlaybookContextResolver(Options.Create(new GitSnapshotOptions { RepoRoot = RepoRoot })),
+            new PlaybookContextResolver(RepoRoot),
             new DockerImageBuilder(options, docker),
             new DockerContainerRunner(options, docker));
     }
@@ -134,7 +134,7 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
         File.WriteAllText(Path.Combine(dir, "Dockerfile"), "FROM alpine:3.20\nCOPY run.sh /run.sh\n");
         File.WriteAllText(Path.Combine(dir, "run.sh"), body);
         var build = new ContainerBuildConfig("playbooks/probe", Args: args);
-        var fingerprint = new PlaybookContextResolver(Options.Create(new GitSnapshotOptions { RepoRoot = RepoRoot }))
+        var fingerprint = new PlaybookContextResolver(RepoRoot)
             .ComputeFingerprint("homelab", build);
         return build with { Fingerprint = fingerprint };
     }
@@ -248,7 +248,7 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
         };
         build = build with
         {
-            Fingerprint = new PlaybookContextResolver(Options.Create(new GitSnapshotOptions { RepoRoot = RepoRoot }))
+            Fingerprint = new PlaybookContextResolver(RepoRoot)
                 .ComputeFingerprint("homelab", build)
         };
         var executor = NewExecutor();

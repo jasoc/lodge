@@ -39,7 +39,7 @@ public class ShowcaseInstanceFixtureTests
     {
         var repoRoot = RepoRoot();
         var git = Options.Create(new GitSnapshotOptions { RepoRoot = repoRoot });
-        var catalog = await new FileCapabilityCatalogProvider(git, new PlaybookContextResolver(git)).GetCatalogAsync("homelab", "lab");
+        var catalog = await new FileCapabilityCatalogProvider(git, new PlaybookContextResolver(repoRoot)).GetCatalogAsync("homelab", "lab");
         Assert.Empty(catalog.Errors);
 
         var instanceDir = Path.Combine(repoRoot, "inventory", "homelab", "instances", "lab");

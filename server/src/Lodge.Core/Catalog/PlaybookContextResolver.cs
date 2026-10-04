@@ -1,10 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using Lodge.Core.Catalog;
-using Lodge.Infrastructure.Git;
-using Microsoft.Extensions.Options;
-
-namespace Lodge.Infrastructure.Execution;
+namespace Lodge.Core.Catalog;
 
 /// <summary>A <c>container.build</c> context that can't be used: missing, escaping the kind folder, no Dockerfile.</summary>
 public sealed class PlaybookContextException : Exception
@@ -32,11 +28,10 @@ public sealed class PlaybookContextResolver
 {
     private readonly string _repoRoot;
 
-    public PlaybookContextResolver(IOptions<GitSnapshotOptions> options)
+    /// <param name="repoRoot">The folder holding <c>inventory/</c>; blank means the current directory.</param>
+    public PlaybookContextResolver(string? repoRoot)
     {
-        _repoRoot = string.IsNullOrWhiteSpace(options.Value.RepoRoot)
-            ? Directory.GetCurrentDirectory()
-            : options.Value.RepoRoot;
+        _repoRoot = string.IsNullOrWhiteSpace(repoRoot) ? Directory.GetCurrentDirectory() : repoRoot;
     }
 
     /// <summary>Absolute path of the build context folder, confined to <c>inventory/{kind}/</c>.</summary>

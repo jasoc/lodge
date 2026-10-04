@@ -16,7 +16,7 @@ public sealed class PlaybookContextResolverTests : IDisposable
 
     public PlaybookContextResolverTests()
     {
-        _resolver = new PlaybookContextResolver(Options.Create(new GitSnapshotOptions { RepoRoot = _repoRoot }));
+        _resolver = new PlaybookContextResolver(_repoRoot);
         Write("Dockerfile", "FROM alpine:3.20\n");
         Write("bin/run.sh", "echo hi\n");
     }

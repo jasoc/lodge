@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Lodge.Core.Catalog;
 using Lodge.Infrastructure.Git;
 using Microsoft.Extensions.Options;
 
@@ -63,37 +64,9 @@ public sealed class LocalInventorySource : IInventorySource
         return kinds;
     }
 
-    public async Task<IReadOnlyList<InstanceFile>> GetInstanceFilesAsync(string kindCode, CancellationToken cancellationToken = default)
-    {
-        var instancesDir = Path.Combine(_repoRoot, "inventory", kindCode, "instances");
-        if (!Directory.Exists(instancesDir))
-        {
-            return Array.Empty<InstanceFile>();
-        }
-
-        var files = new List<InstanceFile>();
-        foreach (var instanceDir in Directory.EnumerateDirectories(instancesDir).OrderBy(d => d, StringComparer.Ordinal))
-        {
-            var instanceCode = Path.GetFileName(instanceDir);
-            foreach (var path in Directory.EnumerateFiles(instanceDir, "*.yaml").OrderBy(f => f, StringComparer.Ordinal))
-            {
-                if (IsOverridesFile(path))
-                {
-                    continue; // capability rule overrides, not inventory data — read by ICapabilityCatalogProvider
-                }
-
-                cancellationToken.ThrowIfCancellationRequested();
-                var content = await File.ReadAllTextAsync(path, cancellationToken);
-                files.Add(new InstanceFile(
-                    instanceCode,
-                    $"inventory/{kindCode}/instances/{instanceCode}/{Path.GetFileName(path)}",
-                    content));
-            }
-        }
-
-        return files;
-    }
-
-    private static bool IsOverridesFile(string path)
-        => string.Equals(Path.GetFileName(path), "overrides.yaml", StringComparison.OrdinalIgnoreCase);
+    public Task<IReadOnlyList<InstanceFile>> GetInstanceFilesAsync(string kindCode, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<InstanceFile>>(
+            InventoryLayout.ReadInstanceFiles(_repoRoot, kindCode, cancellationToken)
+                .Select(f => new InstanceFile(f.InstanceCode, f.RepoRelativePath, f.Content))
+                .ToList());
 }

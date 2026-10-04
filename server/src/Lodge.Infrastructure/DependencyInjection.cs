@@ -1,4 +1,5 @@
 using Lodge.Core.Abstractions;
+using Lodge.Core.Catalog;
 using Lodge.Infrastructure.Auth;
 using Lodge.Infrastructure.Execution;
 using Lodge.Infrastructure.Git;
@@ -58,7 +59,7 @@ public static class DependencyInjection
 
         // Shared by the catalog provider (stamps each container.build action with its playbook
         // folder's fingerprint) and the Docker executor (re-checks it before building).
-        services.AddSingleton<PlaybookContextResolver>();
+        services.AddSingleton(sp => new PlaybookContextResolver(sp.GetRequiredService<IOptions<GitSnapshotOptions>>().Value.RepoRoot));
         services.AddSingleton<ICapabilityCatalogProvider, FileCapabilityCatalogProvider>();
         services.AddScoped<ActionExecutionService>();
 

@@ -44,6 +44,8 @@
   overflow: hidden;
   width: 24px;
   height: 24px;
+  // The glyphs inherit this; the thin variant overrides it with its smaller box.
+  font-size: 24px;
 }
 
 // A changed icon slides out to the left while the new one comes in from the right, with a
@@ -51,6 +53,8 @@
 .m3-button__glyph {
   position: absolute;
   inset: 0;
+  // m3-icon sizes itself to 24px; follow the (smaller) icon box of the thin variant instead.
+  font-size: inherit;
   align-items: center;
   justify-content: center;
 

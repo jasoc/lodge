@@ -18,7 +18,7 @@ $ease: cubic-bezier(0.2, 0, 0, 1);
     display: flex;
     align-items: center;
     flex: none;
-    height: 56px;
+    height: 72px;
     // The 40px icon button's center lands on the 36px icon axis.
     padding: 0 $rail 0 16px;
 
@@ -79,9 +79,9 @@ $ease: cubic-bezier(0.2, 0, 0, 1);
       }
     }
 
-    // Logo and name sit right of the button, 4px from it and 8px from each other.
+    // Logo and name sit right of the button, 12px from it and 8px from each other.
     .lodge-logo.fade-slot {
-      margin-left: tokens.$lodge-space-1;
+      margin-left: tokens.$lodge-space-3;
     }
 
     p {

@@ -10,6 +10,8 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatRippleModule } from '@angular/material/core';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MarqueeDirective } from '../../directives/marquee.directive';
+import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -95,6 +97,8 @@ const SECTION_PREVIEW = 6;
   templateUrl: './instance-detail.component.html',
   styleUrls: ['./instance-detail.component.scss'],
   imports: [
+    MarqueeDirective,
+    MatExpansionModule,
     MatButtonModule,
     MatIconModule,
     MatChipsModule,
@@ -455,9 +459,9 @@ export class InstanceDetailComponent {
     return section === 'todo' || section === 'optional';
   }
 
-  toggleSection(card: CapabilityCard, section: CardSection) {
+  setSection(card: CapabilityCard, section: CardSection, open: boolean) {
     const key = `${card.code}:${section}`;
-    this.sectionOpen.update((s) => ({ ...s, [key]: !this.isSectionOpen(card, section) }));
+    this.sectionOpen.update((s) => ({ ...s, [key]: open }));
   }
 
   visibleRows<T>(card: CapabilityCard, section: CardSection, rows: T[]): T[] {

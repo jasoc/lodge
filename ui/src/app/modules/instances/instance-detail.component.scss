@@ -267,20 +267,25 @@
     }
   }
 
+  // Sections fold with the same Material panel as the reconciliation cycles.
+  // The panels themselves are stock Material, as in the reconciliation page.
+  .section-panel {
+    margin-top: tokens.$lodge-space-2;
+    --mat-expansion-container-background-color: color-mix(
+      in srgb,
+      var(--lodge-background-shader),
+      black 30%
+    );
+    --mat-expansion-container-text-color: var(--lodge-main-ui-text-color);
+    --mat-expansion-header-text-color: var(--lodge-main-ui-text-color);
+    --mat-expansion-header-description-color: var(--lodge-main-ui-text-color-light);
+    --mat-expansion-header-indicator-color: var(--lodge-main-ui-text-color-light);
+  }
+
   .section-header {
     display: flex;
     align-items: center;
     gap: tokens.$lodge-space-2;
-    width: 100%;
-    margin-top: tokens.$lodge-space-3;
-    padding: 6px 4px;
-    border: none;
-    border-bottom: 1px solid var(--lodge-background-shader-stronger);
-    background: none;
-    font: inherit;
-    color: var(--lodge-main-ui-text-color);
-    cursor: pointer;
-    text-align: left;
 
     &-icon {
       font-size: 20px;
@@ -296,11 +301,6 @@
 
     &-count {
       font-size: 0.8rem;
-      color: var(--lodge-main-ui-text-color-light);
-    }
-
-    &-chevron {
-      margin-left: auto;
       color: var(--lodge-main-ui-text-color-light);
     }
   }
@@ -412,134 +412,124 @@
     }
   }
 
-  // Checks & tests: light, dashed, outlined buttons — a toolbox, not a chore list.
+  // Needs-you buttons: extended FAB to act, mini FAB for the logs, both flat and a bit
+  // lower than the stock FAB so a row stays compact.
+  .todo-fab {
+    --mat-fab-extended-container-height: 44px;
+    --mat-fab-extended-container-elevation-shadow: none;
+    --mat-fab-extended-hover-container-elevation-shadow: none;
+    --mat-fab-extended-focus-container-elevation-shadow: none;
+    --mat-fab-extended-pressed-container-elevation-shadow: none;
+  }
+
+  // Confirm is neutral (the theme's inverse surface) instead of the Material blue; only a
+  // retry keeps a color, the warning one.
+  .todo-fab:not(.todo-fab-retry) {
+    --mat-fab-container-color: var(--mat-sys-inverse-surface, var(--lodge-main-ui-text-color));
+    --mat-fab-foreground-color: var(--mat-sys-inverse-on-surface, #1b1b1f);
+    --mat-fab-state-layer-color: var(--mat-sys-inverse-on-surface, #1b1b1f);
+  }
+
+  .todo-fab-logs {
+    --mat-fab-small-container-color: var(--lodge-background-shader-stronger);
+    --mat-fab-small-foreground-color: var(--lodge-main-ui-text-color);
+    --mat-fab-small-container-elevation-shadow: none;
+    --mat-fab-small-hover-container-elevation-shadow: none;
+    --mat-fab-small-focus-container-elevation-shadow: none;
+    --mat-fab-small-pressed-container-elevation-shadow: none;
+  }
+
+  // Checks & tests: a toolbox, laid out as columns — one per collection item, each a stack
+  // of small run buttons — so it reads as a grid of on-demand tools, apart from "Needs you".
   .check-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: tokens.$lodge-space-3;
+    align-items: start;
+    margin-top: tokens.$lodge-space-2;
+
+    > .item-group {
+      margin: 0;
+      padding: tokens.$lodge-space-3;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--lodge-background-shader), black 25%);
+    }
+  }
+
+  .check-grid {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    margin-top: tokens.$lodge-space-2;
-    padding: tokens.$lodge-space-2;
-    border: 1px dashed var(--lodge-background-shader-stronger);
-    border-radius: 12px;
+    gap: tokens.$lodge-space-2;
+    margin-top: tokens.$lodge-space-1;
   }
 
-  // One pill per check, side by side and wrapping only when the card runs out of room:
-  // the left part runs it, the right part is the last result (opens its logs).
-  .check-pills {
+  .check-cell {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .check-pill {
-    --check-pill-accent: var(--mat-sys-primary, var(--lodge-main-ui-text-color));
-    display: inline-flex;
-    align-items: stretch;
-    max-width: 100%;
-    min-height: 32px;
-    border-radius: 999px;
-    box-shadow: inset 0 0 0 1px var(--lodge-background-shader-stronger);
-    background: var(--lodge-background-shader-lighter);
-    overflow: hidden;
-    transition: box-shadow 120ms ease;
-
-    &:hover {
-      box-shadow: inset 0 0 0 1px var(--check-pill-accent);
-    }
-
-    &-failed {
-      --check-pill-accent: var(--mat-sys-error, #c62828);
-      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--check-pill-accent) 60%, transparent);
-    }
-
-    &-running {
-      box-shadow: inset 0 0 0 1px var(--check-pill-accent);
-      background: color-mix(in srgb, var(--check-pill-accent) 10%, transparent);
-    }
-
-    &-run,
-    &-result {
-      display: inline-flex;
-      align-items: center;
-      min-width: 0;
-      border: none;
-      background: none;
-      font: inherit;
-      color: inherit;
-      cursor: pointer;
-      position: relative;
-
-      &:hover:not(:disabled) {
-        background: color-mix(in srgb, var(--check-pill-accent) 12%, transparent);
-      }
-
-      &:disabled {
-        cursor: default;
-      }
-    }
-
-    mat-icon {
-      flex: none;
-      font-size: 18px;
-      width: 18px;
-      height: 18px;
-    }
-
-    &-run {
-      gap: 4px;
-      padding: 0 12px 0 8px;
-      font-size: 0.85rem;
-      font-weight: 500;
-
-      mat-icon {
-        color: var(--check-pill-accent);
-      }
-
-      &:disabled {
-        color: var(--lodge-main-ui-text-color-light);
-      }
-    }
-
-    &-label {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+    align-items: center;
+    gap: tokens.$lodge-space-2;
+    min-width: 0;
 
     .lock-tag {
-      align-self: center;
-      margin-right: 8px;
+      flex: none;
+    }
+  }
+
+  // Neutral, flat: the run buttons are tools, not the call to action.
+  .check-fab {
+    flex: none;
+    --mat-fab-small-container-color: var(--lodge-background-shader-stronger);
+    --mat-fab-small-foreground-color: var(--lodge-main-ui-text-color);
+    --mat-fab-small-state-layer-color: var(--lodge-main-ui-text-color);
+    --mat-fab-small-container-elevation-shadow: none;
+    --mat-fab-small-focus-container-elevation-shadow: none;
+    --mat-fab-small-hover-container-elevation-shadow: none;
+    --mat-fab-small-pressed-container-elevation-shadow: none;
+    --mat-fab-small-container-shape: 12px;
+    width: 36px;
+    height: 36px;
+  }
+
+  // The name sits beside the button; when it does not fit it is clipped and, on hover,
+  // slides to its end and back (MarqueeDirective measures how far).
+  .check-label {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 0.9rem;
+
+    > span {
+      display: inline-block;
     }
 
-    &-result {
-      gap: 3px;
-      padding: 0 10px 0 8px;
-      border-left: 1px solid var(--lodge-background-shader-stronger);
-      font-size: 0.75rem;
-      white-space: nowrap;
-      color: var(--lodge-main-ui-text-color-light);
-
-      mat-icon {
-        font-size: 15px;
-        width: 15px;
-        height: 15px;
-        color: var(--mat-sys-primary, var(--lodge-main-ui-text-color));
-      }
+    &:hover > span {
+      animation: marquee var(--marquee-duration, 3s) ease-in-out infinite alternate;
     }
+  }
 
-    &-failed &-result mat-icon {
-      color: var(--mat-sys-error, #c62828);
+  @keyframes marquee {
+    to {
+      transform: translateX(calc(-1 * var(--marquee-shift, 0px)));
     }
+  }
 
-    &-never {
-      font-style: italic;
-      cursor: default;
-    }
+  .check-cell-failed .check-fab {
+    --mat-fab-small-foreground-color: var(--mat-sys-error, #c62828);
+  }
+
+  .check-result {
+    flex: none;
+    color: var(--lodge-main-ui-text-color-light);
+  }
+
+  .check-cell-failed .check-result {
+    color: var(--mat-sys-error, #c62828);
   }
 
   // The prompts form of the check being run takes a line of its own, right after its pill.
   .check-prompt {
-    flex-basis: 100%;
+    grid-column: 1 / -1;
   }
 
   // Applied & history: dense one-liners.
@@ -594,7 +584,6 @@
     align-items: center;
     gap: tokens.$lodge-space-1;
     padding: 2px 4px 2px 0;
-    border-bottom: 1px dashed var(--lodge-background-shader-stronger);
     font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
     font-size: 0.78rem;
     color: var(--lodge-main-ui-text-color-light);
@@ -652,7 +641,7 @@
   }
 
   .prompt-form {
-    flex-basis: 100%;
+    grid-column: 1 / -1;
     display: flex;
     flex-direction: column;
     gap: tokens.$lodge-space-2;

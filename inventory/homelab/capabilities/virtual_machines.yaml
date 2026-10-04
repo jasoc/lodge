@@ -33,7 +33,7 @@ description: "Proxmox VMs: created and destroyed with Terraform, configured with
 signals:
   - path: proxmox.virtual_machines
     kind: keyed_collection
-    exclude: [compose]
+    exclude: [compose, ansible_profile]
     rules:
       - on: add
         actions:

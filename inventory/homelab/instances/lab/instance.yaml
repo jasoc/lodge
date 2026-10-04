@@ -43,6 +43,7 @@ proxmox:
       image: "vault:import/AlmaLinux-10-GenericCloud-10.2-20260817.0.x86_64.qcow2"
       ip: 192.168.178.115/24
       gateway: 192.168.178.1
+      ansible_profile: docker-node
       import_id: "proxmox/103"
 
 cloudflare:

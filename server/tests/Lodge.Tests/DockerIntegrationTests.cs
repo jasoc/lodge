@@ -47,7 +47,11 @@ public sealed class DockerIntegrationTests : IDisposable
 
     private ContainerRunbookExecutor NewExecutor()
     {
-        var options = Options.Create(new DockerExecutorOptions { LogDirectory = _logDir });
+        var options = Options.Create(new DockerExecutorOptions
+        {
+            LogDirectory = _logDir,
+            NetworkProfiles = { ["lodge"] = "bridge" }   // the example's verify_vm names a `lodge` network profile
+        });
         var docker = new DockerCli(options);
         return new ContainerRunbookExecutor(
             options, new PlaybookContextResolver(_repoRoot), new DockerImageBuilder(options, docker), new DockerContainerRunner(options, docker));
@@ -137,7 +141,8 @@ public sealed class DockerIntegrationTests : IDisposable
     [DockerFact]
     public async Task The_example_verify_playbook_builds_and_runs_under_the_restrictive_profile()
     {
-        var provider = new InventoryCatalogLoader(_repoRoot, new PlaybookContextResolver(_repoRoot));
+        var provider = new InventoryCatalogLoader(
+            _repoRoot, new PlaybookContextResolver(_repoRoot), new AutoBuildAllowlist(new[] { "homelab/playbooks/ansible" }));
         var catalog = provider.LoadCatalog("homelab", "lab");
         Assert.Empty(catalog.Errors);
         var verify = catalog.Catalog.Capabilities.SelectMany(c => c.Signals).SelectMany(s => s.Rules)

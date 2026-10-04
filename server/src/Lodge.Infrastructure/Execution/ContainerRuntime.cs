@@ -63,7 +63,7 @@ public interface IContainerRunner
         string runId, string logPath, DateTimeOffset? deadline, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Removes (killing if need be) every Lodge-managed container whose run id isn't in the
+    /// Removes (killing if need be) every container of this deployment whose run id isn't in the
     /// set <paramref name="liveRunIds"/> returns — leftovers of runs whose outcome is already
     /// recorded, or that the server lost track of. The set is read after the containers are
     /// listed, so a run launched meanwhile (its id is persisted before it starts) is never
@@ -87,6 +87,9 @@ public static class ContainerLabels
 
     /// <summary>The run the container is — the executor's run id, persisted on the action before launch.</summary>
     public const string RunId = "lodge.run_id";
+
+    /// <summary>Which Lodge deployment started the container (<see cref="DockerExecutorOptions.DeploymentId"/>), so deployments sharing a daemon never clean up each other's.</summary>
+    public const string Deployment = "lodge.deployment";
 }
 
 /// <summary>

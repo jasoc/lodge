@@ -686,7 +686,7 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
     [Fact]
     public async Task Orphaned_managed_containers_are_removed_and_those_of_running_actions_kept()
     {
-        var executor = NewExecutor();
+        var executor = NewExecutor(configure: o => o.DeploymentId = "dep1");
         _ = executor;
         File.WriteAllText(Path.Combine(ContainersDir, "docker-live"), "cid-live");
         File.WriteAllText(Path.Combine(ContainersDir, "docker-finished"), "cid-finished");
@@ -699,7 +699,17 @@ public sealed class ContainerRunbookExecutorTests : IDisposable
         Assert.Contains("CALL rm --force --volumes cid-finished", calls);
         Assert.Contains("CALL rm --force --volumes cid-unlabelled", calls);
         Assert.DoesNotContain("CALL rm --force --volumes cid-live", calls);
-        Assert.Contains(calls, l => l.StartsWith("CALL ps --all --no-trunc --filter label=lodge.managed=true", StringComparison.Ordinal));
+        // Only this deployment's containers are even listed: another Lodge on the same daemon is left alone.
+        Assert.Contains(calls, l => l.StartsWith("CALL ps --all --no-trunc --filter label=lodge.managed=true --filter label=lodge.deployment=dep1 ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Containers_carry_the_deployment_label_when_one_is_configured()
+    {
+        var argv = await CreateArgvAsync(Image(), o => o.DeploymentId = "dep1");
+        Assert.Contains("lodge.deployment=dep1", argv);
+
+        Assert.DoesNotContain(await CreateArgvAsync(Image()), a => a.StartsWith("lodge.deployment="));
     }
 
     [Fact]

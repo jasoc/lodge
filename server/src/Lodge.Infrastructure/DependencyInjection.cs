@@ -28,6 +28,11 @@ public static class DependencyInjection
         services.Configure<GitOptions>(configuration.GetSection(GitOptions.SectionName));
         services.Configure<HttpExecutorOptions>(configuration.GetSection(HttpExecutorOptions.SectionName));
         services.Configure<DockerExecutorOptions>(configuration.GetSection(DockerExecutorOptions.SectionName));
+        // Names this deployment on a shared docker daemon: a hash of the database it uses,
+        // unless configured. (Never the password: the hash ends up in container labels.)
+        services.PostConfigure<DockerExecutorOptions>(o =>
+            o.DeploymentId ??= Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                $"{configuration["POSTGRES_HOST"] ?? "localhost"}:{configuration["POSTGRES_PORT"] ?? "5432"}/{configuration["POSTGRES_DB"] ?? "lodge"}")))[..12]);
         services.Configure<PassCliOptions>(configuration.GetSection(PassCliOptions.SectionName));
         services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
         services.Configure<OidcOptions>(configuration.GetSection(OidcOptions.SectionName));

@@ -275,13 +275,16 @@ public sealed class DockerContainerRunner : IContainerRunner
         Func<CancellationToken, Task<IReadOnlySet<string>>> liveRunIds, CancellationToken cancellationToken = default)
     {
         var listing = new StringBuilder();
-        var exitCode = await _docker.RunAsync(
-            new[]
-            {
-                "ps", "--all", "--no-trunc", "--filter", $"label={ContainerLabels.Managed}=true",
-                "--format", $"{{{{.ID}}}} {{{{.Label \"{ContainerLabels.RunId}\"}}}}"
-            },
-            null, logPath: null, capture: listing);
+        var psArgs = new List<string> { "ps", "--all", "--no-trunc", "--filter", $"label={ContainerLabels.Managed}=true" };
+        if (!string.IsNullOrEmpty(_options.DeploymentId))
+        {
+            // Another Lodge deployment may share this daemon: only ever touch our own.
+            psArgs.Add("--filter");
+            psArgs.Add($"label={ContainerLabels.Deployment}={_options.DeploymentId}");
+        }
+        psArgs.Add("--format");
+        psArgs.Add($"{{{{.ID}}}} {{{{.Label \"{ContainerLabels.RunId}\"}}}}");
+        var exitCode = await _docker.RunAsync(psArgs, null, logPath: null, capture: listing);
         if (exitCode != 0)
         {
             throw new InvalidOperationException($"could not list containers (docker exit {exitCode}).");
@@ -470,6 +473,11 @@ public sealed class DockerContainerRunner : IContainerRunner
         {
             args.Add("--label");
             args.Add($"{name}={value}");
+        }
+        if (!string.IsNullOrEmpty(_options.DeploymentId))
+        {
+            args.Add("--label");
+            args.Add($"{ContainerLabels.Deployment}={_options.DeploymentId}");
         }
         foreach (var name in spec.Environment.Keys)
         {

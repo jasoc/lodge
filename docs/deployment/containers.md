@@ -93,12 +93,15 @@ to keeps its exit code but its output is **not** written to the log.
 
 ## Restarts and orphans
 
-Containers are labelled `lodge.managed`, `lodge.action_id` and `lodge.run_id`. A run id is
+Containers are labelled `lodge.managed`, `lodge.deployment`, `lodge.action_id` and `lodge.run_id`. A run id is
 recorded on the action *before* anything starts, so a crash never runs an action twice; a
 restarted server finds a run's container by its `lodge.run_id` label and reads the real
-exit code. At startup, every managed container that does **not** belong to a RUNNING action
-is removed (leftovers of finished or lost runs). A container of a RUNNING action — on this
-or another replica — is left alone.
+exit code. At startup, every managed container of **this deployment** that does not belong
+to a RUNNING action is removed (leftovers of finished or lost runs). A container of a RUNNING
+action — on this or another replica — is left alone, and so is any container of another Lodge
+deployment sharing the daemon: containers carry a `lodge.deployment` label, by default a hash
+of the database the server uses. Replicas that reach the database under different host names
+should set the same `DockerExecutor__DeploymentId` explicitly.
 
 ## Where the containers run: `DOCKER_HOST`
 

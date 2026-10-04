@@ -49,6 +49,17 @@ public sealed class DockerExecutorOptions
     /// </summary>
     public int DefaultTimeoutSeconds { get; set; } = 3600;
 
+    /// <summary>
+    /// Names this Lodge deployment on a docker daemon that other Lodge deployments may share:
+    /// every container gets a <c>lodge.deployment</c> label with it, and the startup cleanup
+    /// only removes containers carrying its own. Defaults to a hash of the database the server
+    /// is configured with, so replicas of one deployment (same database) agree; set it explicitly
+    /// (<c>DockerExecutor__DeploymentId</c>) when replicas reach the database under different
+    /// host names. Null (not configured, e.g. in tests) adds no label and cleans up every
+    /// managed container.
+    /// </summary>
+    public string? DeploymentId { get; set; }
+
     /// <summary>Size of the writable tmpfs mounts (<c>/tmp</c>, <c>/work</c>, ...) of a read-only container, docker's size syntax.</summary>
     public string TmpfsSize { get; set; } = "256m";
 }

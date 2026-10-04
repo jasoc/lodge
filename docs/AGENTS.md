@@ -96,6 +96,13 @@ its own Postgres schema on startup. Only Postgres is a separate container.
 - **past_history** — a tenant-YAML-equivalent, instance-YAML section declaring facts that
   already happened outside Lodge's governance (à la `terraform import`): the identity is
   adopted as a synthetic SUCCEEDED row instead of firing a real run for it.
+- **Run id** — allocated (`IRunbookExecutor.AllocateRunId`) and persisted on the action as
+  RUNNING *before* the executor launches anything. Starting a row is a conditional UPDATE
+  (one winner), so a crash can't run an action twice: the executor is idempotent per run
+  id, and an id that never launched reports FAILED ("never started") for a human to retry.
+  Containers carry `lodge.run_id`/`lodge.action_id`/`lodge.managed` labels; after a restart
+  the executor reattaches by label and reads the real exit code (outcome unknown only if
+  the container is gone).
 - **Audit event** — an immutable record of every state transition.
 
 ## Invariants (do not break these)
@@ -152,7 +159,7 @@ Key types: `Reconciler` (pure, stateless — everything else is the imperative s
 it), `CapabilityCatalogLoader`/`CapabilityCatalog` (aggregates + validates capability
 YAML), `ReconciliationRunner` (one cycle: sync inventory, diff, apply verdict),
 `ReconciliationCoordinator` (single-flight wrapper any caller — timer, UI button, API,
-CLI — goes through), `LodgeDbContext`, `CompositeRunbookExecutor`, `MigrationRunner`.
+CLI — goes through; a Postgres advisory lock keeps replicas from running cycles at once), `LodgeDbContext`, `CompositeRunbookExecutor`, `MigrationRunner`.
 Note: the `Action` entity collides with `System.Action`; files outside its namespace use
 `using ActionEntity = Lodge.Core.Domain.Entities.Action;`.
 

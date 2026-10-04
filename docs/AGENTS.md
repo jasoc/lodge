@@ -144,12 +144,15 @@ schemas/common/instance.base.schema.json       shared JSON Schema every kind com
 schemas/kinds/{kind}.instance.schema.json      per-kind schema
 inventory/{kind}/kind.yaml                     optional: display name, defaults for every action
 inventory/{kind}/playbooks/                    container playbooks for `executor: container` actions
-server/src/Lodge.Core/          domain entities, the pure reconciler, capability catalog, seam interfaces
+server/src/Lodge.Core/          domain entities, the pure reconciler, capability catalog + its loading from an inventory tree
+                                (`InventoryCatalogLoader`, `PlaybookContextResolver`: defaults, overrides, fingerprints, file index), seam interfaces
 server/src/Lodge.Infrastructure/ EF Core, git inventory sources, reconciliation loop, execution, auth, secrets
 server/src/Lodge.Server/        single ASP.NET Core host — minimal-API endpoints + serves the built SPA (wwwroot)
-server/tools/validate-schema/   dependency-free console app, CI schema validation gate
+server/src/Lodge.Validation/    offline inventory validation (`InventoryValidator`) + JSON Schema check — used by `lodge validate`
 server/tests/Lodge.Tests/       xUnit tests
-cli/src/Lodge.Cli/              thin HTTP client (`lodge` binary) — a peer of the UI, not a wrapper around it
+cli/src/Lodge.Cli/              thin HTTP client (`lodge` binary) — a peer of the UI, not a wrapper around it.
+                                `lodge validate` is the one deliberate exception: it runs the server's own
+                                loading code (Lodge.Core via Lodge.Validation) locally, with no server
 ui/                             Angular 21 SPA (client-side rendered, no SSR) — built into wwwroot for deployment
 migrations/                     Postgres schema; the server migrates itself with this on every startup
 scripts/                        dev orchestration — see "Run and test" below
@@ -223,6 +226,7 @@ IdP groups gating actions through `requires` and service tokens for CI.
 
 dotnet build server/Lodge.slnx   # expect 0 warnings / 0 errors
 dotnet test  server/Lodge.slnx
+dotnet run --project cli/src/Lodge.Cli -- validate inventory   # offline inventory check, what CI runs
 ```
 
 The scripts never install tools: `scripts/lib/` only checks that docker, process-compose,

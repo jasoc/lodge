@@ -10,4 +10,11 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
+  <!-- `lodge validate` is the one command that doesn't talk to the server: it runs the
+       server's own loading code (Lodge.Core) over a local inventory, so CI accepts and
+       rejects exactly what the server would. Everything else stays a thin HTTP client. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\server\src\Lodge.Validation\Lodge.Validation.csproj" />
+  </ItemGroup>
+
 </Project>

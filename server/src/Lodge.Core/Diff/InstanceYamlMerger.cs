@@ -8,7 +8,7 @@ namespace Lodge.Core.Diff;
 /// into the single top-level document the reconciler and schema validator expect. Merge
 /// is by top-level key only — a key present in more than one file is a load error, never
 /// silently overwritten. Shared by the runtime inventory loader and
-/// <c>tools/validate-schema</c> so merge semantics can never drift between the two.
+/// <c>lodge validate</c> so merge semantics can never drift between the two.
 /// </summary>
 public static class InstanceYamlMerger
 {

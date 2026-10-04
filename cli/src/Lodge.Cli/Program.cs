@@ -1,4 +1,5 @@
 using Lodge.Cli;
+using Lodge.Validation;
 
 var ct = CancellationToken.None;
 
@@ -22,6 +23,8 @@ try
             return await ActionsAsync(args, ct);
         case "tokens":
             return await TokensAsync(args, ct);
+        case "validate":
+            return Validate(args);
         default:
             PrintUsage();
             return 1;
@@ -54,7 +57,63 @@ static void PrintUsage()
           lodge tokens create --display-name <name> [--scope <scope>]... [--ttl-minutes <n>]
           lodge tokens list
           lodge tokens revoke <token-id>
+          lodge validate <inventory-dir> [--format text|json|github]   (offline, no server needed)
         """);
+}
+
+// The one command that doesn't talk to the server: it validates a local inventory with the
+// server's own loading code, so a CI job fails exactly where a reconciliation cycle would
+// report a validation error. Exit code 0 = valid, 1 = invalid or unusable arguments.
+static int Validate(string[] args)
+{
+    string? directory = null;
+    var format = ReportFormat.Text;
+    for (var i = 1; i < args.Length; i++)
+    {
+        if (args[i] == "--format" && i + 1 < args.Length)
+        {
+            if (!DiagnosticFormatter.TryParseFormat(args[++i], out format))
+            {
+                Console.Error.WriteLine($"error: unknown format '{args[i]}' (expected text, json or github).");
+                return 1;
+            }
+        }
+        else if (directory is null && !args[i].StartsWith("--", StringComparison.Ordinal))
+        {
+            directory = args[i];
+        }
+        else
+        {
+            Console.Error.WriteLine("usage: lodge validate <inventory-dir> [--format text|json|github]");
+            return 1;
+        }
+    }
+    if (directory is null)
+    {
+        Console.Error.WriteLine("usage: lodge validate <inventory-dir> [--format text|json|github]");
+        return 1;
+    }
+
+    // <inventory-dir> is the inventory/ folder itself (kinds inside it) or the repo root holding it.
+    var full = Path.GetFullPath(directory);
+    string repoRoot;
+    if (Directory.Exists(Path.Combine(full, "inventory")))
+    {
+        repoRoot = full;
+    }
+    else if (Directory.Exists(full) && string.Equals(Path.GetFileName(full.TrimEnd(Path.DirectorySeparatorChar)), "inventory", StringComparison.Ordinal))
+    {
+        repoRoot = Path.GetDirectoryName(full.TrimEnd(Path.DirectorySeparatorChar))!;
+    }
+    else
+    {
+        Console.Error.WriteLine($"error: '{directory}' is not an inventory: expected an inventory/ folder, or the folder that contains it.");
+        return 1;
+    }
+
+    var diagnostics = InventoryValidator.Validate(repoRoot);
+    Console.Write(DiagnosticFormatter.Format(diagnostics, format));
+    return diagnostics.Count == 0 ? 0 : 1;
 }
 
 static async Task<int> LoginAsync(string[] args, CancellationToken ct)

@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Lodge.Core\Lodge.Core.csproj" />
     <ProjectReference Include="..\..\src\Lodge.Infrastructure\Lodge.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Lodge.Validation\Lodge.Validation.csproj" />
   </ItemGroup>
 
 </Project>

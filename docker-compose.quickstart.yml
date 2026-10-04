@@ -12,7 +12,7 @@ name: lodge-quickstart
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     restart: unless-stopped
     environment:
       POSTGRES_DB: lodge
@@ -37,6 +37,10 @@ services:
       POSTGRES_PASSWORD: lodge
       Auth__Mode: NoAuth
       Git__Provider: Local
+      # The example's one AUTO action builds playbooks/ansible; an AUTO build only stays AUTO
+      # when the operator allowlists it (docs/deployment/containers.md). Trusted here: it's the
+      # checkout you just cloned.
+      DockerExecutor__AutoBuildAllowlist__0: homelab/playbooks/ansible
     volumes:
       # The source of truth stays outside the image; Lodge only ever reads it.
       - ./inventory:/repo/inventory:ro

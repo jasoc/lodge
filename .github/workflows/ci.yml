@@ -59,3 +59,38 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run format:check
+
+  trivy:
+    # Dependency vulnerabilities, committed secrets and Dockerfile/compose misconfigurations of the
+    # repo, then the same for the server image as it would ship. HIGH and CRITICAL with a fix
+    # available fail the build; what is deliberately accepted lives, with its reason, in
+    # .trivyignore.yaml. Base images are pinned by digest, so bumping one is what clears a finding.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan the repository
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
+          exit-code: "1"
+
+      - name: Build the server image
+        run: docker build -t lodge-server:ci .
+
+      - name: Scan the server image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: lodge-server:ci
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
+          exit-code: "1"
+

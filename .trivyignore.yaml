@@ -1,0 +1,27 @@
+# Findings Trivy reports that are deliberate, each with the reason. Keep this list short and
+# justified; an entry that stops being true should be deleted, not renewed by habit.
+
+misconfigurations:
+  # DS-0002: "Dockerfile has no non-root USER".
+  - id: DS-0002
+    paths:
+      # The server runs as root on purpose: it drives the host's docker daemon through the mounted
+      # socket (root-equivalent however it is run; see docs/THREAT-MODEL.md) and writes its run logs.
+      - Dockerfile
+      # Playbooks that need root (they write /root/.ssh, state, ...) and say so per action with
+      # `security: { user: image, read_only_rootfs: false }`; every other default (no capabilities,
+      # no-new-privileges) still applies. playbooks/verify is the non-root, read-only one.
+      - inventory/homelab/playbooks/ansible/Dockerfile
+      - inventory/homelab/playbooks/compose/Dockerfile
+      - inventory/homelab/playbooks/terraform/Dockerfile
+    statement: See the comment above; relaxed explicitly per action, not by accident.
+
+vulnerabilities:
+  # @angular/router SSR denial of service. Lodge's UI is a client-side-rendered SPA (no
+  # @angular/ssr, no server-side rendering anywhere), so the vulnerable code path isn't reachable.
+  # Remove this when @angular/router is bumped to 21.2.24 or later.
+  - id: CVE-2026-101896
+    paths:
+      - ui/package-lock.json
+    statement: Only affects Angular SSR; the UI is client-side rendered.
+    expired_at: 2027-01-31

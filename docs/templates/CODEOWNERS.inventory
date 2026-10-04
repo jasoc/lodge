@@ -1,0 +1,38 @@
+# CODEOWNERS for a repository that holds a Lodge inventory (what Lodge reads: inventory/<kind>/...).
+# Copy it to .github/CODEOWNERS (or CODEOWNERS / docs/CODEOWNERS) in *that* repo, replace the
+# @team handles, and turn on "Require review from Code Owners" in the branch protection of the
+# branch Lodge tracks (Git__GitHub__Branch).
+#
+# Why this matters: Lodge runs what the inventory says. Merging to the tracked branch is how
+# an action is created, how a playbook (a Dockerfile, a script, an Ansible role, a Terraform
+# module) changes, and how a `requires:` group or a `policy:` is relaxed. An `AUTO` action runs
+# with no human in front of it, and a playbook the operator allowlisted for AUTO builds
+# (DockerExecutor__AutoBuildAllowlist) is trusted *by folder*, so whoever may edit that folder
+# may run code unattended on the docker host. The last matching pattern wins, so keep the most
+# sensitive paths last.
+
+# Everyone who may propose changes to the desired state. Their review is the "should this
+# exist?" gate; Lodge's own confirm step is the "run it now" gate.
+/inventory/                                       @your-org/platform
+
+# Instance data: the desired state itself. Owners of the thing it describes.
+/inventory/*/instances/                           @your-org/platform @your-org/service-owners
+
+# What can be done and by whom: capabilities, per-instance overrides, the kind's defaults.
+# Changing a `policy:` to AUTO, dropping `requires:`, or widening `security:` happens here.
+/inventory/*/capabilities/                        @your-org/platform @your-org/security
+/inventory/*/instances/*/overrides.yaml           @your-org/platform @your-org/security
+/inventory/*/kind.yaml                            @your-org/platform @your-org/security
+
+# What runs: playbook folders (Dockerfiles, scripts, roles, modules). Code review, not data review.
+/inventory/*/playbooks/                           @your-org/platform @your-org/security
+
+# Facts declared as already done: they stop Lodge from running the action, so a wrong one hides work.
+/inventory/*/instances/*/past_history.yaml        @your-org/platform
+
+# The per-kind JSON Schema gates which revisions Lodge will reconcile at all.
+/inventory/*/instance.schema.json                 @your-org/platform
+
+# CI and ownership itself: an unreviewed edit here undoes everything above.
+/.github/                                         @your-org/security
+/CODEOWNERS                                       @your-org/security

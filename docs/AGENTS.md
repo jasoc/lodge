@@ -245,6 +245,14 @@ Replace the default implementation in
 - **GitHub inventory** → set `Git:Provider = GitHub` (already implemented,
   `GitHubInventorySource`); `Local` (the default) reads the working tree directly.
 
+## Security
+
+`docs/THREAT-MODEL.md` is the reference: the docker socket is root-equivalent, `AUTO` actions run
+with no human gate (an AUTO container build needs an operator allowlist), and the inventory is
+code. CI runs Trivy (`.trivyignore.yaml` lists the accepted findings, each with its reason) and
+base images are pinned by digest. `docs/templates/CODEOWNERS.inventory` is the template for the
+repository that holds an inventory.
+
 ## Deployment scenarios
 
 `docs/deployment/containers.md` is the reference for container actions (confinement,

@@ -35,15 +35,11 @@ public class ShowcaseInstanceFixtureTests
         return dir ?? throw new InvalidOperationException("repo root not found — expected to run under the Lodge repo tree");
     }
 
-    /// <summary>The playbooks of the example that AUTO actions build — what a deployment of it allowlists on the server.</summary>
-    private static readonly string[] AutoBuildAllowlist = { "homelab/playbooks/ansible" };
-
     private static async Task<(CapabilityCatalog Catalog, string MergedYaml)> LoadHomelabLabAsync()
     {
         var repoRoot = RepoRoot();
         var git = Options.Create(new GitSnapshotOptions { RepoRoot = repoRoot });
-        var docker = Options.Create(new DockerExecutorOptions { AutoBuildAllowlist = AutoBuildAllowlist.ToList() });
-        var catalog = await new FileCapabilityCatalogProvider(git, new PlaybookContextResolver(repoRoot), docker).GetCatalogAsync("homelab", "lab");
+        var catalog = await new FileCapabilityCatalogProvider(git, new PlaybookContextResolver(repoRoot)).GetCatalogAsync("homelab", "lab");
         Assert.Empty(catalog.Errors);
 
         var instanceDir = Path.Combine(repoRoot, "inventory", "homelab", "instances", "lab");
@@ -75,9 +71,8 @@ public class ShowcaseInstanceFixtureTests
 
         Assert.Empty(result.ValidationErrors);
         Assert.All(AllTemplates(catalog), a => Assert.NotNull(a.Container!.Build!.Fingerprint));
-        // kind.yaml hands every action the Proton Pass token, and every playbook shares _base —
-        // except the read-only verification, which needs neither.
-        Assert.All(AllTemplates(catalog).Where(a => a.Key != "verify_vm"), a =>
+        // kind.yaml hands every action the Proton Pass token, and every playbook shares _base.
+        Assert.All(AllTemplates(catalog), a =>
         {
             var pat = Assert.Single(a.Inputs, i => i.Name == "pass_pat");
             Assert.Equal(RuleInputKind.Secret, pat.Kind);
@@ -87,58 +82,13 @@ public class ShowcaseInstanceFixtureTests
     }
 
     [Fact]
-    public async Task Without_the_allowlist_the_examples_auto_builds_are_reported_and_become_manual()
-    {
-        var repoRoot = RepoRoot();
-        var git = Options.Create(new GitSnapshotOptions { RepoRoot = repoRoot });
-        var bare = await new FileCapabilityCatalogProvider(
-                git, new PlaybookContextResolver(repoRoot), Options.Create(new DockerExecutorOptions()))
-            .GetCatalogAsync("homelab", "lab");
-
-        var autoActions = new[] { "configure_vm" };   // the one AUTO action of the example: it builds the Ansible playbook
-        Assert.All(autoActions, key =>
-            Assert.Contains(bare.Errors, e => e.Contains($"action '{key}'") && e.Contains("DockerExecutor__AutoBuildAllowlist")));
-        Assert.All(AllTemplates(bare.Catalog), a => Assert.NotEqual(ActionPolicy.AUTO, a.Policy));
-
-        var (allowed, _) = await LoadHomelabLabAsync();
-        Assert.Equal(autoActions.OrderBy(k => k), AllTemplates(allowed).Where(a => a.Policy == ActionPolicy.AUTO).Select(a => a.Key).Distinct().OrderBy(k => k));
-    }
-
-    [Fact]
-    public async Task Only_the_playbooks_that_need_root_relax_the_restrictive_container_profile()
+    public async Task The_playbooks_that_run_as_root_relax_the_restrictive_container_profile_explicitly_and_only_that()
     {
         var (catalog, _) = await LoadHomelabLabAsync();
 
-        var verify = Assert.Single(AllTemplates(catalog), a => a.Key == "verify_vm").Container!;
-        Assert.Null(verify.Security);                          // nothing relaxed: the restrictive defaults apply
-        Assert.Equal(60, verify.TimeoutSeconds);
-        Assert.Equal("lodge", verify.Network);
-        Assert.NotNull(verify.Resources);
-
         // Terraform/Ansible/compose run as root and write to /root: relaxed explicitly, and only that.
-        Assert.All(AllTemplates(catalog).Where(a => a.Key != "verify_vm"), a =>
+        Assert.All(AllTemplates(catalog), a =>
             Assert.Equal(new ContainerSecurity(User: "image", ReadOnlyRootfs: false), a.Container!.Security));
-    }
-
-    [Fact]
-    public async Task The_verify_action_invalidates_the_vms_apply_through_lodges_own_api()
-    {
-        var (catalog, mergedYaml) = await LoadHomelabLabAsync();
-        var verify = Assert.Single(AllTemplates(catalog), a => a.Key == "verify_vm");
-
-        Assert.Equal(ActionPolicy.OPTIONAL, verify.Policy);
-        Assert.Equal(RuleInputKind.Secret, Assert.Single(verify.Inputs, i => i.Name == "lodge_token").Kind);
-        Assert.DoesNotContain(verify.Inputs, i => i.Name is "pass_pat" or "tf_pg_conn_str");
-        // The identity it invalidates is exactly the action that creates the VM: same signal, same item, same key.
-        var apply = AllTemplates(catalog).Single(a => a.Key == "apply_vm");
-        Assert.NotNull(apply);
-        Assert.Equal("proxmox.virtual_machines", verify.Inputs.Single(i => i.Name == "invalidate_signal").Value);
-        Assert.Equal("apply_vm", verify.Inputs.Single(i => i.Name == "invalidate_action").Value);
-        Assert.Equal("key", verify.Inputs.Single(i => i.Name == "invalidate_key").Value);
-
-        var emitted = Reconcile(catalog, mergedYaml).ToCreate.Where(a => a.Identity.ActionKey == "verify_vm").ToList();
-        Assert.NotEmpty(emitted);
-        Assert.All(emitted, v => Assert.Equal(v.Identity.ItemKey, v.ResolvedInputs["invalidate_key"]));
     }
 
     [Fact]

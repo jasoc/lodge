@@ -1,5 +1,3 @@
-using Lodge.Core.Domain.Enums;
-
 namespace Lodge.Core.Catalog;
 
 /// <summary>
@@ -19,24 +17,19 @@ public sealed record LoadedDefinitions(IReadOnlyList<CapabilityDefinition> Defin
 /// <c>kind.yaml</c> <c>defaults</c> merged into every action of both. Every
 /// <c>container.build</c> action is stamped with its playbook folder's content fingerprint
 /// (so the reconciler sees a changed playbook as a changed executor config), and every
-/// file-backed list gets its file index. An <c>AUTO</c> action with a <c>build</c> that the
-/// operator hasn't allowlisted (<see cref="AutoBuildAllowlist"/>) is reported and downgraded
-/// to <c>MANUAL_REQUIRED</c>. Shared by the server (which adds caching) and
+/// file-backed list gets its file index. Shared by the server (which adds caching) and
 /// <c>lodge validate</c>, so both accept and reject exactly the same inventories.
 /// </summary>
 public sealed class InventoryCatalogLoader
 {
     private readonly string _repoRoot;
     private readonly PlaybookContextResolver _playbooks;
-    private readonly AutoBuildAllowlist _autoBuild;
 
     /// <param name="repoRoot">The folder holding <c>inventory/</c>; blank means the current directory.</param>
-    /// <param name="autoBuildAllowlist">The playbooks AUTO actions may build; null allows none.</param>
-    public InventoryCatalogLoader(string? repoRoot, PlaybookContextResolver playbooks, AutoBuildAllowlist? autoBuildAllowlist = null)
+    public InventoryCatalogLoader(string? repoRoot, PlaybookContextResolver playbooks)
     {
         _repoRoot = string.IsNullOrWhiteSpace(repoRoot) ? Directory.GetCurrentDirectory() : repoRoot;
         _playbooks = playbooks;
-        _autoBuild = autoBuildAllowlist ?? AutoBuildAllowlist.None;
     }
 
     public LoadedDefinitions LoadGeneric(string kindCode, CancellationToken cancellationToken = default)
@@ -176,13 +169,6 @@ public sealed class InventoryCatalogLoader
                 catch (Exception ex) when (ex is PlaybookContextException or IOException or UnauthorizedAccessException)
                 {
                     errors.Add($"{definition.SourceFile ?? definition.Code}, action '{action.Key}': {ex.Message}");
-                }
-
-                if (action.Policy == ActionPolicy.AUTO && !_autoBuild.Allows(kindCode, action.Container!.Build!))
-                {
-                    errors.Add($"{definition.SourceFile ?? definition.Code}, action '{action.Key}' " +
-                               AutoBuildAllowlist.NotAllowedMessage(kindCode, action.Container.Build!));
-                    action.Policy = ActionPolicy.MANUAL_REQUIRED;
                 }
             }
         }

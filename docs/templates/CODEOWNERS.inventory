@@ -6,8 +6,7 @@
 # Why this matters: Lodge runs what the inventory says. Merging to the tracked branch is how
 # an action is created, how a playbook (a Dockerfile, a script, an Ansible role, a Terraform
 # module) changes, and how a `requires:` group or a `policy:` is relaxed. An `AUTO` action runs
-# with no human in front of it, and a playbook the operator allowlisted for AUTO builds
-# (DockerExecutor__AutoBuildAllowlist) is trusted *by folder*, so whoever may edit that folder
+# with no human in front of it, so whoever may edit a playbook folder an AUTO action builds
 # may run code unattended on the docker host. The last matching pattern wins, so keep the most
 # sensitive paths last.
 

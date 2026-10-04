@@ -63,10 +63,9 @@ doesn't apply to it (it gates humans, not the reconciler). That is the point, an
 
 - Anything an AUTO action does, **anyone who can merge to the inventory can trigger** by making
   its rule match.
-- An `AUTO` action with a `container.build` runs a Dockerfile unattended, so it is only AUTO if the
-  **operator** allowlists the playbook in the server's config (`DockerExecutor__AutoBuildAllowlist`),
-  never in the inventory; pin to a fingerprint when you can. Otherwise it is downgraded to a
-  manual one and reported.
+- An `AUTO` action with a `container.build` runs a Dockerfile unattended; that choice belongs to
+  whoever maintains the inventory, which is why the inventory needs review (below) and why
+  playbook folders deserve the strictest CODEOWNERS.
 - Keep `AUTO` for things that are safe to run repeatedly and unattended, never for what creates,
   destroys or spends. The example's creating/destroying actions are all `MANUAL_REQUIRED`.
 - Prompt inputs make an action unable to be AUTO (it would have nobody to ask).
@@ -135,7 +134,7 @@ mistaken or lightly malicious playbook**, not a sandbox against a determined one
 
 - [ ] Lodge runs on a host (or against a remote daemon) where "root on the docker host" is acceptable.
 - [ ] The inventory repository has branch protection and CODEOWNERS on playbooks and capabilities.
-- [ ] No `AUTO` action creates, destroys or spends; every AUTO build is deliberately allowlisted.
+- [ ] No `AUTO` action creates, destroys or spends; every AUTO action that builds a playbook is deliberate and its folder is reviewed.
 - [ ] `Auth:Mode=Oidc` unless it is one operator on a trusted network; service tokens are scoped and rotated.
 - [ ] Secrets come from a provider you trust; no playbook you don't trust is given one.
 - [ ] Postgres is network-isolated and backed up.

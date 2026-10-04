@@ -1,5 +1,3 @@
-using Lodge.Core.Catalog;
-
 namespace Lodge.Infrastructure.Execution;
 
 /// <summary>
@@ -61,14 +59,6 @@ public sealed class DockerExecutorOptions
     /// managed container.
     /// </summary>
     public string? DeploymentId { get; set; }
-
-    /// <summary>
-    /// The <c>container.build</c> playbooks AUTO actions may use, as <c>&lt;kind&gt;/&lt;context&gt;</c>
-    /// or <c>&lt;kind&gt;/&lt;context&gt;@&lt;fingerprint prefix&gt;</c> (see <see cref="AutoBuildAllowlist"/>).
-    /// Empty by default: an AUTO action with a build is otherwise treated as MANUAL_REQUIRED and
-    /// reported as a validation error. Configured as <c>DockerExecutor__AutoBuildAllowlist__0=homelab/playbooks/ansible</c>.
-    /// </summary>
-    public List<string> AutoBuildAllowlist { get; set; } = new();
 
     /// <summary>Size of the writable tmpfs mounts (<c>/tmp</c>, <c>/work</c>, ...) of a read-only container, docker's size syntax.</summary>
     public string TmpfsSize { get; set; } = "256m";

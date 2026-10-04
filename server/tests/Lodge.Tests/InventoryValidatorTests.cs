@@ -1,6 +1,5 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
-using Lodge.Core.Catalog;
 using Lodge.Validation;
 using Xunit;
 
@@ -55,14 +54,7 @@ public sealed class InventoryValidatorTests : IDisposable
             dir = Path.GetDirectoryName(dir);
         }
 
-        // The example's one AUTO action builds a playbook, so a deployment of it allowlists that
-        // playbook on the server — and CI passes the same to `lodge validate`.
-        Assert.Empty(InventoryValidator.Validate(dir!, autoBuildAllowlist: new AutoBuildAllowlist(new[] { "homelab/playbooks/ansible" })));
-
-        var strict = Assert.Single(InventoryValidator.Validate(dir!));
-        Assert.Equal("catalog", strict.Check);
-        Assert.Equal("inventory/homelab/capabilities/virtual_machines.yaml", strict.File);
-        Assert.Contains("DockerExecutor__AutoBuildAllowlist", strict.Message);
+        Assert.Empty(InventoryValidator.Validate(dir!));
     }
 
     [Fact]

@@ -8,7 +8,7 @@ using Xunit;
 
 namespace Lodge.Tests;
 
-/// <summary>Runs only with a real docker daemon and LODGE_DOCKER_TESTS=1 (it pulls images and builds the example playbook).</summary>
+/// <summary>Runs only with a real docker daemon and LODGE_DOCKER_TESTS=1 (it pulls an image).</summary>
 public sealed class DockerFactAttribute : FactAttribute
 {
     public DockerFactAttribute()
@@ -22,8 +22,7 @@ public sealed class DockerFactAttribute : FactAttribute
 
 /// <summary>
 /// The restrictive container profile against a real daemon: what the generated
-/// <c>docker create</c> arguments actually produce, and the shipped example playbook
-/// running under it.
+/// <c>docker create</c> arguments actually produce.
 /// </summary>
 [UnsupportedOSPlatform("windows")]
 public sealed class DockerIntegrationTests : IDisposable
@@ -47,11 +46,7 @@ public sealed class DockerIntegrationTests : IDisposable
 
     private ContainerRunbookExecutor NewExecutor()
     {
-        var options = Options.Create(new DockerExecutorOptions
-        {
-            LogDirectory = _logDir,
-            NetworkProfiles = { ["lodge"] = "bridge" }   // the example's verify_vm names a `lodge` network profile
-        });
+        var options = Options.Create(new DockerExecutorOptions { LogDirectory = _logDir });
         var docker = new DockerCli(options);
         return new ContainerRunbookExecutor(
             options, new PlaybookContextResolver(_repoRoot), new DockerImageBuilder(options, docker), new DockerContainerRunner(options, docker));
@@ -136,24 +131,5 @@ public sealed class DockerIntegrationTests : IDisposable
         Assert.Equal(RunbookRunState.Succeeded, status.State);
         Assert.Contains("67108864", Log(status));
         Assert.Contains("32", Log(status));
-    }
-
-    [DockerFact]
-    public async Task The_example_verify_playbook_builds_and_runs_under_the_restrictive_profile()
-    {
-        var provider = new InventoryCatalogLoader(
-            _repoRoot, new PlaybookContextResolver(_repoRoot), new AutoBuildAllowlist(new[] { "homelab/playbooks/ansible" }));
-        var catalog = provider.LoadCatalog("homelab", "lab");
-        Assert.Empty(catalog.Errors);
-        var verify = catalog.Catalog.Capabilities.SelectMany(c => c.Signals).SelectMany(s => s.Rules)
-            .SelectMany(r => r.Actions).Single(a => a.Key == "verify_vm").Container!;
-
-        // Nothing listens on this loopback port inside the container, so the check must fail
-        // — with the playbook's own message, which proves it built, started as non-root and ran.
-        var status = await RunAsync(NewExecutor(), Request(verify, new() { ["host"] = "127.0.0.1/24", ["vm_name"] = "probe", ["port"] = "9" }));
-
-        Assert.Equal(RunbookRunState.Failed, status.State);
-        Assert.Contains("exit 1", status.Message);
-        Assert.Contains("NO: nothing answers on 127.0.0.1:9", Log(status));
     }
 }

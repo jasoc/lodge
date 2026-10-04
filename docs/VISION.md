@@ -182,8 +182,7 @@ it finds a difference, **invalidates** the succeeded action that no longer holds
 the same API the UI uses. The next cycle then treats that action as never done and offers
 it again, with its policy, its owner and its audit trail. The engine stays generic (it
 knows nothing about what "reachable" means); the check lives next to your capability,
-where you can read and review it. `inventory/homelab/` has a worked example
-(`verify_vm`), written up in its README.
+where you can read and review it.
 
 ## Why it's shaped the way it is
 

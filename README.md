@@ -69,9 +69,9 @@ Closing that gap is a pattern you opt into per capability, not something the eng
 Write an `OPTIONAL` action that looks at reality and, when it disagrees with what Lodge
 believes was done, **invalidates** the matching succeeded action through Lodge's own API
 (the same "invalidate" button the UI has). The next cycle then sees that action as never
-done and offers it again. `inventory/homelab/` ships one: `verify_vm` checks that a VM
-answers on ssh and, if not, invalidates its `apply_vm`. See
-[inventory/homelab/README.md](inventory/homelab/README.md#checking-reality-the-verify-pattern).
+done and offers it again. The check itself (a ping, an API read, a `terraform plan` that must
+be empty) is yours to write, as a playbook next to the capability; Lodge only supplies the
+invalidate endpoint and scoped service tokens (`lodge tokens create --scope actions`).
 
 ### Things already done: `past_history`
 

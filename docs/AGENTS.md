@@ -131,11 +131,6 @@ its own Postgres schema on startup. Only Postgres is a separate container.
    UI alone.
 7. **An `AUTO` action that carries a prompt is downgraded** to effectively
    `MANUAL_REQUIRED` (it cannot run unattended).
-   Likewise an `AUTO` action with a `container.build` (it runs a Dockerfile, unattended) is
-   `MANUAL_REQUIRED` and a validation error unless the **operator** allowlists the playbook in
-   the server's config (`DockerExecutor__AutoBuildAllowlist__<n>=<kind>/<playbook folder>`,
-   optionally `@<fingerprint prefix>`) — never in the inventory, or whoever can merge to it
-   could allowlist themselves. `lodge validate --allow-auto-build` mirrors it for CI.
 8. **At most one live row per action identity**, enforced by a partial unique index in
    Postgres (`ux_actions_live`) — not just application logic.
 9. **The CLI and the UI are peer clients of the same API**, never a wrapper around each
@@ -248,7 +243,7 @@ Replace the default implementation in
 ## Security
 
 `docs/THREAT-MODEL.md` is the reference: the docker socket is root-equivalent, `AUTO` actions run
-with no human gate (an AUTO container build needs an operator allowlist), and the inventory is
+with no human gate, and the inventory is
 code. CI runs Trivy (`.trivyignore.yaml` lists the accepted findings, each with its reason) and
 base images are pinned by digest. `docs/templates/CODEOWNERS.inventory` is the template for the
 repository that holds an inventory.
@@ -269,11 +264,12 @@ IdP groups gating actions through `requires` and service tokens for CI.
 ./scripts/run.sh --stop     # stop the whole stack (data stays in ./data/postgres)
 ./scripts/dev-db-up.sh      # just the dev Postgres, e.g. to run the server from an IDE
 ./scripts/dev-db-down.sh    # remove the dev Postgres container (--wipe: and its data)
+./scripts/lodge-cli.sh <args> # the `lodge` CLI run from the sources, with the repo .env (e.g. validate inventory)
 ./scripts/prod-test.sh      # build the server image, run docker-compose.prod.yml (server + Postgres + Keycloak)
 
 dotnet build server/Lodge.slnx   # expect 0 warnings / 0 errors
 dotnet test  server/Lodge.slnx
-dotnet run --project cli/src/Lodge.Cli -- validate inventory   # offline inventory check, what CI runs
+./scripts/lodge-cli.sh validate inventory   # offline inventory check, what CI runs
 ```
 
 The scripts never install tools: `scripts/lib/` only checks that docker, process-compose,

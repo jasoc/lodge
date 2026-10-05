@@ -28,3 +28,4 @@ server/src/Lodge.Server/wwwroot/
 .env
 .env.local
 .env.prod
+*.old

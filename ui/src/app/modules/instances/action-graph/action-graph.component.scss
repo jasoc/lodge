@@ -132,19 +132,15 @@
   overflow: hidden;
 
   &-action {
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: center;
-    gap: 10px;
-    padding: 12px 14px 14px;
+    padding: 4px 6px 4px 10px;
     background: var(--lodge-background-color);
-    border-top: 4px solid var(--node-accent, var(--lodge-background-shader-stronger));
+    border-left: 4px solid var(--node-accent, var(--lodge-background-shader-stronger));
     box-shadow:
       0 0 0 1px var(--lodge-background-shader-stronger),
       0 1px 3px rgb(0 0 0 / 12%);
 
     &[data-status='BLOCKED'] {
-      border-top-style: dashed;
+      border-left-style: dashed;
       opacity: 0.8;
     }
 
@@ -155,7 +151,7 @@
 
   // Optional checks: a toolbox, not a chore — outlined, no status band.
   &-optional {
-    border-top: 1px dashed var(--lodge-main-ui-text-color-light);
+    border-left: 4px dashed var(--lodge-main-ui-text-color-light);
     background: transparent;
     box-shadow: 0 0 0 1px var(--lodge-background-shader-stronger) inset;
 
@@ -195,8 +191,8 @@
   }
 }
 
-.node-head,
-.node-foot {
+.node-head {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: tokens.$lodge-space-2;
@@ -245,31 +241,21 @@
   color: var(--lodge-main-ui-text-color-light);
 }
 
-.node-state-wrap {
-  white-space: normal;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  line-height: 1.2;
-}
-
 .node-log {
   flex: none;
-  margin: -8px -8px -8px 0;
+  --mdc-icon-button-state-layer-size: 32px;
+  width: 32px;
+  height: 32px;
+  padding: 4px;
 }
 
+// Run/Retry/Confirm: icon only, the label is the tooltip.
 .node-run {
-  --mat-button-filled-container-height: 32px;
-  --mat-button-outlined-container-height: 32px;
   flex: none;
-  padding: 0 14px;
-  font-size: 0.8rem;
-
-  mat-icon {
-    font-size: 18px;
-    width: 18px;
-    height: 18px;
-  }
+  --mdc-icon-button-state-layer-size: 32px;
+  width: 32px;
+  height: 32px;
+  padding: 4px;
 }
 
 @keyframes graph-spin {

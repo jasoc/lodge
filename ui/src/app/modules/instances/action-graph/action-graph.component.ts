@@ -1,7 +1,18 @@
 import { Graph, layout } from '@dagrejs/dagre';
 
-import { DatePipe, LowerCasePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { LowerCasePipe } from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  ElementRef,
+  inject,
+  input,
+  output,
+  signal,
+  untracked,
+} from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
@@ -11,7 +22,7 @@ import { buildActionGraph, GraphEdge, GraphNode } from './action-graph.model';
 
 const SIZE: Record<GraphNode['kind'], { width: number; height: number }> = {
   cause: { width: 150, height: 28 },
-  action: { width: 250, height: 116 },
+  action: { width: 230, height: 48 },
   ghost: { width: 180, height: 44 },
 };
 
@@ -27,9 +38,9 @@ interface PlacedEdge extends GraphEdge {
 }
 
 /**
- * The instance's actions as a graph, read bottom-up: the inventory changes sit on top as
+ * The instance's actions as a graph, read right-to-left: the inventory changes sit on the left as
  * small static tags, what they set off hangs below, and every arrow points up at what its
- * node needs first. Layout by dagre (layered, top to bottom); the drawing is ours — SVG
+ * node needs first. Layout by dagre (layered, left to right); the drawing is ours — SVG
  * arrows under HTML cards — so it follows the app theme. Drag to pan, wheel to zoom.
  */
 @Component({
@@ -37,7 +48,7 @@ interface PlacedEdge extends GraphEdge {
   standalone: true,
   templateUrl: './action-graph.component.html',
   styleUrls: ['./action-graph.component.scss'],
-  imports: [MatButtonModule, MatIconModule, MatSlideToggleModule, LowerCasePipe, DatePipe],
+  imports: [MatButtonModule, MatIconModule, MatSlideToggleModule, LowerCasePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ActionGraphComponent {
@@ -54,6 +65,9 @@ export class ActionGraphComponent {
   readonly offsetX = signal(0);
   readonly offsetY = signal(0);
   readonly scale = signal(1);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  /** Once the user pans or zooms, new data no longer re-fits the view. */
+  private touched = false;
   private panning = false;
   private panStartX = 0;
   private panStartY = 0;
@@ -62,7 +76,7 @@ export class ActionGraphComponent {
     const graph = buildActionGraph(this.actions(), this.includeSettled());
 
     const g = new Graph();
-    g.setGraph({ rankdir: 'TB', nodesep: 24, ranksep: 56, marginx: 24, marginy: 24 });
+    g.setGraph({ rankdir: 'LR', nodesep: 12, ranksep: 40, marginx: 24, marginy: 24 });
     g.setDefaultEdgeLabel(() => ({}));
     for (const node of graph.nodes) {
       g.setNode(node.id, { ...SIZE[node.kind] });
@@ -89,6 +103,48 @@ export class ActionGraphComponent {
     const size = g.graph();
     return { nodes, edges, width: size.width ?? 0, height: size.height ?? 0 };
   });
+
+  constructor() {
+    effect(() => {
+      const { width, height } = this.placed();
+      untracked(() => {
+        if (!this.touched) {
+          requestAnimationFrame(() => this.fit(width, height));
+        }
+      });
+    });
+  }
+
+  /** Scales and centres the whole graph into the canvas (never enlarging past 1). */
+  private fit(width: number, height: number) {
+    const canvas = this.host.nativeElement.querySelector<HTMLElement>('.graph-canvas');
+    if (!canvas || !width || !height) {
+      return;
+    }
+    const scale = Math.min(1, canvas.clientWidth / width, canvas.clientHeight / height);
+    this.scale.set(scale);
+    this.offsetX.set((canvas.clientWidth - width * scale) / 2);
+    this.offsetY.set((canvas.clientHeight - height * scale) / 2);
+  }
+
+  /** What the compact card leaves out: status, what it waits for, last run, lock. */
+  tooltip(node: GraphNode): string {
+    const action = node.action;
+    if (!action) {
+      return '';
+    }
+    const parts = [action.status.toLowerCase()];
+    if (node.waitingFor.length) {
+      parts.push('waiting for ' + node.waitingFor.join(', '));
+    }
+    if (node.optional) {
+      parts.push(node.lastRun ? `last run ${node.lastRun.status.toLowerCase()}` : 'never run');
+    }
+    if (action.requires) {
+      parts.push('requires ' + action.requires);
+    }
+    return parts.join(' · ');
+  }
 
   /** QUEUED or FAILED: there's a button to press (maybe locked, maybe needing input). */
   isRunnable(action: ActionModel): boolean {
@@ -126,6 +182,7 @@ export class ActionGraphComponent {
       return;
     }
     this.panning = true;
+    this.touched = true;
     this.panStartX = event.clientX - this.offsetX();
     this.panStartY = event.clientY - this.offsetY();
   }
@@ -144,13 +201,14 @@ export class ActionGraphComponent {
 
   onWheel(event: WheelEvent) {
     event.preventDefault();
-    this.scale.set(Math.min(2, Math.max(0.3, this.scale() - event.deltaY * 0.001)));
+    this.touched = true;
+    this.scale.set(Math.min(2, Math.max(0.1, this.scale() - event.deltaY * 0.001)));
   }
 
   resetView() {
-    this.offsetX.set(0);
-    this.offsetY.set(0);
-    this.scale.set(1);
+    this.touched = false;
+    const { width, height } = this.placed();
+    this.fit(width, height);
   }
 
   statusIcon(status: string): string {

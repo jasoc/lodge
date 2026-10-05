@@ -41,7 +41,7 @@ namespace Lodge.Infrastructure.Execution;
 /// is gone reports its outcome as unknown, rather than guessed; a run id with no sidecar
 /// never started. Starting a run id that already has a sidecar never launches it again.
 /// </summary>
-public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogReader
+public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogReader, IRunCompletionSource, IRunbookCanceller
 {
     private readonly DockerExecutorOptions _options;
     private readonly PlaybookContextResolver _playbooks;
@@ -64,6 +64,22 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
     private const string RunIdPrefix = "docker-";
 
     public string AllocateRunId(ExecutorKind kind) => $"{RunIdPrefix}{Guid.NewGuid():N}";
+
+    public event Action<string>? RunCompleted;
+
+    /// <summary>Raises <see cref="RunCompleted"/> once the run's task is done, so its status already reads as final.</summary>
+    private void NotifyWhenDone(string runId, Task completion)
+        => completion.ContinueWith(_ =>
+        {
+            try
+            {
+                RunCompleted?.Invoke(runId);
+            }
+            catch
+            {
+                // A listener's failure must never surface as an unobserved task exception.
+            }
+        }, TaskScheduler.Default);
 
     public Task<RunbookRunHandle> StartAsync(RunbookExecutionRequest request, CancellationToken cancellationToken = default)
     {
@@ -96,6 +112,7 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         }
 
         state.Completion = Task.Run<RunOutcome?>(() => RunPipelineAsync(request, request.ContainerConfig, state, runId));
+        NotifyWhenDone(runId, state.Completion);
         return Task.FromResult(handle);
     }
 
@@ -154,8 +171,17 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
 
             var timeout = TimeoutFor(config);
             state.Deadline = timeout is { } limit ? DateTimeOffset.UtcNow + limit : null;
+            if (state.StopRequested)
+            {
+                AppendLog(state.LogPath, "[lodge] stopped before the container started");
+                return Finish(state, Stopped(state, exitCode: null));
+            }
+
             SetPhase(state, Phases.Running);
-            outcome = ExitOutcome(state, await _runner.RunAsync(RunSpec(request, config, image!, runId, timeout), state.LogPath), timeout);
+            var result = await _runner.RunAsync(RunSpec(request, config, image!, runId, timeout), state.LogPath);
+            outcome = state.StopRequested && !result.TimedOut
+                ? Stopped(state, result.ExitCode)
+                : ExitOutcome(state, result, timeout);
         }
         catch (Exception ex)
         {
@@ -180,6 +206,45 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
             : result.ExitCode == 0
                 ? new RunOutcome(true, 0, $"Action '{state.ActionRef}' completed (exit 0). Log: {state.LogPath}")
                 : new RunOutcome(false, result.ExitCode, $"Action '{state.ActionRef}' failed (exit {result.ExitCode}). Log: {state.LogPath}");
+
+    private static RunOutcome Stopped(RunState state, int? exitCode)
+        => new(false, exitCode, $"Action '{state.ActionRef}' was stopped by an operator. Log: {state.LogPath}");
+
+    /// <summary>
+    /// Stops a run on an operator's request: its container is killed by its run-id label, and
+    /// the run then ends failed, "stopped". A run still building is flagged and never starts
+    /// its container. False when there is nothing live to stop.
+    /// </summary>
+    public async Task<bool> StopAsync(string runId, CancellationToken cancellationToken = default)
+    {
+        string logPath;
+        if (_runs.TryGetValue(runId, out var state))
+        {
+            if (state.Completion is { IsCompleted: true })
+            {
+                return false;
+            }
+            state.StopRequested = true;
+            logPath = state.LogPath;
+        }
+        else
+        {
+            // Not in this process's memory: settled before a restart, or started by one — then
+            // the container is still found by its label.
+            if (StatusFromSidecar(runId) is not null)
+            {
+                return false;
+            }
+            logPath = Path.Combine(_options.LogDirectory, $"{runId}.log");
+        }
+
+        AppendLog(logPath, "[lodge] stop requested by an operator: killing the container");
+        if (_runner is IContainerStopper stopper)
+        {
+            await stopper.StopAsync(runId, logPath, cancellationToken);
+        }
+        return true;
+    }
 
     private RunOutcome Finish(RunState state, RunOutcome outcome)
     {
@@ -220,6 +285,7 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         var phaseBeforeRestart = sidecar.Phase;
         state.Deadline = sidecar.DeadlineAt;
         state.Completion = Task.Run(() => ReattachPipelineAsync(runId, state, phaseBeforeRestart));
+        NotifyWhenDone(runId, state.Completion);
         return state;
     }
 
@@ -473,6 +539,9 @@ public sealed class ContainerRunbookExecutor : IRunbookExecutor, IRunbookLogRead
         public string SidecarPath { get; } = sidecarPath;
         public DateTimeOffset StartedAt { get; } = startedAt;
         public volatile string Phase = Phases.Starting;
+
+        /// <summary>An operator asked this run to stop (see <see cref="StopAsync"/>).</summary>
+        public volatile bool StopRequested;
         public DateTimeOffset? Deadline { get; set; }
         public DateTimeOffset? CompletedAt { get; set; }
 

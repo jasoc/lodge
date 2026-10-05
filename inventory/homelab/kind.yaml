@@ -1,11 +1,6 @@
 # yaml-language-server: $schema=../../schemas/kind.schema.json
 name: "Homelab"
 
-# Inputs every action of this kind gets (an action can override one, or drop it with
-# `name: ~`). pass_pat is the Proton Pass personal access token (Homelab vault), resolved
-# by Lodge from PROTON_PASS_PAT — the only credential Lodge hands over; every run fetches
-# the rest (provider tokens, ssh key, state backend) from Proton Pass itself.
-defaults:
-  inputs:
-    pass_pat: { secret: PROTON_PASS_PAT }
-    tf_pg_conn_str: { secret: TF_PG_CONN_STR }
+# Example inventory: its playbooks are mocks (containers that do nothing), so no action
+# needs a secret and there are no `defaults.inputs`. A real kind would hand every action
+# its credentials here, e.g. `defaults: { inputs: { token: { secret: MY_TOKEN } } }`.

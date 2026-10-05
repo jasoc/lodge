@@ -14,7 +14,7 @@ executor: container
 container:
   image: "alpine:3.21@sha256:…"          # or: build: { context: playbooks/x }
   command: ["reachable"]
-  timeout_seconds: 60                    # killed after this long (default: server, 3600 s)
+  timeout_seconds: 60                    # killed after this long (default: server, 600 s)
   resources: { memory: 64m, cpus: 0.5, pids: 32 }
   network: internal                      # a profile the server defines, see below
   security:                              # relaxations of the defaults, see below
@@ -28,7 +28,7 @@ playbook does.
 
 | Field | Meaning |
 |---|---|
-| `timeout_seconds` | 1–86400. A container still running after this is killed (`docker kill`, by its `lodge.run_id` label) and the run fails with "timed out". Omitted: `DockerExecutor__DefaultTimeoutSeconds` (3600; `0` = unlimited). |
+| `timeout_seconds` | 1–86400. A container still running after this is killed (`docker kill`, by its `lodge.run_id` label) and the run fails with "timed out". Omitted: `DockerExecutor__DefaultTimeoutSeconds` (600; `0` = unlimited). |
 | `resources.memory` | docker size (`512m`, `2g`); swap is capped to the same amount. |
 | `resources.cpus` | number of CPUs, e.g. `0.5`. |
 | `resources.pids` | most processes the container may create. |

@@ -1,17 +1,18 @@
 # yaml-language-server: $schema=../../../schemas/capability.schema.json
 # Compose stacks per VM: each VM lists, under `compose`, files of the flat folder
 # inventory/homelab/stacks/ (names or globs: portainer.yml, pangolin-*). Every matching file is one item with its own
-# actions:
-#   add    → deploy_stack (AUTO, once the VM's Ansible profile has run)
-#   modify → update_stack (AUTO) — editing the FILE is the change: its content is the item
-#   delete → remove_stack (MANUAL) — dropped from the list (or deleted): `compose down`,
+# actions (every playbook is a mock, see ../README.md):
+#   add    → deploy_stack (AUTO, once the VM's Ansible profile has run, so behind the VM's
+#            single approval) → healthcheck_stack (AUTO)
+#   modify → update_stack (MANUAL) — editing the FILE is the change: its content is the item
+#   delete → approve_remove_stack (none, MANUAL) → remove_stack (AUTO): `compose down`,
 #            with the last deployed content, so it works even once the file is gone
+#   scan_stack (OPTIONAL, any time): long-running (two minutes), re-offered after every run
 # Removing a whole VM doesn't remove its stacks one by one (the VM's destroy takes them
 # along); a recreated VM gets every stack deployed again.
-# Secrets: see virtual_machines.yaml — only the Proton Pass token comes from Lodge (kind.yaml).
 capability: stacks
 title: "Compose Stacks"
-description: "Docker compose files deployed onto each VM over ssh."
+description: "Docker compose files deployed onto each VM over ssh, automatically once the VM is ready."
 
 signals:
   - path: proxmox.virtual_machines.*.compose
@@ -22,7 +23,7 @@ signals:
         actions:
           - key: deploy_stack
             label: "Deploy stack"
-            policy: MANUAL_REQUIRED
+            policy: AUTO
             depends_on: [ "proxmox.virtual_machines.configure_vm" ]
             executor: container
             container:
@@ -35,11 +36,39 @@ signals:
               vm_name: { from: parent_key }
               host: { from: parent.ip }
 
+          - key: healthcheck_stack
+            label: "Check stack health"
+            policy: AUTO
+            depends_on: [ "proxmox.virtual_machines.*.compose.deploy_stack" ]
+            executor: container
+            container:
+              security: *runs-as-root
+              build: { context: playbooks/compose, additional_contexts: { base: playbooks/_base } }
+              command: ["healthcheck"]
+            inputs:
+              file: { from: item.file }
+              vm_name: { from: parent_key }
+              host: { from: parent.ip }
+
+          - key: scan_stack
+            label: "Scan stack images (long-running)"
+            policy: OPTIONAL
+            executor: container
+            container:
+              security: *runs-as-root
+              build: { context: playbooks/compose, additional_contexts: { base: playbooks/_base } }
+              command: ["scan"]
+            inputs:
+              file: { from: item.file }
+              vm_name: { from: parent_key }
+              host: { from: parent.ip }
+              sleep_seconds: { const: "120" }
+
       - on: modify
         actions:
           - key: update_stack
             label: "Update stack"
-            policy: MANUAL_REQUIRED
+            policy: AUTO
             executor: container
             container:
               security: *runs-as-root
@@ -53,9 +82,15 @@ signals:
 
       - on: delete
         actions:
+          - key: approve_remove_stack
+            label: "Approve stack removal"
+            policy: AUTO
+            executor: none
+
           - key: remove_stack
             label: "Remove stack"
-            policy: MANUAL_REQUIRED
+            policy: AUTO
+            depends_on: [ "proxmox.virtual_machines.*.compose.approve_remove_stack" ]
             executor: container
             container:
               security: *runs-as-root

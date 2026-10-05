@@ -2,9 +2,9 @@
 # A view: signals and no rules. Nothing here is reconciled — it gives this slice of the
 # inventory a name and a card: every VM, sorted by name, with its size next to it.
 # `collection.*.field` signals sharing a collection become one table, one column each.
-capability: vm_overview
-title: "Virtual Machines"
-description: "Every VM with its CPU and memory."
+capability: overview
+title: "Overview"
+description: "An overview of the virtual machines and DNS records."
 
 signals:
   - path: proxmox.virtual_machines.*.cores
@@ -15,3 +15,5 @@ signals:
     label: Ansible profile
   - path: proxmox.virtual_machines.*.compose
     label: Compose
+  - path: cloudflare.zones.parisius-dev.records.*.name
+    label: DNS Record Name

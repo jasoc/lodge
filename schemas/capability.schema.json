@@ -96,10 +96,11 @@
                       },
                       "executor": {
                         "type": "string",
-                        "description": "What runs the action; selects which block below applies.",
+                        "description": "What runs the action; selects which block below applies. `none` runs nothing: the action only waits to be confirmed.",
                         "enum": [
                           "container",
-                          "http"
+                          "http",
+                          "none"
                         ]
                       },
                       "container": {

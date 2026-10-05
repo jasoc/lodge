@@ -219,6 +219,46 @@ public sealed class ActionExecutionService
             "Action invalidated; it will be treated as never having succeeded on the next cycle.");
     }
 
+    /// <summary>
+    /// Stops a RUNNING action on an operator's request, gated by the action's <c>requires</c>
+    /// group like a confirm. Only asks the executor to stop the run: it then ends failed
+    /// ("stopped by an operator") and lands through the usual path, so the row, its audit
+    /// trail and what depends on it behave exactly as for any failure — a human retries it.
+    /// </summary>
+    public async Task<ActionExecutionResult?> StopAsync(
+        string kindCode, string instanceCode, Guid actionId, string actor, CancellationToken cancellationToken = default)
+    {
+        var action = await LoadAsync(kindCode, instanceCode, actionId, cancellationToken);
+        if (action is null)
+        {
+            return null;
+        }
+
+        if (action.Status != ActionStatus.RUNNING || string.IsNullOrWhiteSpace(action.ExecutionRef))
+        {
+            return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
+                "Only a running action can be stopped.");
+        }
+
+        if (await DenyUnlessAllowedAsync(action, kindCode, actor, "stop", cancellationToken) is { } denied)
+        {
+            return denied;
+        }
+
+        if (_executor is not IRunbookCanceller canceller ||
+            !await canceller.StopAsync(action.ExecutionRef, cancellationToken))
+        {
+            return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
+                "Nothing to stop: the run has just finished, or nothing of it is in flight. Its outcome lands on its own.");
+        }
+
+        _db.AddAudit(action.InstanceId, kindCode, "action.stop.requested", actor, AuditLog.ActionSnapshot(action));
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return new ActionExecutionResult(action.Id, action.Status.ToString(), action.ExecutionRef,
+            $"Stop requested for '{action.Label}'.");
+    }
+
     public async Task<ActionExecutionResult?> RefreshStatusAsync(
         string kindCode, string instanceCode, Guid actionId, CancellationToken cancellationToken = default)
     {

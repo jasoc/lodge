@@ -2,7 +2,7 @@ namespace Lodge.Core.Domain.Enums;
 
 /// <summary>
 /// Which concrete <c>IRunbookExecutor</c> runs an action — declared explicitly per action
-/// in the capability YAML (<c>executor: container|http</c>), never inferred. The value stored
+/// in the capability YAML (<c>executor: container|http|none</c>), never inferred. The value stored
 /// on an action row is a historical record of what the row ran under, same as <see
 /// cref="ActionPolicy"/>.
 /// </summary>
@@ -16,5 +16,11 @@ public enum ExecutorKind
     Container,
 
     /// <summary>One HTTP request — <c>HttpRunbookExecutor</c>.</summary>
-    Http
+    Http,
+
+    /// <summary>
+    /// Nothing runs — <c>NoneRunbookExecutor</c>. The action exists only to be confirmed: the
+    /// human gate in front of a chain of AUTO actions.
+    /// </summary>
+    None
 }

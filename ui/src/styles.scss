@@ -39,19 +39,14 @@ body {
   // containers, so they follow the theme's accent too.
   @include mat.system-level-colors(theme.$dark-theme);
 
-  [data-theme='lodge-light-green'] {
-    @include mat.all-component-colors(theme.$light-green-theme);
-    @include mat.system-level-colors(theme.$light-green-theme);
-  }
-
-  [data-theme='lodge-light-red'] {
-    @include mat.all-component-colors(theme.$light-red-theme);
-    @include mat.system-level-colors(theme.$light-red-theme);
-  }
-
   [data-theme='lodge-dark-blue'] {
     @include mat.all-component-colors(theme.$dark-blue-theme);
     @include mat.system-level-colors(theme.$dark-blue-theme);
+  }
+
+  [data-theme='lodge-dark-green'] {
+    @include mat.all-component-colors(theme.$dark-green-theme);
+    @include mat.system-level-colors(theme.$dark-green-theme);
   }
 }
 

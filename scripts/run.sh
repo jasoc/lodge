@@ -9,9 +9,9 @@
 # deletes it). The only file this can create on its own is a root .env, copied from
 # .env.example on first run.
 #
-# It never installs tools: it checks that docker, process-compose, the .NET SDK pinned in
-# global.json and the Node pinned in ui/.nvmrc are available, and stops with a pointer to
-# the README's Prerequisites if one isn't.
+# It installs no tools except the pinned Node, via nvm when nvm is present: it checks that
+# docker, process-compose, the .NET SDK pinned in global.json and the Node pinned in
+# ui/.nvmrc are available, and stops with a pointer to the README's Prerequisites if one isn't.
 #
 # Usage: ./scripts/run.sh [--stop]
 set -euo pipefail

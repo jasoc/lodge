@@ -1,9 +1,7 @@
 @use 'tokens' as tokens;
 
 :host {
-  display: flex;
-  flex-direction: column;
-  gap: tokens.$lodge-space-4;
+  display: block;
   max-width: 960px;
 }
 
@@ -11,31 +9,40 @@
   animation: queue-spin 1.2s linear infinite;
 }
 
-.queue-section-title {
+.queue-groups {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: tokens.$lodge-space-2;
-  margin: 0 0 tokens.$lodge-space-2;
-  font-size: 1rem;
+  flex-direction: column;
+  gap: tokens.$lodge-space-3;
+}
 
-  mat-icon {
+// Each group is one panel: the cards inside are the rows.
+.queue-group.queue-group {
+  --mat-expansion-header-collapsed-state-height: 44px;
+  --mat-expansion-header-expanded-state-height: 44px;
+  border-radius: 12px;
+
+  mat-panel-title {
+    align-items: center;
+    gap: tokens.$lodge-space-2;
+    font-size: 0.95rem;
+
+    mat-icon {
+      color: var(--lodge-main-ui-text-color-light);
+    }
+  }
+
+  mat-panel-description {
+    font-size: 0.8rem;
     color: var(--lodge-main-ui-text-color-light);
   }
 }
 
 .queue-section-count {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  padding: 1px 8px;
+  padding: 0 7px;
   border-radius: 999px;
   background: var(--lodge-background-shader-stronger);
-}
-
-.queue-section-hint {
-  font-size: 0.8rem;
-  font-weight: normal;
-  color: var(--lodge-main-ui-text-color-light);
 }
 
 .queue-empty {
@@ -49,12 +56,13 @@
 .queue-list {
   display: flex;
   flex-direction: column;
-  gap: tokens.$lodge-space-2;
+  gap: tokens.$lodge-space-1;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+// A compact card per run.
 .queue-row {
   --accent: var(--mat-sys-primary, var(--lodge-main-ui-text-color));
   display: flex;
@@ -62,11 +70,11 @@
   align-items: center;
   gap: tokens.$lodge-space-2;
   // Deeper dependencies step right, so a chain reads as a staircase.
-  margin-left: calc(var(--depth, 0) * 20px);
-  padding: tokens.$lodge-space-2 tokens.$lodge-space-3;
-  border-radius: 12px;
+  margin-left: calc(var(--depth, 0) * 16px);
+  padding: 6px tokens.$lodge-space-3;
+  border-radius: 10px;
   background: var(--lodge-background-shader);
-  border-left: 4px solid var(--accent);
+  border-left: 3px solid var(--accent);
 
   &[data-state='failed'] {
     --accent: var(--mat-sys-error, #c62828);
@@ -87,30 +95,19 @@
     --accent: var(--lodge-main-ui-text-color-light);
     background: transparent;
     border: 1px dashed var(--lodge-background-shader-stronger);
-    border-left: 4px dashed var(--accent);
+    border-left: 3px dashed var(--accent);
   }
 
-  // The one to press now: bigger, lifted, unmissable.
+  // The one to press now: tinted, nothing more.
   &-next {
-    padding: tokens.$lodge-space-3;
     background: var(--mat-sys-primary-container, var(--lodge-background-shader-stronger));
     color: var(--mat-sys-on-primary-container, inherit);
-    box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
-
-    .queue-row-label {
-      font-size: 1.05rem;
-    }
-
-    .queue-run {
-      height: 44px;
-      padding: 0 24px;
-      font-size: 1rem;
-    }
   }
 
   &-index {
     flex: none;
-    min-width: 1.6em;
+    min-width: 1.4em;
+    font-size: 0.85rem;
     font-variant-numeric: tabular-nums;
     font-weight: 600;
     color: var(--lodge-main-ui-text-color-light);
@@ -119,6 +116,9 @@
 
   &-icon {
     flex: none;
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
     color: var(--accent);
   }
 
@@ -140,7 +140,7 @@
   &-item {
     font-family: monospace;
     font-weight: normal;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--lodge-main-ui-text-color-light);
   }
 
@@ -160,7 +160,7 @@
   }
 
   &-note {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: var(--lodge-main-ui-text-color-light);
   }
 
@@ -170,6 +170,14 @@
     gap: tokens.$lodge-space-1;
     margin-left: auto;
   }
+}
+
+// Buttons a notch smaller, to keep the cards tight.
+.queue-run,
+.queue-last {
+  --mat-button-filled-container-height: 32px;
+  --mat-button-outlined-container-height: 32px;
+  --mat-button-text-container-height: 32px;
 }
 
 .queue-last {

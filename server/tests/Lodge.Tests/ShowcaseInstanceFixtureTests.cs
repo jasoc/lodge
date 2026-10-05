@@ -63,6 +63,9 @@ public class ShowcaseInstanceFixtureTests
     private static IEnumerable<ActionTemplate> AllTemplates(CapabilityCatalog catalog)
         => catalog.Capabilities.SelectMany(c => c.Signals).SelectMany(s => s.Rules).SelectMany(r => r.Actions);
 
+    private static IEnumerable<ActionTemplate> ContainerTemplates(CapabilityCatalog catalog)
+        => AllTemplates(catalog).Where(a => a.ExecutorKind == ExecutorKind.Container);
+
     [Fact]
     public async Task Homelab_lab_instance_loads_and_reconciles_without_validation_errors()
     {
@@ -70,15 +73,11 @@ public class ShowcaseInstanceFixtureTests
         var result = Reconcile(catalog, mergedYaml);
 
         Assert.Empty(result.ValidationErrors);
-        Assert.All(AllTemplates(catalog), a => Assert.NotNull(a.Container!.Build!.Fingerprint));
-        // kind.yaml hands every action the Proton Pass token, and every playbook shares _base.
-        Assert.All(AllTemplates(catalog), a =>
-        {
-            var pat = Assert.Single(a.Inputs, i => i.Name == "pass_pat");
-            Assert.Equal(RuleInputKind.Secret, pat.Kind);
-            Assert.Equal("PROTON_PASS_PAT", pat.Value);
-            Assert.Equal("playbooks/_base", a.Container!.Build!.AdditionalContexts!["base"]);
-        });
+        Assert.All(ContainerTemplates(catalog), a => Assert.NotNull(a.Container!.Build!.Fingerprint));
+        // The playbooks are mocks: no action needs a secret, and every playbook shares _base.
+        Assert.All(AllTemplates(catalog), a => Assert.DoesNotContain(a.Inputs, i => i.Kind == RuleInputKind.Secret));
+        Assert.All(ContainerTemplates(catalog), a =>
+            Assert.Equal("playbooks/_base", a.Container!.Build!.AdditionalContexts!["base"]));
     }
 
     [Fact]
@@ -87,7 +86,7 @@ public class ShowcaseInstanceFixtureTests
         var (catalog, _) = await LoadHomelabLabAsync();
 
         // Terraform/Ansible/compose run as root and write to /root: relaxed explicitly, and only that.
-        Assert.All(AllTemplates(catalog), a =>
+        Assert.All(ContainerTemplates(catalog), a =>
             Assert.Equal(new ContainerSecurity(User: "image", ReadOnlyRootfs: false), a.Container!.Security));
     }
 
@@ -96,14 +95,49 @@ public class ShowcaseInstanceFixtureTests
     {
         var (catalog, _) = await LoadHomelabLabAsync();
 
+        var templates = AllTemplates(catalog).ToDictionary(t => t.Key);
+
+        // Edits are one MANUAL action; creations and destructions are an AUTO action behind a
+        // MANUAL `executor: none` gate, however many AUTO steps sit in between.
+        var manual = new[]
+        {
+            "apply_vm_changes", "update_image", "update_record", "update_stack",
+            "approve_vm", "approve_destroy_vm", "approve_image", "approve_delete_image",
+            "approve_record", "approve_delete_record", "approve_remove_stack"
+        };
         var gated = new[]
         {
-            "apply_vm", "apply_vm_changes", "destroy_vm", "download_image", "update_image", "delete_image",
-            "create_record", "update_record", "delete_record", "remove_stack"
+            "apply_vm", "destroy_vm", "download_image", "delete_image",
+            "create_record", "delete_record", "deploy_stack", "remove_stack"
         };
-        var templates = AllTemplates(catalog).ToList();
-        Assert.All(gated, key => Assert.Contains(templates, t => t.Key == key));
-        Assert.All(templates.Where(t => gated.Contains(t.Key)), t => Assert.Equal(ActionPolicy.MANUAL_REQUIRED, t.Policy));
+        Assert.All(manual, key => Assert.Equal(ActionPolicy.MANUAL_REQUIRED, templates[key].Policy));
+        Assert.All(templates.Values.Where(t => t.Key.StartsWith("approve_", StringComparison.Ordinal)),
+            t => Assert.Equal(ExecutorKind.None, t.ExecutorKind));
+        Assert.All(gated, key =>
+        {
+            Assert.Equal(ActionPolicy.AUTO, templates[key].Policy);
+            Assert.True(BehindAGate(templates[key]), $"'{key}' is AUTO but no MANUAL gate stands in front of it");
+        });
+
+        bool BehindAGate(ActionTemplate t)
+            => t.DependsOn
+                .Select(d => templates[d[(d.LastIndexOf('.') + 1)..]])
+                .Any(d => d.Policy == ActionPolicy.MANUAL_REQUIRED || BehindAGate(d));
+    }
+
+    [Fact]
+    public async Task The_long_running_optional_actions_sleep_two_minutes_and_wait_for_nobody()
+    {
+        var (catalog, _) = await LoadHomelabLabAsync();
+
+        var longRunning = AllTemplates(catalog).Where(t => t.Inputs.Any(i => i.Name == "sleep_seconds")).ToList();
+        Assert.NotEmpty(longRunning);
+        Assert.All(longRunning, t =>
+        {
+            Assert.Equal(ActionPolicy.OPTIONAL, t.Policy);
+            Assert.Empty(t.DependsOn);
+            Assert.Equal("120", t.Inputs.Single(i => i.Name == "sleep_seconds").Value);
+        });
     }
 
     [Fact]
@@ -112,7 +146,7 @@ public class ShowcaseInstanceFixtureTests
         var (catalog, mergedYaml) = await LoadHomelabLabAsync();
         var result = Reconcile(catalog, mergedYaml);
 
-        var applies = result.ToCreate.Where(a => a.ResolvedInputs.ContainsKey("module")).ToList();
+        var applies = result.ToCreate.Where(a => a.ResolvedInputs.ContainsKey("module") && a.ResolvedInputs.ContainsKey("inputs")).ToList();
         Assert.NotEmpty(applies);
         Assert.All(applies, a =>
         {
@@ -132,11 +166,16 @@ public class ShowcaseInstanceFixtureTests
         var (catalog, mergedYaml) = await LoadHomelabLabAsync();
         var created = Reconcile(catalog, mergedYaml).ToCreate;
 
-        var applies = created.Where(a => a.Identity.ActionKey == "apply_vm").ToList();
-        Assert.NotEmpty(applies);
-        Assert.All(applies, a => Assert.False(a.Blocked));
-        Assert.All(created.Where(a => a.Identity.ActionKey == "configure_vm"), c =>
-            Assert.Equal(new[] { new ActionIdentity(VmSignal, c.Identity.ItemKey, "apply_vm") }, c.BlockedBy));
+        // Only the human gate is free; each VM step waits for the one before it.
+        var approvals = created.Where(a => a.Identity.ActionKey == "approve_vm").ToList();
+        Assert.NotEmpty(approvals);
+        Assert.All(approvals, a => Assert.False(a.Blocked));
+        var chain = new[] { "approve_vm", "apply_vm", "configure_vm", "verify_vm", "register_vm" };
+        for (var i = 1; i < chain.Length; i++)
+        {
+            Assert.All(created.Where(a => a.Identity.ActionKey == chain[i]), c =>
+                Assert.Equal(new[] { new ActionIdentity(VmSignal, c.Identity.ItemKey, chain[i - 1]) }, c.BlockedBy));
+        }
 
         var deploys = created.Where(a => a.Identity.ActionKey == "deploy_stack").ToList();
         Assert.NotEmpty(deploys);

@@ -1,6 +1,7 @@
 using Lodge.Core.Abstractions;
 using Lodge.Core.Catalog;
 using Lodge.Infrastructure.Auth;
+using Lodge.Infrastructure.Events;
 using Lodge.Infrastructure.Execution;
 using Lodge.Infrastructure.Git;
 using Lodge.Infrastructure.Persistence;
@@ -9,6 +10,7 @@ using Lodge.Infrastructure.Secrets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Lodge.Infrastructure;
@@ -38,7 +40,17 @@ public static class DependencyInjection
         services.Configure<OidcOptions>(configuration.GetSection(OidcOptions.SectionName));
 
         var connectionString = LodgeConnectionString.Build(configuration);
-        services.AddDbContext<LodgeDbContext>(options => options.UseNpgsql(connectionString));
+
+        // Change events for open UIs (SSE): every committed save that audits something, or
+        // records a cycle, publishes an invalidation on the bus; PgEventRelay carries them
+        // between replicas over LISTEN/NOTIFY.
+        services.AddSingleton<LodgeEventBus>();
+        services.AddSingleton<ChangePublisher>();
+        services.AddHostedService(sp => new PgEventRelay(
+            sp.GetRequiredService<LodgeEventBus>(), connectionString, sp.GetRequiredService<ILogger<PgEventRelay>>()));
+        services.AddDbContext<LodgeDbContext>((sp, options) => options
+            .UseNpgsql(connectionString)
+            .AddInterceptors(sp.GetRequiredService<ChangePublisher>()));
 
         // The only Local-vs-GitHub difference is where inventory YAML is read from.
         // One reconciliation loop drives both modes.
@@ -58,6 +70,9 @@ public static class DependencyInjection
         // (settings table) and are re-read every iteration.
         services.AddSingleton<ReconciliationCoordinator>();
         services.AddHostedService<ReconciliationLoopService>();
+        // Event-driven companion of the timer: a finished run is landed and its instance
+        // reconciled at once, so what it unblocks starts without waiting for the next tick.
+        services.AddHostedService<RunCompletionReconciler>();
         services.AddScoped<ReconciliationRunner>();
         services.AddScoped<ActionsQueryService>();
         services.AddScoped<SettingsService>();
@@ -105,6 +120,7 @@ public static class DependencyInjection
         services.AddSingleton(sp => new HttpRunbookExecutor(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("http-executor"),
             sp.GetRequiredService<IOptions<HttpExecutorOptions>>()));
+        services.AddSingleton<NoneRunbookExecutor>();
         services.AddSingleton<CompositeRunbookExecutor>();
         services.AddSingleton<IRunbookExecutor>(sp => sp.GetRequiredService<CompositeRunbookExecutor>());
         services.AddSingleton<IRunbookLogReader>(sp => sp.GetRequiredService<CompositeRunbookExecutor>());

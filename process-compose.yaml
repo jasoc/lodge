@@ -28,6 +28,11 @@ processes:
 
   server:
     command: ./scripts/dev-server.sh
+    shutdown:
+      # `dotnet watch` handles Ctrl+C (SIGINT) and passes it on to the server it runs;
+      # SIGTERM can leave it hanging in "Terminating".
+      signal: 2
+      timeout_seconds: 15
     depends_on:
       postgres:
         condition: process_healthy

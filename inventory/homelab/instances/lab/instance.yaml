@@ -1,11 +1,8 @@
 # The homelab, mirroring the homelab repo's terraform/ + docker/ + ansible profiles.
 #
-# !! Everything here except docker-tools-node ALSO exists for real, managed by the homelab
-# !! repo's own state on /vault. In Lodge's test state, applying it would create duplicates
-# !! (a second VM on the same IP) or fail (an image/record that already exists). Creation
-# !! is always MANUAL: don't confirm those, or set `import_id` on the item to adopt the
-# !! existing resource instead (only once Lodge's state is the one in charge — two states
-# !! managing the same resource will fight).
+# Example inventory: the playbooks behind the actions are mocks (see ../../README.md).
+# Confirming an action starts a container that prints what it would do and exits; no VM,
+# image, DNS record or stack is ever touched, so everything here is safe to confirm.
 display_name: "Paride Homelab"
 
 proxmox:
@@ -19,20 +16,6 @@ proxmox:
   # Each VM: what Terraform hands Proxmox, the Ansible profile that configures it, and the
   # compose files (by name, from the flat inventory/homelab/stacks/; globs allowed) that run on it.
   virtual_machines:
-    docker-arrstack-node:
-      node: proxmox
-      cores: 4
-      cpu_type: x86-64-v3
-      memory_mb: 8192
-      disk_gb: 128
-      image: "vault:import/AlmaLinux-10-GenericCloud-10.2-20260817.0.x86_64.qcow2"
-      ip: 192.168.178.114/24
-      gateway: 192.168.178.1
-      ansible_profile: docker-node
-      import_id: "proxmox/102"
-      compose:
-        - woodpecker.yml
-        - gitlab.yml
 
     another-node:
       node: proxmox
@@ -45,6 +28,24 @@ proxmox:
       gateway: 192.168.178.1
       ansible_profile: docker-node
       import_id: "proxmox/103"
+      compose:
+        - discopanel.yml
+
+    another-node-2:
+      node: proxmox
+      cores: 4
+      cpu_type: x86-64-v3
+      memory_mb: 4096
+      disk_gb: 128
+      image: "vault:import/AlmaLinux-10-GenericCloud-10.2-20260817.0.x86_64.qcow2"
+      ip: 192.168.178.115/24
+      gateway: 192.168.178.1
+      ansible_profile: docker-node
+      import_id: "proxmox/103"
+      compose:
+        - dockpeek.yml
+        - file-browser.yml
+        - flaresolverr.yml
 
 cloudflare:
   zones:
@@ -52,3 +53,6 @@ cloudflare:
       zone_id: "e54a9aaab84f6ca8777e5a3e6ea01579"
       records:
         cname-test: { type: CNAME, name: test.parisius.dev, content: jasoc.github.io, ttl: 1, proxied: true }
+        cname-test-2: { type: CNAME, name: test2.parisius.dev, content: jasoc.github.io, ttl: 1, proxied: true }
+        cname-test-3: { type: CNAME, name: test3.parisius.dev, content: jasoc.github.io, ttl: 1, proxied: true }
+        cname-test-4: { type: CNAME, name: test4.parisius.dev, content: jasoc.github.io, ttl: 1, proxied: true }

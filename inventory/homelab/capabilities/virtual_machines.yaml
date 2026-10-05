@@ -1,9 +1,16 @@
 # yaml-language-server: $schema=../../../schemas/capability.schema.json
-# One Proxmox VM per key under proxmox.virtual_machines. Lifecycle:
-#   add    → apply_vm (Terraform creates it, MANUAL) → configure_vm (Ansible profile, AUTO)
+# One Proxmox VM per key under proxmox.virtual_machines. Lifecycle (every playbook is a mock,
+# see ../README.md; `none` actions run nothing and only wait to be confirmed):
+#   add    → approve_vm (none, MANUAL: the one click) → apply_vm (Terraform) → configure_vm
+#            (Ansible profile) → verify_vm → register_vm, all AUTO, each unblocking the next
 #   modify → apply_vm_changes (Terraform updates it in place, MANUAL)
-#   delete → destroy_vm (Terraform destroys it, MANUAL — only members of `admins`)
-#   plan_vm (OPTIONAL, any time): what Terraform would change for this VM right now
+#   delete → approve_destroy_vm (none, MANUAL — only members of `admins`) → destroy_vm (AUTO)
+#   plan_vm and audit_vm (OPTIONAL, any time): long-running (two minutes each), re-offered
+#   after every run
+#
+# Why only add and delete are chains: a depends_on is satisfied by any earlier success of the
+# target, whatever the item looked like then. After the first edit of a VM an approve step
+# would already count as done, so gating a modify chain would only ever gate the first edit.
 #
 # Terraform: the generic runner (playbooks/terraform) applies the `proxmox-vm` module as
 # its own root with its own state — a Postgres workspace named after the item's path
@@ -16,16 +23,11 @@
 # (stacks.yaml), and editing the list never counts as a change to the VM.
 #
 # Container hardening: Lodge runs containers with every capability dropped, no new
-# privileges, a read-only root filesystem and a non-root user. The Terraform and Ansible
-# playbooks run as root and write to /root (ssh key, state), so they relax exactly that,
-# per action, with `security:` (the &runs-as-root anchor).
-#
-# Secrets: every action gets pass_pat, the Proton Pass token, from kind.yaml's defaults —
-# the only credential Lodge hands over; every run fetches the rest (provider tokens, ssh
-# key, state backend) from Proton Pass itself.
+# privileges, a read-only root filesystem and a non-root user. The playbooks run as root,
+# so they relax exactly that, per action, with `security:` (the &runs-as-root anchor).
 capability: virtual_machines
 title: "VMs provision"
-description: "Proxmox VMs: created and destroyed with Terraform, configured with Ansible."
+description: "Proxmox VMs: approved by a human, then created, configured and verified automatically."
 
 signals:
   - path: proxmox.virtual_machines
@@ -34,9 +36,15 @@ signals:
     rules:
       - on: add
         actions:
+          - key: approve_vm
+            label: "Approve VM creation"
+            policy: AUTO
+            executor: none
+
           - key: apply_vm
             label: "Create VM (Terraform)"
-            policy: MANUAL_REQUIRED
+            policy: AUTO
+            depends_on: [ "proxmox.virtual_machines.approve_vm" ]
             executor: container
             container:
               security: &runs-as-root { user: image, read_only_rootfs: false }
@@ -64,8 +72,34 @@ signals:
               profile: { from: item.ansible_profile }
               host: { from: item.ip }
 
+          - key: verify_vm
+            label: "Verify VM (Ansible smoke test)"
+            policy: AUTO
+            depends_on: [ "proxmox.virtual_machines.configure_vm" ]
+            executor: container
+            container:
+              security: *runs-as-root
+              build: { context: playbooks/ansible, additional_contexts: { base: playbooks/_base } }
+              command: ["verify"]
+            inputs:
+              vm_name: { from: key }
+              host: { from: item.ip }
+
+          - key: register_vm
+            label: "Register VM in monitoring"
+            policy: AUTO
+            depends_on: [ "proxmox.virtual_machines.verify_vm" ]
+            executor: container
+            container:
+              security: *runs-as-root
+              build: { context: playbooks/ansible, additional_contexts: { base: playbooks/_base } }
+              command: ["register"]
+            inputs:
+              vm_name: { from: key }
+              host: { from: item.ip }
+
           - key: plan_vm
-            label: "Plan VM (Terraform, read-only)"
+            label: "Plan VM (Terraform, read-only, long-running)"
             policy: OPTIONAL
             executor: container
             container:
@@ -78,12 +112,26 @@ signals:
               name: { from: key }
               inputs: { from: item }
               import_id: { from: item.import_id }
+              sleep_seconds: { const: "120" }
+
+          - key: audit_vm
+            label: "Audit VM (Ansible, long-running)"
+            policy: OPTIONAL
+            executor: container
+            container:
+              security: *runs-as-root
+              build: { context: playbooks/ansible, additional_contexts: { base: playbooks/_base } }
+              command: ["audit"]
+            inputs:
+              vm_name: { from: key }
+              host: { from: item.ip }
+              sleep_seconds: { const: "120" }
 
       - on: modify
         actions:
           - key: apply_vm_changes
             label: "Apply VM changes (Terraform)"
-            policy: MANUAL_REQUIRED
+            policy: AUTO
             executor: container
             container:
               security: *runs-as-root
@@ -98,10 +146,16 @@ signals:
 
       - on: delete
         actions:
+          - key: approve_destroy_vm
+            label: "Approve VM destruction"
+            policy: AUTO
+            requires: admins
+            executor: none
+
           - key: destroy_vm
             label: "Destroy VM (Terraform)"
-            policy: MANUAL_REQUIRED
-            requires: admins
+            policy: AUTO
+            depends_on: [ "proxmox.virtual_machines.approve_destroy_vm" ]
             executor: container
             container:
               security: *runs-as-root

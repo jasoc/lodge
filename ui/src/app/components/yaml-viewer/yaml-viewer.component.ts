@@ -19,10 +19,11 @@ import { ThemeService } from '../../services/theme.service';
 // there), never from a CDN, and only fetched the first time a viewer renders.
 loader.config({ paths: { vs: new URL('assets/monaco/vs', document.baseURI).href } });
 
+const MONACO_THEME = 'lodge-black';
+
 /**
- * Read-only YAML, rendered by Monaco: highlighting, folding, line numbers, search. Follows
- * the app theme (light themes → `vs`, dark → `vs-dark`). Falls back to a plain `<pre>` if
- * Monaco can't be loaded.
+ * Read-only YAML, rendered by Monaco: highlighting, folding, line numbers, search, on the
+ * app's black. Falls back to a plain `<pre>` if Monaco can't be loaded.
  */
 @Component({
   selector: 'lodge-yaml-viewer',
@@ -110,6 +111,13 @@ export class YamlViewerComponent implements OnDestroy {
     this.creating = true;
     try {
       const monaco: typeof Monaco = await loader.init();
+      // `vs-dark` on a pure black background: the app has no other surface colour now.
+      monaco.editor.defineTheme(MONACO_THEME, {
+        base: 'vs-dark',
+        inherit: true,
+        rules: [],
+        colors: { 'editor.background': '#000000' },
+      });
       this.monaco = monaco;
       if (this.destroyed) {
         return;
@@ -135,7 +143,8 @@ export class YamlViewerComponent implements OnDestroy {
     }
   }
 
-  private monacoTheme(appTheme: string): string {
-    return appTheme.includes('light') ? 'vs' : 'vs-dark';
+  /** Every app theme is dark on black and differs only in its accent: one editor theme fits. */
+  private monacoTheme(_appTheme: string): string {
+    return MONACO_THEME;
   }
 }

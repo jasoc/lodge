@@ -34,14 +34,14 @@ signals:
         actions:
           - key: apply_vm
             label: "Create VM (Terraform)"
-            policy: MANUAL_REQUIRED          # wait for a human
+            policy: AUTO          # wait for a human
             executor: container
             container: { build: { context: playbooks/terraform }, command: ["apply"] }
       - on: delete
         actions:
           - key: destroy_vm
             label: "Destroy VM (Terraform)"
-            policy: MANUAL_REQUIRED
+            policy: AUTO
             requires: admins                 # and only these humans
             # ...
 ```
@@ -114,10 +114,11 @@ docker compose -f docker-compose.quickstart.yml up -d
 docker compose -f docker-compose.quickstart.yml down -v     # when you're done
 ```
 
-Nothing runs until you confirm it, and the example's playbooks need a real Proxmox and
-secrets, so just look around: the instance page, the action graph, the audit log. The
-stack mounts the docker socket (root-equivalent on that host) so container actions *can*
-run; remove that line if you only want to look. It isn't for production: that's
+Nothing runs until you confirm it, and the example's playbooks are mocks (containers that
+print what they would do and exit), so confirm anything you like: the instance page, the
+action graph, the run logs, the audit log. The stack mounts the docker socket
+(root-equivalent on that host) so those containers *can* run; remove that line if you only
+want to look. It isn't for production: that's
 [Run it for real](#run-it-for-real) below. To point it at your own inventory, replace
 `inventory/homelab/` with your kind folders.
 
@@ -129,8 +130,9 @@ dotnet run --project cli/src/Lodge.Cli -- validate inventory   # exits 1 on any 
 
 ### Prerequisites
 
-The scripts never install anything: they check each tool is present at the pinned
-version and stop if it isn't.
+The scripts check each tool is present at the pinned version and stop if it isn't. The one
+exception is Node: if [nvm](https://github.com/nvm-sh/nvm) is installed, they install and
+switch to the pinned version themselves.
 
 | Tool | Version | Pinned in |
 |------|---------|-----------|
@@ -151,18 +153,18 @@ curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
 bash /tmp/dotnet-install.sh --version 10.0.100 --install-dir "$HOME/.dotnet"
 # add to your shell profile:  export DOTNET_ROOT="$HOME/.dotnet"; export PATH="$HOME/.dotnet:$PATH"
 
-# Node, via nvm (https://github.com/nvm-sh/nvm) — any version manager works, as long as
+# Node: just have nvm (https://github.com/nvm-sh/nvm, or your distro's `nvm` package) — the
+# scripts install the version in ui/.nvmrc. Any other version manager works too, as long as
 # `node --version` matches ui/.nvmrc when the scripts run
 curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-(cd ui && nvm install)            # reads ui/.nvmrc
 
 # process-compose, via its official installer, into ~/.local/bin
 sh -c "$(curl --location https://raw.githubusercontent.com/F1bonacc1/process-compose/main/scripts/get-pc.sh)" -- -d -b "$HOME/.local/bin"
 ```
 
 When you bump a pin (`global.json`, `ui/.nvmrc`), install the new version the same way;
-the scripts refuse to start until you do. With nvm they switch to the pinned Node on their
-own; with any other manager, switch before running them.
+the scripts refuse to start until you do. With nvm they install and switch to the pinned
+Node on their own; with any other manager, switch before running them.
 
 </details>
 

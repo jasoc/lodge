@@ -106,6 +106,12 @@ export const routes: Routes = [
           import('./modules/actions/actions.component').then((m) => m.ActionsComponent),
       },
 
+      // POOL — what is running right now across every instance, with a Stop button.
+      {
+        path: 'pool',
+        loadComponent: () => import('./modules/pool/pool.component').then((m) => m.PoolComponent),
+      },
+
       // AUDIT — global view over every audit event across every instance.
       {
         path: 'audit',

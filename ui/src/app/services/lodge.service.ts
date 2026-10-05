@@ -97,6 +97,19 @@ export class LodgeService extends BackendService {
     return res.body!;
   }
 
+  /** Asks the executor to stop a RUNNING action; it then ends FAILED ("stopped by an operator"). */
+  async stopAction(
+    kindCode: string,
+    instanceCode: string,
+    actionId: string,
+  ): Promise<ActionExecutionResultModel> {
+    const res = await this.post<ActionExecutionResultModel>(
+      `/kinds/${kindCode}/instances/${instanceCode}/actions/${actionId}/stop`,
+      { actor: this.authService.subjectId() },
+    );
+    return res.body!;
+  }
+
   async invalidateAction(
     kindCode: string,
     instanceCode: string,

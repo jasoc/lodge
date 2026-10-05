@@ -33,7 +33,7 @@ public sealed class HttpExecutorOptions
 /// masked. Like the docker executor, an in-memory run dict plus a JSON sidecar lets a run
 /// be asked about after a restart; a request in flight at restart reports as unknown.
 /// </summary>
-public sealed partial class HttpRunbookExecutor : IRunbookExecutor, IRunbookLogReader
+public sealed partial class HttpRunbookExecutor : IRunbookExecutor, IRunbookLogReader, IRunCompletionSource, IRunbookCanceller
 {
     public const string RunIdPrefix = "http-";
 
@@ -78,10 +78,34 @@ public sealed partial class HttpRunbookExecutor : IRunbookExecutor, IRunbookLogR
 
         _runs[runId] = state;
         state.Completion = Task.Run(() => RunAsync(request, request.HttpConfig, state));
+        state.Completion.ContinueWith(_ =>
+        {
+            try
+            {
+                RunCompleted?.Invoke(runId);
+            }
+            catch
+            {
+                // A listener's failure must never surface as an unobserved task exception.
+            }
+        }, TaskScheduler.Default);
         return Task.FromResult(new RunbookRunHandle(runId, RunbookRunState.Running));
     }
 
     public string AllocateRunId(ExecutorKind kind) => $"{RunIdPrefix}{Guid.NewGuid():N}";
+
+    public event Action<string>? RunCompleted;
+
+    /// <summary>Stops a request in flight: it is cancelled and the run ends failed, "stopped". False when there is none.</summary>
+    public Task<bool> StopAsync(string runId, CancellationToken cancellationToken = default)
+    {
+        if (_runs.TryGetValue(runId, out var state) && state.Completion is not { IsCompleted: true })
+        {
+            state.Stop.Cancel();
+            return Task.FromResult(true);
+        }
+        return Task.FromResult(false);
+    }
 
     public Task<RunbookRunStatus> GetStatusAsync(string runId, CancellationToken cancellationToken = default)
     {
@@ -154,7 +178,8 @@ public sealed partial class HttpRunbookExecutor : IRunbookExecutor, IRunbookLogR
                 await log.WriteLineAsync(Truncate(mask.Apply(bodyText)));
             }
 
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(config.TimeoutSeconds));
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(state.Stop.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(config.TimeoutSeconds));
             var watch = Stopwatch.StartNew();
             using var response = await _http.SendAsync(message, HttpCompletionOption.ResponseContentRead, timeout.Token);
             var responseText = await response.Content.ReadAsStringAsync(timeout.Token);
@@ -170,6 +195,11 @@ public sealed partial class HttpRunbookExecutor : IRunbookExecutor, IRunbookLogR
             return Done(expected, expected
                 ? $"HTTP {status} {response.ReasonPhrase}."
                 : $"HTTP {status} {response.ReasonPhrase} — expected {(config.ExpectStatus is null ? "2xx" : string.Join("/", config.ExpectStatus))}. See the log for the response.");
+        }
+        catch (OperationCanceledException) when (state.Stop.IsCancellationRequested)
+        {
+            await log.WriteLineAsync("[lodge] stopped by an operator");
+            return Done(false, "stopped by an operator.");
         }
         catch (OperationCanceledException)
         {
@@ -307,6 +337,9 @@ public sealed partial class HttpRunbookExecutor : IRunbookExecutor, IRunbookLogR
         public string SidecarPath { get; } = sidecarPath;
         public DateTimeOffset StartedAt { get; } = startedAt;
         public Task<RunOutcome>? Completion { get; set; }
+
+        /// <summary>Cancelled when an operator stops the run (see <see cref="StopAsync"/>).</summary>
+        public CancellationTokenSource Stop { get; } = new();
     }
 
     private sealed record RunOutcome(bool Succeeded, string Message, DateTimeOffset CompletedAt);

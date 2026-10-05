@@ -132,6 +132,19 @@ public sealed class ReconciliationRunner
     }
 
     /// <summary>
+    /// Reconciles one enabled instance, nothing else: no inventory sync, no kind discovery.
+    /// The event-driven path (a run finished, its dependents may unblock and AUTO ones start).
+    /// </summary>
+    public async Task RunInstanceCycleAsync(Guid instanceId, CancellationToken cancellationToken = default)
+    {
+        var instance = await _db.Instances.FirstOrDefaultAsync(i => i.Id == instanceId && i.Enabled, cancellationToken);
+        if (instance is not null)
+        {
+            await ReconcileInstanceAsync(instance.KindCode, instance, cancellationToken);
+        }
+    }
+
+    /// <summary>
     /// Read-only reconciliation of one instance for page rendering: same pure engine, no
     /// row mutations, so the UI and the loop can never disagree about what is required.
     /// </summary>

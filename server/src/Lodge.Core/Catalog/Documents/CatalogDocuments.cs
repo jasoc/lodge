@@ -106,8 +106,8 @@ public sealed class ActionDocument
     public string? Requires { get; set; }
 
     [JsonRequired]
-    [AllowedValues("container", "http")]
-    [Description("What runs the action; selects which block below applies.")]
+    [AllowedValues("container", "http", "none")]
+    [Description("What runs the action; selects which block below applies. `none` runs nothing: the action only waits to be confirmed.")]
     public string? Executor { get; set; }
 
     [Description("`executor: container`: the container to run.")]

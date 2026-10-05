@@ -73,8 +73,9 @@ its own Postgres schema on startup. Only Postgres is a separate container.
   every current item as one JSON object; for nested ones `parent_key`, `parent`,
   `parent.<field>`), `const` (fixed), `secret` (resolved by `ISecretProvider` at run time),
   or `prompt` (supplied by a human at confirm time).
-- **Executor** — what runs an action, declared explicitly (`executor: container|http`) and
-  dispatched by `CompositeRunbookExecutor`. `container` runs a ready-made `image` or a `build` folder of
+- **Executor** — what runs an action, declared explicitly (`executor: container|http|none`) and
+  dispatched by `CompositeRunbookExecutor`. `none` runs nothing: the action only waits to be
+  confirmed, the human gate in front of a chain of AUTO actions. `container` runs a ready-made `image` or a `build` folder of
   the inventory (`inventory/{kind}/playbooks/...`, plus optional `additional_contexts`
   shared between playbooks), built and cached by content fingerprint; parameters arrive as
   `LODGE_PARAM_*` env vars. The catalog never names a runtime: `ContainerRunbookExecutor`
@@ -144,6 +145,15 @@ its own Postgres schema on startup. Only Postgres is a separate container.
     `docs/deployment/company.md`). A service token additionally carries scopes
     (`ScopeEndpointExtensions.RequireScope`, e.g. `reconcile`, `actions`) — meaningless
     for a personal token, which is instead gated per action by `requires` like any human.
+11. **Live updates are invalidations, not data.** The timer loop stays the safety net, but
+    a finished run is landed and its instance reconciled at once (`RunCompletionReconciler`
+    → `ReconciliationCoordinator.RunInstanceAsync`), so what it unblocks starts without
+    waiting for the tick. Every committed save that writes an audit row (or a sync cycle)
+    publishes a `LodgeEvent` (`ChangePublisher` → `LodgeEventBus`), streamed over SSE at
+    `GET /api/v1/live` and relayed between replicas by Postgres LISTEN/NOTIFY
+    (`PgEventRelay`). Events carry no payload to render: the SPA (`EventsService` +
+    `autoRefresh`) just re-reads through the normal endpoints, and polls slowly as fallback.
+    Anything that mutates action rows in-process goes through the coordinator's run lock.
 
 ## File layout
 
@@ -272,10 +282,10 @@ dotnet test  server/Lodge.slnx
 ./scripts/lodge-cli.sh validate inventory   # offline inventory check, what CI runs
 ```
 
-The scripts never install tools: `scripts/lib/` only checks that docker, process-compose,
-the .NET SDK satisfying `global.json` and the exact Node in `ui/.nvmrc` are available, and
-fails with a pointer to the README's Prerequisites (the only place install steps live)
-otherwise. `docker-compose.yml` is the dev Postgres and nothing else;
+The scripts install nothing except Node via nvm (when nvm is present): `scripts/lib/` checks
+that docker, process-compose, the .NET SDK satisfying `global.json` and the exact Node in
+`ui/.nvmrc` are available, and fails with a pointer to the README's Prerequisites (the only
+place install steps live) otherwise. `docker-compose.yml` is the dev Postgres and nothing else;
 `docker-compose.prod.yml` is the production stack, configured by `.env.prod`. The only
 file any script creates unprompted is a root `.env`, copied from `.env.example` on first
 run; every variable in it is either what the official

@@ -1,16 +1,4 @@
-@use '../tokens' as *;
-
-// Dark, blue accent: near-black (AMOLED) surfaces, vivid blue primary.
+// Blue accent. Surfaces and text are shared with the other themes (see _lodge-dark.scss).
 [data-theme='lodge-dark-blue'] {
-  --lodge-background-color: #030409;
-
-  --lodge-main-ui-text-color: #{$lodge-light-primary-text};
-  --lodge-main-ui-text-color-light: #9aa6bf;
-
-  --lodge-background-shader: #9fb8ff1f;
-  --lodge-background-shader-lighter: #9fb8ff0d;
-  --lodge-background-shader-stronger: #9fb8ff4d;
-
   --lodge-accent-color-300: #82b1ff;
 }
-

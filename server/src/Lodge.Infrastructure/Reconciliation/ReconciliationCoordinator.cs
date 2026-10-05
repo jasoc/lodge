@@ -42,6 +42,11 @@ public sealed class ReconciliationCoordinator
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly GitOptions _options;
     private readonly object _gate = new();
+
+    // Orders everything that mutates action rows in this process: a full cycle, an
+    // event-driven single-instance pass and the landing of a finished run. One at a time,
+    // so none of them ever races another on the same rows.
+    private readonly SemaphoreSlim _runLock = new(1, 1);
     private Task<CycleSummary>? _inFlight;
     private CycleSummary? _lastSummary;
     private DateTimeOffset? _lastCompletedAt;
@@ -77,7 +82,81 @@ public sealed class ReconciliationCoordinator
         }
     }
 
+    /// <summary>
+    /// Runs <paramref name="work"/> with exclusive access to the action rows of this process
+    /// (see <see cref="_runLock"/>). For short jobs that must not interleave with a cycle.
+    /// </summary>
+    public async Task RunExclusiveAsync(Func<Task> work, CancellationToken cancellationToken = default)
+    {
+        await _runLock.WaitAsync(cancellationToken);
+        try
+        {
+            await work();
+        }
+        finally
+        {
+            _runLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Reconciles one instance now — what an event (a run finished, so its dependents may
+    /// unblock) asks for instead of waiting for the next timer tick. Same engine and same
+    /// cluster-wide lock as a full cycle, but no inventory sync, no kind discovery and no
+    /// other instance. False when another replica holds the lock: the caller retries.
+    /// </summary>
+    public async Task<bool> RunInstanceAsync(Guid instanceId, CancellationToken cancellationToken = default)
+    {
+        await _runLock.WaitAsync(cancellationToken);
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LodgeDbContext>();
+            var connection = db.Database.GetDbConnection();
+            await connection.OpenAsync(cancellationToken);
+            try
+            {
+                if (!await TryLockAsync(connection))
+                {
+                    return false;
+                }
+
+                try
+                {
+                    await scope.ServiceProvider.GetRequiredService<ReconciliationRunner>()
+                        .RunInstanceCycleAsync(instanceId, cancellationToken);
+                    return true;
+                }
+                finally
+                {
+                    await UnlockAsync(connection);
+                }
+            }
+            finally
+            {
+                await connection.CloseAsync();
+            }
+        }
+        finally
+        {
+            _runLock.Release();
+        }
+    }
+
     private async Task<CycleSummary> RunAsync(SyncTrigger trigger)
+    {
+        await _runLock.WaitAsync();
+        try
+        {
+            return await RunCoreAsync(trigger);
+        }
+        finally
+        {
+            _runLock.Release();
+        }
+    }
+
+    private async Task<CycleSummary> RunCoreAsync(SyncTrigger trigger)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LodgeDbContext>();

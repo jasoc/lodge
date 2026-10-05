@@ -1,11 +1,17 @@
 # yaml-language-server: $schema=../../../schemas/capability.schema.json
 # Cloudflare DNS records, one per key under cloudflare.zones.<zone>.records (the zone
 # holds its zone_id). Same generic Terraform runner, module `cloudflare-dns-record`, one
-# state per record. An existing record can be adopted with `import_id: <zone_id>/<record_id>`
-# on the item — creating a record that already exists fails on Cloudflare's side.
+# state per record (every playbook is a mock, see ../README.md).
+#   add    → approve_record (none, MANUAL) → create_record (Terraform) → verify_record
+#            (propagation check), AUTO
+#   modify → update_record (MANUAL)
+#   delete → approve_delete_record (none, MANUAL) → delete_record (AUTO)
+#   watch_record (OPTIONAL, any time): long-running (two minutes), re-offered after every run
+# An existing record can be adopted with `import_id: <zone_id>/<record_id>` on the item —
+# creating a record that already exists fails on Cloudflare's side.
 capability: dns
 title: "DNS Records"
-description: "Cloudflare DNS records, applied one by one with Terraform."
+description: "Cloudflare DNS records: approved by a human, then applied and checked automatically."
 
 signals:
   - path: cloudflare.zones.*.records
@@ -13,9 +19,15 @@ signals:
     rules:
       - on: add
         actions:
+          - key: approve_record
+            label: "Approve DNS record"
+            policy: AUTO
+            executor: none
+
           - key: create_record
             label: "Create DNS record (Terraform)"
-            policy: MANUAL_REQUIRED
+            policy: AUTO
+            depends_on: [ "cloudflare.zones.*.records.approve_record" ]
             executor: container
             container:
               security: &runs-as-root { user: image, read_only_rootfs: false }
@@ -28,11 +40,39 @@ signals:
               inputs: { from: item }
               import_id: { from: item.import_id }
 
+          - key: verify_record
+            label: "Verify DNS propagation"
+            policy: AUTO
+            depends_on: [ "cloudflare.zones.*.records.create_record" ]
+            executor: container
+            container:
+              security: *runs-as-root
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
+              command: ["verify"]
+            inputs:
+              module: { const: cloudflare-dns-record }
+              unit: { from: path }
+              zone_id: { from: parent.zone_id }
+
+          - key: watch_record
+            label: "Watch DNS record (long-running)"
+            policy: OPTIONAL
+            executor: container
+            container:
+              security: *runs-as-root
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
+              command: ["watch"]
+            inputs:
+              module: { const: cloudflare-dns-record }
+              unit: { from: path }
+              zone_id: { from: parent.zone_id }
+              sleep_seconds: { const: "120" }
+
       - on: modify
         actions:
           - key: update_record
             label: "Update DNS record (Terraform)"
-            policy: MANUAL_REQUIRED
+            policy: AUTO
             executor: container
             container:
               security: *runs-as-root
@@ -47,9 +87,15 @@ signals:
 
       - on: delete
         actions:
+          - key: approve_delete_record
+            label: "Approve DNS record deletion"
+            policy: AUTO
+            executor: none
+
           - key: delete_record
             label: "Delete DNS record (Terraform)"
-            policy: MANUAL_REQUIRED
+            policy: AUTO
+            depends_on: [ "cloudflare.zones.*.records.approve_delete_record" ]
             executor: container
             container:
               security: *runs-as-root

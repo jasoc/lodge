@@ -32,30 +32,28 @@
         <mat-icon fontSet="material-symbols-outlined" class="spin">progress_activity</mat-icon>
         Running now
       </span>
-      @for (action of activeActions(); track action.id) {
-        <button
-          type="button"
-          class="running-chip"
-          [class.running-chip-starting]="action.status !== 'RUNNING'"
-          [disabled]="!hasLog(action)"
-          [title]="hasLog(action) ? 'Open live logs' : 'Starting — logs appear once the run begins'"
-          (click)="openLog(action)"
-        >
-          <span class="running-chip-dot"></span>
-          <span class="running-chip-label">{{ action.label }}</span>
-          @if (action.item_key) {
-            <span class="running-chip-item">{{ action.item_key }}</span>
-          }
-          <span class="running-chip-meta">
-            @if (action.status === 'RUNNING') {
-              <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
-              Logs
-            } @else {
-              starting…
+      <mat-chip-set aria-label="Running actions">
+        @for (action of activeActions(); track action.id) {
+          <mat-chip
+            class="running-chip"
+            [highlighted]="action.status === 'RUNNING'"
+            [disabled]="!hasLog(action)"
+            [title]="hasLog(action) ? 'Open live logs' : 'Starting — logs appear once the run begins'"
+            [tabIndex]="hasLog(action) ? 0 : -1"
+            role="button"
+            (click)="hasLog(action) && openLog(action)"
+            (keydown.enter)="hasLog(action) && openLog(action)"
+          >
+            <mat-icon matChipAvatar fontSet="material-symbols-outlined">{{
+              action.status === 'RUNNING' ? 'terminal' : 'schedule'
+            }}</mat-icon>
+            {{ action.label }}
+            @if (action.item_key) {
+              <span class="running-chip-item">{{ action.item_key }}</span>
             }
-          </span>
-        </button>
-      }
+          </mat-chip>
+        }
+      </mat-chip-set>
     </section>
   }
 

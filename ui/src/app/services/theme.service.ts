@@ -3,12 +3,12 @@ import { effect, inject, Injectable, PLATFORM_ID, signal } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 
 /** Every theme: `id` is the body's data-theme, defined in src/styles/theme/_<id>.scss
- * (Lodge's own tokens) and styles.scss (Material colors). */
+ * (Lodge's own tokens) and styles.scss (Material colors). All dark on black; only the
+ * accent differs. */
 export const THEMES = [
-  { id: 'lodge-dark', label: 'Dark · amber' },
-  { id: 'lodge-light-green', label: 'Light · green' },
-  { id: 'lodge-dark-blue', label: 'Dark · blue' },
-  { id: 'lodge-light-red', label: 'Light · red' },
+  { id: 'lodge-dark', label: 'Amber' },
+  { id: 'lodge-dark-blue', label: 'Blue' },
+  { id: 'lodge-dark-green', label: 'Green' },
 ] as const;
 
 @Injectable({
@@ -25,12 +25,8 @@ export class ThemeService {
 
   constructor() {
     if (isPlatformBrowser(this.platformId)) {
-      // A theme that no longer exists (the retired grey one) falls back to the default.
-      // The amber light theme became the green one.
-      let localValue = localStorage.getItem('theme');
-      if (localValue === 'lodge-light') {
-        localValue = 'lodge-light-green';
-      }
+      // A theme that no longer exists (the retired grey and light ones) falls back to the default.
+      const localValue = localStorage.getItem('theme');
       if (localValue != null && THEMES.some((t) => t.id === localValue)) {
         this.currentThemeStr.set(localValue);
       }

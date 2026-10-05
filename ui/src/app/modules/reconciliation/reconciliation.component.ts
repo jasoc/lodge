@@ -48,6 +48,7 @@ export class ReconciliationComponent {
     autoRefresh(
       () => this.load(),
       () => 10000,
+      { types: ['sync.cycle'] },
     );
   }
 

@@ -1,0 +1,44 @@
+@let module = openModule();
+@if (module) {
+  <div class="scrim" (click)="openModule.set(null)"></div>
+  <div class="popup lodge-fade-enter-y" role="menu" [attr.aria-label]="module.name" [style.--x.px]="anchorX()">
+    @for (sub of module.subElements; track sub.redirect) {
+      <button
+        type="button"
+        role="menuitem"
+        class="popup-item"
+        [class.active]="isActive(sub)"
+        (click)="go(sub.redirect)"
+      >
+        <m3-icon [filled]="isActive(sub)" [weight]="600">{{ sub.icon }}</m3-icon>
+        <span>{{ sub.name }}</span>
+      </button>
+    }
+  </div>
+}
+
+<nav class="toolbar" aria-label="Main navigation">
+  <div class="track" #track (scroll)="onScroll()">
+    @for (item of items(); track item.name) {
+      <button
+        type="button"
+        class="toolbar-item"
+        [class.active]="isActive(item)"
+        [attr.aria-label]="item.name"
+        [attr.aria-current]="isActive(item) ? 'page' : null"
+        [attr.aria-haspopup]="item.subElements.length > 0 ? 'menu' : null"
+        [attr.aria-expanded]="item.subElements.length > 0 ? module === item : null"
+        (click)="onItemClick(item, $event)"
+      >
+        @if (item.redirect === 'home') {
+          <span class="lodge-logo" aria-hidden="true"></span>
+        } @else {
+          <m3-icon [filled]="isActive(item)" [weight]="600">{{ item.icon }}</m3-icon>
+        }
+        @if (isActive(item)) {
+          <span class="toolbar-label">{{ item.name }}</span>
+        }
+      </button>
+    }
+  </div>
+</nav>

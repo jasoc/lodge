@@ -1,6 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
+import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 
 import { DynamicFormComponent } from '../../../components/dynamic-form/dynamic-form.component';
@@ -24,7 +25,13 @@ export interface RunRequest {
   standalone: true,
   templateUrl: './run-queue.component.html',
   styleUrls: ['./run-queue.component.scss'],
-  imports: [MatButtonModule, MatIconModule, DynamicFormComponent, NgTemplateOutlet],
+  imports: [
+    MatButtonModule,
+    MatExpansionModule,
+    MatIconModule,
+    DynamicFormComponent,
+    NgTemplateOutlet,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RunQueueComponent {

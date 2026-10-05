@@ -208,7 +208,7 @@ public sealed class DockerImageBuilder : IImageBuilder
 /// <see cref="ContainerSecurity"/> undoes any of that, explicitly. A run past its timeout
 /// is killed by its <c>lodge.run_id</c> label.
 /// </summary>
-public sealed class DockerContainerRunner : IContainerRunner
+public sealed class DockerContainerRunner : IContainerRunner, IContainerStopper
 {
     /// <summary>"nobody": the non-root user a container gets when its image names none.</summary>
     public const string DefaultUser = "65534:65534";
@@ -382,6 +382,9 @@ public sealed class DockerContainerRunner : IContainerRunner
             }
         }
     }
+
+    public Task StopAsync(string runId, string logPath, CancellationToken cancellationToken = default)
+        => KillAsync(runId, logPath);
 
     /// <summary>Kills the running container(s) of a run by label — whatever its id, and a no-op when it is already gone.</summary>
     private async Task KillAsync(string runId, string logPath)

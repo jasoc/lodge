@@ -260,7 +260,10 @@ public static class ReadEndpoints
                 r.Instance.KindCode,
                 r.Instance.Id,
                 r.Instance.InstanceCode,
-                r.Instance.DisplayName)).ToList();
+                r.Instance.DisplayName,
+                r.Action.ExecutionRef,
+                // Last touched when its run started, for a RUNNING row: the start time.
+                r.Action.UpdatedAt)).ToList();
 
             return Results.Ok(dtos);
         });

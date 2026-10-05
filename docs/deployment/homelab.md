@@ -118,8 +118,9 @@ The action can run a ready-made `image:` or a playbook folder with a Dockerfile 
 The container receives the same `LODGE_PARAM_*` variables, plus `LODGE_PARAMS_JSON`.
 Mounting the socket gives root-equivalent access to the host: anyone who can merge to the
 inventory can run containers on it. `inventory/homelab/` is a working example: its VMs are
-created and destroyed by `playbooks/terraform/`, configured by `playbooks/ansible/`, and
-their compose stacks deployed by `playbooks/compose/`.
+"created and destroyed" by `playbooks/terraform/`, "configured" by `playbooks/ansible/`, and
+their compose stacks "deployed" by `playbooks/compose/`, all mocks that only print what they
+would do (see `inventory/homelab/README.md`).
 
 ## Users and `requires` in this profile
 

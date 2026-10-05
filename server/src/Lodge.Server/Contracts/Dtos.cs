@@ -85,7 +85,9 @@ public sealed record GlobalActionDto(
     string KindCode,
     Guid InstanceId,
     string InstanceCode,
-    string InstanceDisplayName);
+    string InstanceDisplayName,
+    string? ExecutionRef = null,
+    DateTimeOffset? UpdatedAt = null);
 
 /// <summary>An <see cref="AuditEventDto"/> plus the instance it belongs to (when any) — the
 /// row shape for the cross-instance Audit Log page.</summary>

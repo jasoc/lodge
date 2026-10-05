@@ -663,8 +663,9 @@ public static class CapabilityCatalogLoader
         {
             "container" => ExecutorKind.Container,
             "http" => ExecutorKind.Http,
-            null or "" => throw new CatalogFormatException($"{where}: missing 'executor' (container or http)."),
-            _ => throw new CatalogFormatException($"{where}: unknown executor '{executor}' (expected container or http).")
+            "none" => ExecutorKind.None,
+            null or "" => throw new CatalogFormatException($"{where}: missing 'executor' (container, http or none)."),
+            _ => throw new CatalogFormatException($"{where}: unknown executor '{executor}' (expected container, http or none).")
         };
 
     private static readonly HashSet<string> HttpMethods = new(StringComparer.Ordinal)

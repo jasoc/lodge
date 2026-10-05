@@ -142,6 +142,11 @@ export const navigationElementsTree: NavigationElement[] = [
     redirect: 'actions',
   }),
   new NavigationElement({
+    name: 'Action pool',
+    icon: 'stacks',
+    redirect: 'pool',
+  }),
+  new NavigationElement({
     name: 'Audit Log',
     icon: 'history',
     redirect: 'audit',

@@ -1,0 +1,57 @@
+<div class="lodge-pool">
+  <div class="lodge-pool-header">
+    <h1>Action pool</h1>
+    <span class="lodge-pool-count">{{ running().length }} running</span>
+    @if (running().length > 0) {
+      <button mat-stroked-button color="warn" class="lodge-pool-stop-all" (click)="stopAll()">
+        <mat-icon fontSet="material-symbols-outlined">stop_circle</mat-icon>
+        Stop all
+      </button>
+    }
+  </div>
+
+  @if (!loading() && running().length === 0) {
+    <p class="lodge-pool-empty">
+      <mat-icon fontSet="material-symbols-outlined">task_alt</mat-icon>
+      Nothing is running right now.
+    </p>
+  }
+
+  <ul class="lodge-pool-list">
+    @for (row of running(); track row.id) {
+      <li class="lodge-pool-row">
+        <mat-icon fontSet="material-symbols-outlined" class="lodge-pool-spin">progress_activity</mat-icon>
+        <div class="lodge-pool-text">
+          <span class="lodge-pool-label">
+            {{ row.label }}
+            @if (row.item_key) {
+              <span class="lodge-pool-item">{{ row.item_key }}</span>
+            }
+          </span>
+          <button class="lodge-pool-link" (click)="openInstance(row)">
+            {{ row.kind_code }} / {{ row.instance_display_name }}
+          </button>
+          <span class="lodge-pool-note">{{ row.capability_code }}</span>
+        </div>
+        <span class="lodge-pool-elapsed" title="Time since it started">{{ elapsed(row) }}</span>
+        <div class="lodge-pool-buttons">
+          @if (row.execution_ref) {
+            <button mat-stroked-button (click)="openLog(row)">
+              <mat-icon fontSet="material-symbols-outlined">terminal</mat-icon>
+              Logs
+            </button>
+          }
+          <button
+            mat-flat-button
+            color="warn"
+            [disabled]="stopping().has(row.id)"
+            (click)="stop(row)"
+          >
+            <mat-icon fontSet="material-symbols-outlined">stop</mat-icon>
+            Stop
+          </button>
+        </div>
+      </li>
+    }
+  </ul>
+</div>

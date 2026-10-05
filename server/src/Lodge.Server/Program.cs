@@ -65,6 +65,7 @@ app.MapUserEndpoints();
 app.MapSyncEndpoints();
 app.MapReadEndpoints();
 app.MapActionEndpoints();
+app.MapEventEndpoints();
 
 // The SPA (ui/spa, built into wwwroot at image build time) is served by this same
 // process — same origin as the API always, no CORS and no reverse proxy needed. Any

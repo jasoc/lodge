@@ -84,4 +84,27 @@
       // filter: blur(0.15px);
     }
   }
+
+  // Phones: the drawer gives way to the bottom toolbar, and the page gets the full width,
+  // with room under it so the floating toolbar never covers the last content.
+  @media (max-width: 767.98px) {
+    #navigation-drawer {
+      display: none;
+    }
+
+    // No shell margin: the page runs to the screen edges.
+    #router {
+      grid-template-columns: 0 auto 0;
+      grid-template-rows: 40px auto 0;
+    }
+
+    #router #router_inner {
+      border-radius: 0;
+    }
+
+    #router #router_inner #router_inner_scrollable {
+      padding: tokens.$lodge-space-3 tokens.$lodge-space-3
+        calc(96px + env(safe-area-inset-bottom));
+    }
+  }
 }

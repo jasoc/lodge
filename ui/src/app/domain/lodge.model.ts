@@ -95,6 +95,8 @@ export interface GlobalActionModel extends ActionModel {
   instance_id: string;
   instance_code: string;
   instance_display_name: string;
+  /** When the row was last touched; for a RUNNING row, when its run started. */
+  updated_at?: string | null;
 }
 
 /** An `AuditEventModel` joined with the instance it belongs to, when it has one — the row

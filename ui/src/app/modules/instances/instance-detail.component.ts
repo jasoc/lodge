@@ -28,7 +28,7 @@ import {
   InstanceDetailModel,
 } from '../../domain';
 import { AuthService } from '../../services/auth.service';
-import { autoRefresh } from '../../services/auto-refresh';
+import { autoRefresh, RefreshCause } from '../../services/auto-refresh';
 import { LodgeService } from '../../services/lodge.service';
 import { ActionGraphComponent } from './action-graph/action-graph.component';
 import { identityKey } from './action-graph/action-graph.model';
@@ -278,12 +278,38 @@ export class InstanceDetailComponent {
 
   constructor() {
     this.load();
-    // Fast while a run is in flight (or an AUTO action is about to start), so status
-    // changes land within seconds; a relaxed pace once everything has settled.
+    // Reloads the moment the server reports a change to this instance; the poll is the
+    // fallback (fast while a run is in flight or an AUTO action is about to start, relaxed
+    // once everything has settled, and slower still while the event stream is up).
     autoRefresh(
-      () => this.load({ silent: true }),
+      (cause) => this.refresh(cause),
       () => (this.hasActivity() ? 2000 : 10000),
+      { instanceId: () => this.instance()?.instance.id },
     );
+  }
+
+  /**
+   * What an event-driven reload re-reads. Action events (queued, started, finished...) change
+   * the action list and nothing else, so only that is fetched; the instance, the catalog and
+   * the views are re-read for anything else, and by every poll and reconnect.
+   */
+  async refresh(cause: RefreshCause) {
+    if (cause !== null && [...cause].every((type) => type.startsWith('action.'))) {
+      const actions = await this.lodgeService
+        .getActions(this.kindCode, this.instanceCode)
+        .catch(() => null);
+      this.actionsFailed.set(actions === null);
+      this.setActions(actions);
+      return;
+    }
+    await this.load({ silent: true });
+  }
+
+  /** Replaces the action list only when it actually differs: an unchanged one re-renders nothing. */
+  private setActions(actions: ActionModel[] | null) {
+    if (actions !== null && JSON.stringify(actions) !== JSON.stringify(this.actions())) {
+      this.actions.set(actions);
+    }
   }
 
   async load(opts: { silent?: boolean } = {}) {
@@ -301,9 +327,7 @@ export class InstanceDetailComponent {
       ]);
       this.instance.set(instance);
       this.actionsFailed.set(actions === null);
-      if (actions !== null) {
-        this.actions.set(actions);
-      }
+      this.setActions(actions);
       this.capabilities.set(capabilities);
       this.views.set(views);
     } finally {
@@ -369,7 +393,7 @@ export class InstanceDetailComponent {
       } else {
         this.snackBar.open(result.message ?? result.status, 'Close', { duration: 3000 });
       }
-      await this.load({ silent: true });
+      await this.refresh(new Set(['action.confirmed']));
     } finally {
       this.busyActionId.set(null);
     }
@@ -384,7 +408,7 @@ export class InstanceDetailComponent {
         action.id,
       );
       this.snackBar.open(result.message ?? result.status, 'Close', { duration: 3000 });
-      await this.load({ silent: true });
+      await this.refresh(new Set(['action.invalidated']));
     } finally {
       this.busyActionId.set(null);
     }

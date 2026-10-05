@@ -1,13 +1,21 @@
 @use '../tokens' as *;
 
-[data-theme='lodge-dark'] {
-  --lodge-background-color: #050403;
+// Every theme is dark on black and differs only in its accent: the surfaces, the text and the
+// translucent shaders are shared here, and each theme's own block sets --lodge-accent-color-300.
+[data-theme='lodge-dark'],
+[data-theme='lodge-dark-blue'],
+[data-theme='lodge-dark-green'] {
+  --lodge-background-color: #000000;
 
   --lodge-main-ui-text-color: #{$lodge-light-primary-text};
   --lodge-main-ui-text-color-light: #a5a4a4;
 
   --lodge-background-shader: #ffffff1f;
   --lodge-background-shader-lighter: #ffffff0a;
-  --lodge-accent-color-300: #ffb951;
   --lodge-background-shader-stronger: #ffffff4d;
+}
+
+// Amber (the default).
+[data-theme='lodge-dark'] {
+  --lodge-accent-color-300: #ffb951;
 }

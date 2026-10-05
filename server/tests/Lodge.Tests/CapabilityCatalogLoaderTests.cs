@@ -26,7 +26,7 @@ public class CapabilityCatalogLoaderTests
                   - key: redeploy
                     executor: http
                     http: { url: "https://ops.test/acme-instance-ops/redeploy" }
-                    policy: MANUAL_REQUIRED
+                    policy: AUTO
                     inputs:
                       instance: { from: instance }
                       environment: { prompt: "Target environment", required: true }

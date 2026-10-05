@@ -1,6 +1,7 @@
 using Lodge.Core.Domain.Entities;
 using Lodge.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace Lodge.Infrastructure.Reconciliation;
 
@@ -9,19 +10,26 @@ public sealed record ReconciliationSettings(int IntervalSeconds, bool Enabled);
 
 /// <summary>
 /// Reads and writes DB-persisted settings. The loop re-reads them every iteration, so
-/// UI changes apply without a restart.
+/// UI changes apply without a restart. The interval's default comes from the server's
+/// configuration (<c>Reconciliation__IntervalSeconds</c>, 15 when unset); a value saved from
+/// the Sync page takes precedence over it.
 /// </summary>
 public sealed class SettingsService
 {
     public const string IntervalKey = "reconciliation.interval_seconds";
     public const string EnabledKey = "reconciliation.enabled";
-    public const int DefaultIntervalSeconds = 60;
+    public const int DefaultIntervalSeconds = 15;
+    public const int MinIntervalSeconds = 5;
 
     private readonly LodgeDbContext _db;
+    private readonly int _defaultInterval;
 
-    public SettingsService(LodgeDbContext db)
+    public SettingsService(LodgeDbContext db, IConfiguration configuration)
     {
         _db = db;
+        _defaultInterval = int.TryParse(configuration["Reconciliation:IntervalSeconds"], out var configured)
+            ? Math.Max(MinIntervalSeconds, configured)
+            : DefaultIntervalSeconds;
     }
 
     public async Task<ReconciliationSettings> GetReconciliationSettingsAsync(CancellationToken cancellationToken = default)
@@ -31,8 +39,8 @@ public sealed class SettingsService
             .ToDictionaryAsync(s => s.Key, s => s.Value, cancellationToken);
 
         var interval = rows.TryGetValue(IntervalKey, out var i) && int.TryParse(i, out var parsed)
-            ? Math.Max(5, parsed)
-            : DefaultIntervalSeconds;
+            ? Math.Max(MinIntervalSeconds, parsed)
+            : _defaultInterval;
         var enabled = !rows.TryGetValue(EnabledKey, out var e) || !bool.TryParse(e, out var flag) || flag;
 
         return new ReconciliationSettings(interval, enabled);
@@ -40,7 +48,7 @@ public sealed class SettingsService
 
     public async Task SetReconciliationSettingsAsync(ReconciliationSettings settings, CancellationToken cancellationToken = default)
     {
-        await UpsertAsync(IntervalKey, Math.Max(5, settings.IntervalSeconds).ToString(), cancellationToken);
+        await UpsertAsync(IntervalKey, Math.Max(MinIntervalSeconds, settings.IntervalSeconds).ToString(), cancellationToken);
         await UpsertAsync(EnabledKey, settings.Enabled ? "true" : "false", cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
     }

@@ -53,6 +53,23 @@ public static class ActionEndpoints
                 : Results.Ok(result);
         });
 
+        group.MapPost("/kinds/{kindCode}/instances/{instanceCode}/actions/{actionId:guid}/stop", async (
+            string kindCode, string instanceCode, Guid actionId,
+            InvalidateActionRequest? body,
+            ActionExecutionService execution,
+            CancellationToken ct) =>
+        {
+            var actor = string.IsNullOrWhiteSpace(body?.Actor) ? "operator" : body!.Actor!;
+            var result = await execution.StopAsync(kindCode, instanceCode, actionId, actor, ct);
+            if (result is null)
+            {
+                return Results.NotFound();
+            }
+            return result.Denied
+                ? Results.Json(result, statusCode: StatusCodes.Status403Forbidden)
+                : Results.Ok(result);
+        });
+
         group.MapGet("/kinds/{kindCode}/instances/{instanceCode}/actions/{actionId:guid}/status", async (
             string kindCode, string instanceCode, Guid actionId,
             ActionExecutionService execution,

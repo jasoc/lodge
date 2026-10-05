@@ -1,7 +1,12 @@
 # yaml-language-server: $schema=../../../schemas/capability.schema.json
 # Cloud images downloaded onto Proxmox datastores, one per key under proxmox.images — what
 # a VM's `image` (a volume id, <datastore>:import/<file>) points at. Same generic Terraform
-# runner as the VMs, module `proxmox-image`, one state per image.
+# runner as the VMs, module `proxmox-image`, one state per image (every playbook is a mock,
+# see ../README.md).
+#   add    → approve_image (none, MANUAL) → download_image (Terraform) → verify_image, AUTO
+#   modify → update_image (MANUAL)
+#   delete → approve_delete_image (none, MANUAL) → delete_image (AUTO)
+#   scan_image (OPTIONAL, any time): long-running (two minutes), re-offered after every run
 # An image that's already on the datastore can be adopted with `import_id` on the item
 # (bpg/proxmox: <node>/<datastore>:<content_type>/<file>) — creating it again fails.
 capability: images
@@ -14,9 +19,15 @@ signals:
     rules:
       - on: add
         actions:
+          - key: approve_image
+            label: "Approve image download"
+            policy: AUTO
+            executor: none
+
           - key: download_image
             label: "Download image (Terraform)"
-            policy: MANUAL_REQUIRED
+            policy: AUTO
+            depends_on: [ "proxmox.images.approve_image" ]
             executor: container
             container:
               security: &runs-as-root { user: image, read_only_rootfs: false }
@@ -28,11 +39,37 @@ signals:
               inputs: { from: item }
               import_id: { from: item.import_id }
 
+          - key: verify_image
+            label: "Verify image checksum"
+            policy: AUTO
+            depends_on: [ "proxmox.images.download_image" ]
+            executor: container
+            container:
+              security: *runs-as-root
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
+              command: ["verify"]
+            inputs:
+              module: { const: proxmox-image }
+              unit: { from: path }
+
+          - key: scan_image
+            label: "Scan image for vulnerabilities (long-running)"
+            policy: OPTIONAL
+            executor: container
+            container:
+              security: *runs-as-root
+              build: { context: playbooks/terraform, additional_contexts: { base: playbooks/_base } }
+              command: ["scan"]
+            inputs:
+              module: { const: proxmox-image }
+              unit: { from: path }
+              sleep_seconds: { const: "120" }
+
       - on: modify
         actions:
           - key: update_image
             label: "Apply image changes (Terraform)"
-            policy: MANUAL_REQUIRED
+            policy: AUTO
             executor: container
             container:
               security: *runs-as-root
@@ -46,9 +83,15 @@ signals:
 
       - on: delete
         actions:
+          - key: approve_delete_image
+            label: "Approve image deletion"
+            policy: AUTO
+            executor: none
+
           - key: delete_image
             label: "Delete image (Terraform)"
-            policy: MANUAL_REQUIRED
+            policy: AUTO
+            depends_on: [ "proxmox.images.approve_delete_image" ]
             executor: container
             container:
               security: *runs-as-root

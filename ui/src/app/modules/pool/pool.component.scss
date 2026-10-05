@@ -1,0 +1,109 @@
+@use 'tokens' as tokens;
+
+.lodge-pool {
+  max-width: 960px;
+
+  .lodge-pool-header {
+    display: flex;
+    align-items: center;
+    gap: tokens.$lodge-space-3;
+    padding: 0 0 tokens.$lodge-space-3;
+
+    h1 {
+      margin: 0;
+    }
+  }
+
+  .lodge-pool-count {
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--lodge-background-shader-stronger);
+  }
+
+  .lodge-pool-stop-all {
+    margin-left: auto;
+  }
+
+  .lodge-pool-empty {
+    display: flex;
+    align-items: center;
+    gap: tokens.$lodge-space-2;
+    color: var(--lodge-main-ui-text-color-light);
+  }
+
+  .lodge-pool-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: tokens.$lodge-space-2;
+  }
+
+  .lodge-pool-row {
+    display: flex;
+    align-items: center;
+    gap: tokens.$lodge-space-3;
+    padding: tokens.$lodge-space-2 tokens.$lodge-space-3;
+    border-radius: 8px;
+    background: var(--lodge-background-shader);
+  }
+
+  .lodge-pool-spin {
+    animation: pool-spin 1.2s linear infinite;
+    color: var(--lodge-main-ui-text-color-light);
+  }
+
+  .lodge-pool-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .lodge-pool-label {
+    font-weight: 600;
+  }
+
+  .lodge-pool-item {
+    margin-left: tokens.$lodge-space-2;
+    font-size: 0.8rem;
+    font-weight: normal;
+    color: var(--lodge-main-ui-text-color-light);
+  }
+
+  .lodge-pool-note {
+    font-size: 0.8rem;
+    color: var(--lodge-main-ui-text-color-light);
+  }
+
+  .lodge-pool-link {
+    align-self: flex-start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: 0.85rem;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  .lodge-pool-elapsed {
+    font-variant-numeric: tabular-nums;
+    color: var(--lodge-main-ui-text-color-light);
+  }
+
+  .lodge-pool-buttons {
+    display: flex;
+    gap: tokens.$lodge-space-2;
+  }
+}
+
+@keyframes pool-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

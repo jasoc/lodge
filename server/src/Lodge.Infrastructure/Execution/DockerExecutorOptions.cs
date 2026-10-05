@@ -47,7 +47,7 @@ public sealed class DockerExecutorOptions
     /// How long a container may run before it is killed, for actions that set no
     /// <c>container.timeout_seconds</c>. 0 means no limit.
     /// </summary>
-    public int DefaultTimeoutSeconds { get; set; } = 3600;
+    public int DefaultTimeoutSeconds { get; set; } = 600;
 
     /// <summary>
     /// Names this Lodge deployment on a docker daemon that other Lodge deployments may share:

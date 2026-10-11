@@ -1,3 +1,4 @@
+using System.Reflection;
 using Lodge.Infrastructure;
 using Lodge.Infrastructure.Auth;
 using Lodge.Infrastructure.Migrations;
@@ -57,7 +58,11 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+// The image's version (InformationalVersion, set by the Dockerfile's VERSION build arg), so
+// a staging instance following :edge says which commit it is actually running.
+var version = typeof(Program).Assembly
+    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+app.MapGet("/health", () => Results.Ok(new { status = "ok", version }));
 app.MapAuthEndpoints();
 app.MapTokenEndpoints();
 app.MapMigrationEndpoints();

@@ -81,6 +81,36 @@ LAN-only. Lodge doesn't care; it only ever sees plain HTTP from whatever's in fr
 it. If you do put a TLS-terminating proxy in front, nothing in Lodge needs to change —
 there's no OIDC redirect URI to keep in sync in this profile.
 
+## A staging instance
+
+To try what's on `main` the way it will run in production, without cutting a release, run
+a second stack from the same compose file next to the real one. Every push to `main` that
+touches the image publishes `ghcr.io/jasoc/lodge:edge` once CI passes; only a `vX.Y.Z` tag
+moves `:latest` and the version tags. To try a branch, publish it by hand
+(`gh workflow run docker-publish.yml --ref <branch>`) and use its `:br-<branch>` tag.
+
+```bash
+cp .env.prod .env.staging
+# in .env.staging: LODGE_SERVER_IMAGE=ghcr.io/jasoc/lodge:edge, another SERVER_PORT,
+# and (with Oidc) another client and redirect URI
+docker compose -f docker-compose.prod.yml -p lodge-staging --env-file .env.staging pull
+docker compose -f docker-compose.prod.yml -p lodge-staging --env-file .env.staging up -d postgres server
+curl -s localhost:<SERVER_PORT>/health   # {"status":"ok","version":"1.2.0-5-gabc1234"}
+```
+
+`-p lodge-staging` overrides the file's `name:`, so staging gets its own named volumes: its
+own Postgres, never production's. Keep it that way. The server migrates its schema on
+start, so a staging database may already be ahead of the last release and can't go back
+to it. To test on realistic data, restore a production dump into staging (see the root
+README's backup section), never the other way round. To follow `main`, re-run the
+`pull` + `up -d` from a cron job or systemd timer.
+
+Staging is a real Lodge: with the docker socket and your real inventory it runs real
+actions on real machines, just like production. Point it at an inventory it can safely
+act on, for example a `staging` branch of the inventory repo
+(`Git__GitHub__Branch=staging`) or a directory with only disposable hosts
+(`LODGE_INVENTORY_DIR`).
+
 ## Modeling your homelab
 
 The shipped `inventory/homelab/` is an example: one `lab` instance listing VMs, with a

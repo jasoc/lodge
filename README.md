@@ -195,8 +195,10 @@ SSO. Copy `.env.prod.example` to `.env.prod`, fill in every `CHANGEME`, then:
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
-This pulls `ghcr.io/jasoc/lodge` (published by the manual `docker-publish` workflow);
-add `--build` to build it from the checkout instead. Two complete setups are written up
+This pulls `ghcr.io/jasoc/lodge:latest`, which only a release tag (`vX.Y.Z`) moves; add
+`--build` to build it from the checkout instead. Every push to `main` also publishes `:edge`
+(and `:sha-<commit>`), to run a staging instance on before tagging a release: see
+[docs/deployment/homelab.md](docs/deployment/homelab.md#a-staging-instance). Two complete setups are written up
 in [docs/deployment/homelab.md](docs/deployment/homelab.md) (no auth, one host) and
 [docs/deployment/company.md](docs/deployment/company.md) (SSO, groups gating actions,
 service tokens for CI). How containers are confined, and how to run them on another

@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # docker-publish.yml runs this whole workflow first and publishes only if it passes.
+  workflow_call:
 
 jobs:
   server:

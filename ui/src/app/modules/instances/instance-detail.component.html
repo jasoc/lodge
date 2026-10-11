@@ -38,7 +38,9 @@
             class="running-chip"
             [highlighted]="action.status === 'RUNNING'"
             [disabled]="!hasLog(action)"
-            [title]="hasLog(action) ? 'Open live logs' : 'Starting — logs appear once the run begins'"
+            [title]="
+              hasLog(action) ? 'Open live logs' : 'Starting — logs appear once the run begins'
+            "
             [tabIndex]="hasLog(action) ? 0 : -1"
             role="button"
             (click)="hasLog(action) && openLog(action)"

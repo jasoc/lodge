@@ -63,7 +63,11 @@ $_black-neutral-variant: (
     $palette,
     map.merge(
       $tones,
-      (neutral: $_black-neutral, neutral-variant: $_black-neutral-variant, secondary: $secondary)
+      (
+        neutral: $_black-neutral,
+        neutral-variant: $_black-neutral-variant,
+        secondary: $secondary,
+      )
     )
   );
 }
@@ -71,33 +75,74 @@ $_black-neutral-variant: (
 // Amber (the default).
 $_dark-amber-primary: _dark(
   p.$primary-palette,
-  (20: #4a2800, 30: #7a4100, 80: #ffb951, 90: #ffddb0),
-  (30: #5a3f22)
+  (
+    20: #4a2800,
+    30: #7a4100,
+    80: #ffb951,
+    90: #ffddb0,
+  ),
+  (
+    30: #5a3f22,
+  )
 );
 $_dark-amber-tertiary: _dark(
   p.$tertiary-palette,
-  (20: #343100, 30: #4c4800, 80: #d9d25a, 90: #f6ee7a),
-  (30: #5a3f22)
+  (
+    20: #343100,
+    30: #4c4800,
+    80: #d9d25a,
+    90: #f6ee7a,
+  ),
+  (
+    30: #5a3f22,
+  )
 );
 
 // Blue.
 $_dark-blue-primary: _dark(
   mat.$blue-palette,
-  (20: #002e6e, 30: #1846b4, 80: #82b1ff, 90: #d8e3ff),
-  (30: #2e3a5c)
+  (
+    20: #002e6e,
+    30: #1846b4,
+    80: #82b1ff,
+    90: #d8e3ff,
+  ),
+  (
+    30: #2e3a5c,
+  )
 );
-$_dark-blue-tertiary: _dark(mat.$cyan-palette, (), (30: #2e3a5c));
+$_dark-blue-tertiary: _dark(
+  mat.$cyan-palette,
+  (),
+  (
+    30: #2e3a5c,
+  )
+);
 
 // Green.
 $_dark-green-primary: _dark(
   mat.$green-palette,
-  (20: #00391a, 30: #0b5a2a, 80: #7fd68f, 90: #c4f0cb),
-  (30: #2c4a33)
+  (
+    20: #00391a,
+    30: #0b5a2a,
+    80: #7fd68f,
+    90: #c4f0cb,
+  ),
+  (
+    30: #2c4a33,
+  )
 );
 $_dark-green-tertiary: _dark(
   mat.$cyan-palette,
-  (20: #003737, 30: #004f4f, 80: #6fd8d6, 90: #a6f0ee),
-  (30: #2c4a33)
+  (
+    20: #003737,
+    30: #004f4f,
+    80: #6fd8d6,
+    90: #a6f0ee,
+  ),
+  (
+    30: #2c4a33,
+  )
 );
 
 @function _lodge-theme($primary, $tertiary) {

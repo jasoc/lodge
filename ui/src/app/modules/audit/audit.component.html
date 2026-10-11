@@ -105,9 +105,15 @@
                 <tbody>
                   @for (change of row.changes; track change.path) {
                     <tr>
-                      <td><code>{{ change.path }}</code></td>
-                      <td><code>{{ change.from }}</code></td>
-                      <td><code>{{ change.to }}</code></td>
+                      <td>
+                        <code>{{ change.path }}</code>
+                      </td>
+                      <td>
+                        <code>{{ change.from }}</code>
+                      </td>
+                      <td>
+                        <code>{{ change.to }}</code>
+                      </td>
                     </tr>
                   }
                 </tbody>

@@ -67,15 +67,15 @@ body {
 // its own value, so only the text directly inside the hovered element changes, not the
 // whole subtree (otherwise hovering a card — or body — would lift everything inside it).
 :root {
-/* Stato Default: Roboto Flex puro e standard */
---lodge-font-variation: 
-  'wght' 400, 'wdth' 100, 'opsz' 14, 'GRAD' 0, 'slnt' 0, 
-  'XTRA' 468, 'YTLC' 514, 'YOPQ' 79, 'YTAS' 750, 'YTDE' -203, 'XOPQ' 84;
+  /* Stato Default: Roboto Flex puro e standard */
+  --lodge-font-variation:
+    'wght' 400, 'wdth' 100, 'opsz' 14, 'GRAD' 0, 'slnt' 0, 'XTRA' 468, 'YTLC' 514, 'YOPQ' 79,
+    'YTAS' 750, 'YTDE' -203, 'XOPQ' 84;
 
-/* Stato Hover: Più scuro e intenso, ma con geometrie orizzontali e verticali identiche al pixel */
---lodge-font-variation-hover: 
-  'wght' 400, 'wdth' 100, 'opsz' 14, 'GRAD' 120, 'slnt' 0, 
-  'XTRA' 468, 'YTLC' 514, 'YOPQ' 79, 'YTAS' 750, 'YTDE' -203, 'XOPQ' 84;
+  /* Stato Hover: Più scuro e intenso, ma con geometrie orizzontali e verticali identiche al pixel */
+  --lodge-font-variation-hover:
+    'wght' 400, 'wdth' 100, 'opsz' 14, 'GRAD' 120, 'slnt' 0, 'XTRA' 468, 'YTLC' 514, 'YOPQ' 79,
+    'YTAS' 750, 'YTDE' -203, 'XOPQ' 84;
 }
 
 $lodge-font-excluded: 'mat-icon, .mat-icon, .material-symbols-outlined, .material-symbols-rounded, .material-symbols-sharp, code, pre';

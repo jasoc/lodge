@@ -77,7 +77,7 @@ public class ReconcilerTests
                         executor: http
                         http: { url: "https://ops.test/acme/redeploy" }
                         label: "Redeploy"
-                        policy: AUTO
+                        policy: MANUAL_REQUIRED
             """);
         return CapabilityCatalogLoader.Merge("acme", new[] { capability }, Array.Empty<CapabilityDefinition>());
     }
@@ -97,7 +97,7 @@ public class ReconcilerTests
                         executor: http
                         http: { url: "https://ops.test/acme/provision-vm" }
                         label: "Provision VM"
-                        policy: AUTO
+                        policy: MANUAL_REQUIRED
                         inputs:
                           vm_name: { from: key }
                           spec: { from: item }
@@ -107,7 +107,7 @@ public class ReconcilerTests
                         executor: http
                         http: { url: "https://ops.test/acme/update-vm" }
                         label: "Update VM"
-                        policy: AUTO
+                        policy: MANUAL_REQUIRED
                         inputs:
                           vm_name: { from: key }
                           spec: { from: item }
@@ -117,7 +117,7 @@ public class ReconcilerTests
                         executor: http
                         http: { url: "https://ops.test/acme/destroy-vm" }
                         label: "Destroy VM"
-                        policy: AUTO
+                        policy: MANUAL_REQUIRED
                         inputs:
                           vm_name: { from: key }
             """);
@@ -138,7 +138,7 @@ public class ReconcilerTests
                       - key: provision_vm
                         executor: http
                         http: { url: "https://ops.test/acme/provision-vm" }
-                        policy: AUTO
+                        policy: MANUAL_REQUIRED
                         inputs:
                           vm_name: { from: key }
                   - on: modify
@@ -146,7 +146,7 @@ public class ReconcilerTests
                       - key: update_vm
                         executor: http
                         http: { url: "https://ops.test/acme/update-vm" }
-                        policy: AUTO
+                        policy: MANUAL_REQUIRED
                         depends_on: [ "virtual_machines.provision_vm" ]
                         inputs:
                           vm_name: { from: key }
@@ -818,7 +818,7 @@ public class ReconcilerTests
                         executor: http
                         http: { url: "https://ops.test/acme/apply-quirk-profile" }
                         label: "Apply quirk profile"
-                        policy: AUTO
+                        policy: MANUAL_REQUIRED
                         inputs:
                           vm_name: { from: key }
             """);
@@ -958,7 +958,7 @@ public class ReconcilerTests
                   - on: add
                     actions:
                       - key: run_ansible_profile
-                        policy: AUTO
+                        policy: MANUAL_REQUIRED
                         executor: container
                         container:
                           image: "homelab/toolbox:latest"

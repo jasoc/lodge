@@ -58,7 +58,7 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// The image's version (InformationalVersion, set by the Dockerfile's VERSION build arg), so
+// The image's version (InformationalVersion, set by the Dockerfile's LODGE_VERSION build arg), so
 // a staging instance following :edge says which commit it is actually running.
 var version = typeof(Program).Assembly
     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;

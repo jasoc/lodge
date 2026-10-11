@@ -1,7 +1,12 @@
 @let module = openModule();
 @if (module) {
   <div class="scrim" (click)="openModule.set(null)"></div>
-  <div class="popup lodge-fade-enter-y" role="menu" [attr.aria-label]="module.name" [style.--x.px]="anchorX()">
+  <div
+    class="popup lodge-fade-enter-y"
+    role="menu"
+    [attr.aria-label]="module.name"
+    [style.--x.px]="anchorX()"
+  >
     @for (sub of module.subElements; track sub.redirect) {
       <button
         type="button"

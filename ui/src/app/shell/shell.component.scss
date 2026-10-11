@@ -103,8 +103,7 @@
     }
 
     #router #router_inner #router_inner_scrollable {
-      padding: tokens.$lodge-space-3 tokens.$lodge-space-3
-        calc(96px + env(safe-area-inset-bottom));
+      padding: tokens.$lodge-space-3 tokens.$lodge-space-3 calc(96px + env(safe-area-inset-bottom));
     }
   }
 }

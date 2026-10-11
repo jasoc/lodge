@@ -15,7 +15,7 @@ export interface LodgeChangeEvent {
 }
 
 /** `null` means "you may have missed events, re-read everything": sent on every (re)connect. */
-export type ChangeListener =(event: LodgeChangeEvent | null) => void;
+export type ChangeListener = (event: LodgeChangeEvent | null) => void;
 
 const EVENTS_URL = '/api/v1/live';
 const MIN_BACKOFF_MS = 1000;
@@ -78,7 +78,10 @@ export class EventsService {
     try {
       const token = this.tokenStorage.get()?.token;
       const response = await fetch(EVENTS_URL, {
-        headers: { Accept: 'text/event-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: {
+          Accept: 'text/event-stream',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         signal: abort.signal,
       });
       if (response.status === 401 && token) {

@@ -66,7 +66,10 @@ export class PoolComponent {
     if (!row.updated_at) {
       return '';
     }
-    const seconds = Math.max(0, Math.floor((this.now() - new Date(row.updated_at).getTime()) / 1000));
+    const seconds = Math.max(
+      0,
+      Math.floor((this.now() - new Date(row.updated_at).getTime()) / 1000),
+    );
     return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   }
 
@@ -95,7 +98,9 @@ export class PoolComponent {
         ),
       );
       this.snackBar.open(
-        rows.length === 1 ? (results[0].message ?? 'Stop requested.') : `Stop requested for ${rows.length} actions.`,
+        rows.length === 1
+          ? (results[0].message ?? 'Stop requested.')
+          : `Stop requested for ${rows.length} actions.`,
         'Close',
         { duration: 4000 },
       );

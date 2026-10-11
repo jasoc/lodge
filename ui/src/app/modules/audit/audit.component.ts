@@ -132,7 +132,9 @@ function parsePayload(json: string | null): Payload {
   }
   try {
     const parsed = JSON.parse(json);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : { value: parsed };
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed
+      : { value: parsed };
   } catch {
     return { raw: json };
   }

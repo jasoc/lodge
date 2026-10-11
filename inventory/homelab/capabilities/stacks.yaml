@@ -68,7 +68,7 @@ signals:
         actions:
           - key: update_stack
             label: "Update stack"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             executor: container
             container:
               security: *runs-as-root
@@ -84,7 +84,7 @@ signals:
         actions:
           - key: approve_remove_stack
             label: "Approve stack removal"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             executor: none
 
           - key: remove_stack

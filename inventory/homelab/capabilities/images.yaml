@@ -21,7 +21,7 @@ signals:
         actions:
           - key: approve_image
             label: "Approve image download"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             executor: none
 
           - key: download_image
@@ -69,7 +69,7 @@ signals:
         actions:
           - key: update_image
             label: "Apply image changes (Terraform)"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             executor: container
             container:
               security: *runs-as-root
@@ -85,7 +85,7 @@ signals:
         actions:
           - key: approve_delete_image
             label: "Approve image deletion"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             executor: none
 
           - key: delete_image

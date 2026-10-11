@@ -25,10 +25,12 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0.100@sha256:c7445f141c04f1a6b454181bd098dc
 WORKDIR /src
 COPY server/src/ src/
 # Reported by /health. docker-publish.yml passes git describe (1.3.0, 1.2.0-5-gabc1234);
-# a local build (prod-test.sh, `up --build`) is just "dev".
-ARG VERSION=dev
+# a local build (prod-test.sh, `up --build`) is just "dev". Not called VERSION: a build arg
+# is an environment variable in RUN, MSBuild reads those as properties, and $(Version)=dev
+# fails restore.
+ARG LODGE_VERSION=dev
 RUN dotnet publish src/Lodge.Server/Lodge.Server.csproj -c Release -o /app/publish \
-    -p:InformationalVersion="$VERSION"
+    -p:InformationalVersion="$LODGE_VERSION"
 # Bundled next to the app (not the global tools dir) so the runtime image — which has no
 # SDK — can still run it; MigrationRunner looks for it at <app>/tools/ first.
 RUN dotnet tool install --tool-path /app/publish/tools Badgie.Migrator

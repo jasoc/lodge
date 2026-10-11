@@ -21,7 +21,7 @@ signals:
         actions:
           - key: approve_record
             label: "Approve DNS record"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             executor: none
 
           - key: create_record
@@ -72,7 +72,7 @@ signals:
         actions:
           - key: update_record
             label: "Update DNS record (Terraform)"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             executor: container
             container:
               security: *runs-as-root
@@ -89,7 +89,7 @@ signals:
         actions:
           - key: approve_delete_record
             label: "Approve DNS record deletion"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             executor: none
 
           - key: delete_record

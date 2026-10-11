@@ -61,9 +61,7 @@ export class NavigationTreeService {
       }
       untracked(() =>
         this.lastChild.update((m) =>
-          m[parent.name] === match.leaf.redirect
-            ? m
-            : { ...m, [parent.name]: match.leaf.redirect },
+          m[parent.name] === match.leaf.redirect ? m : { ...m, [parent.name]: match.leaf.redirect },
         ),
       );
     });

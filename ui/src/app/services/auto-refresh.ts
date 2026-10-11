@@ -64,7 +64,8 @@ export function autoRefresh(
     }
     running = true;
     lastRefreshAt = Date.now();
-    const cause: RefreshCause = pendingFull || pendingTypes.size === 0 ? null : new Set(pendingTypes);
+    const cause: RefreshCause =
+      pendingFull || pendingTypes.size === 0 ? null : new Set(pendingTypes);
     pendingTypes.clear();
     pendingFull = false;
     try {

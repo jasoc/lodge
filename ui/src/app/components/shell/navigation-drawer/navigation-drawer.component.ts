@@ -22,11 +22,7 @@ import { filter, map } from 'rxjs';
 import { AuthService } from '../../../services/auth.service';
 import { ThemeService } from '../../../services/theme.service';
 import { M3ButtonComponent } from '../m3-button/m3-button.component';
-import {
-  findActiveNavigation,
-  NavigationElement,
-  rememberedRedirect,
-} from '../navigation-tree';
+import { findActiveNavigation, NavigationElement, rememberedRedirect } from '../navigation-tree';
 import { NavigationTreeService, readStored, writeStored } from '../navigation-tree.service';
 
 const COLLAPSED_KEY = 'navigation-drawer-collapsed';

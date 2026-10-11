@@ -38,7 +38,7 @@ signals:
         actions:
           - key: approve_vm
             label: "Approve VM creation"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             executor: none
 
           - key: apply_vm
@@ -131,7 +131,7 @@ signals:
         actions:
           - key: apply_vm_changes
             label: "Apply VM changes (Terraform)"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             executor: container
             container:
               security: *runs-as-root
@@ -148,7 +148,7 @@ signals:
         actions:
           - key: approve_destroy_vm
             label: "Approve VM destruction"
-            policy: AUTO
+            policy: MANUAL_REQUIRED
             requires: admins
             executor: none
 
